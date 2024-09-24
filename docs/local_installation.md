@@ -55,7 +55,7 @@ Run the server with auto-reloading:
 ```bash
 python run.py
 OR
-uvicorn gen3workflow.asgi:app --reload
+uvicorn gen3workflow.app:app --reload
 ```
 
 Try out the API at <http://localhost:8000/_status> or <http://localhost:8000/docs> (you might have to set `DOCS_URL_PREFIX` to `""` in your configuration file for the docs endpoint to work).

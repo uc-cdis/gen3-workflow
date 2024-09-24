@@ -1,0 +1,26 @@
+from fastapi import APIRouter, HTTPException, Request
+from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
+
+from gen3workflow import logger
+from gen3workflow.config import config
+
+
+router = APIRouter()
+
+
+@router.get("/_version")
+def get_version(request: Request) -> dict:
+    return dict(version=request.app.version)
+
+
+@router.get("/")
+@router.get("/_status")
+async def get_status(request: Request) -> dict:
+    tes_status_url = f"{config['TES_SERVER_URL']}/service-info"
+    res = await request.app.async_client.get(tes_status_url)
+    if res.status_code != HTTP_200_OK:
+        logger.error(
+            f"Expected status code {HTTP_200_OK} from '{tes_status_url}' and got {res.status_code}: {res.text}"
+        )
+        raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, "TODO")
+    return dict(status="OK")
