@@ -23,7 +23,6 @@ environ["GEN3WORKFLOW_CONFIG_PATH"] = os.path.join(
 
 from gen3workflow.app import get_app
 from gen3workflow.config import config
-from gen3workflow.routes.ga4gh_tes import get_request_body
 
 
 # @pytest.fixture(scope="session")
