@@ -1,19 +1,12 @@
 import os
 from unittest.mock import MagicMock
 from urllib.parse import urlparse
-
-# import asyncio
 # from alembic.config import main as alembic_main
 # import copy
 from fastapi import Request
 import httpx
-
-# import pytest
 import pytest_asyncio
 from starlette.config import environ
-
-# from starlette.testclient import TestClient
-# from unittest.mock import AsyncMock, MagicMock, patch
 
 # Set GEN3WORKFLOW_CONFIG_PATH *before* loading the app which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -23,12 +16,6 @@ environ["GEN3WORKFLOW_CONFIG_PATH"] = os.path.join(
 
 from gen3workflow.app import get_app
 from gen3workflow.config import config
-
-
-# @pytest.fixture(scope="session")
-# def app():
-#     app = get_app()
-#     return app
 
 
 # @pytest.fixture(autouse=True, scope="session")
@@ -128,171 +115,6 @@ async def client(request):
         yield real_httpx_client
 
 
-# @pytest.fixture(scope="function")
-# def list_policies_patcher(test_data):
-#     """
-#     This fixture patches the list_policies method with a mock implementation based on
-#     the test_data provided which is a dictionary consisting of resource_path(s) and
-#     policy_id wherever appropriate
-#     """
-#     resource_paths = (
-#         test_data["resource_paths"]
-#         if "resource_paths" in test_data
-#         else [test_data["resource_path"]]
-#     )
-#     expanded_permissions = (
-#         test_data["permissions"]
-#         if "permissions" in test_data
-#         else [
-#             {
-#                 "id": permission,
-#                 "description": "",
-#                 "action": {
-#                     "service": "*",
-#                     "method": permission,
-#                 },
-#             }
-#             for permission in ["reader", "storage_reader"]
-#         ]
-#     )
-#     policy_id = (
-#         test_data["policy_id"]
-#         if "policy_id" in test_data
-#         else get_auto_policy_id(resource_paths=[resource_paths[0]])
-#     )
-
-#     future = asyncio.Future()
-#     future.set_result(
-#         {
-#             "policies": [
-#                 {
-#                     "id": policy_id,
-#                     "resource_paths": resource_paths,
-#                     "roles": [
-#                         {
-#                             "id": "reader",
-#                             "description": "",
-#                             "permissions": expanded_permissions,
-#                         }
-#                     ],
-#                 },
-#             ]
-#         }
-#     )
-
-#     list_policies_mock = MagicMock()
-#     list_policies_mock.return_value = future
-#     policy_expand_patch = patch(
-#         "requestor.routes.query.arborist.list_policies", list_policies_mock
-#     )
-#     policy_expand_patch.start()
-
-#     yield
-
-#     policy_expand_patch.stop()
-
-
-# @pytest.fixture(scope="function")
-# def list_roles_patcher():
-#     """
-#     This fixture patches the list_roles method.
-#     """
-
-#     future = asyncio.Future()
-#     future.set_result(
-#         {
-#             "roles": [
-#                 {
-#                     "id": "study_registrant",
-#                     "permissions": [
-#                         {
-#                             "id": "study_registration",
-#                             "action": {
-#                                 "service": "study_registration",
-#                                 "method": "access",
-#                             },
-#                         },
-#                     ],
-#                 },
-#                 {
-#                     "id": "/mds_user",
-#                     "permissions": [
-#                         {
-#                             "id": "mds_access",
-#                             "action": {"service": "mds_gateway", "method": "access"},
-#                         },
-#                     ],
-#                 },
-#                 {
-#                     "id": "/study_user",
-#                     "permissions": [
-#                         {
-#                             "id": "study_access",
-#                             "action": {"service": "study_access", "method": "access"},
-#                         },
-#                     ],
-#                 },
-#             ]
-#         }
-#     )
-
-#     list_roles_mock = MagicMock()
-#     list_roles_mock.return_value = future
-#     role_patch = patch("requestor.routes.query.arborist.list_roles", list_roles_mock)
-#     role_patch.start()
-
-#     yield
-
-#     role_patch.stop()
-
-
-# @pytest.fixture(autouse=True, scope="function", params=["user_token", "client_token"])
-# def access_token_user_client_patcher(client, request):
-#     """
-#     The `access_token` function will return first a token linked to a test
-#     user, then a token linked to a test client.
-#     """
-
-#     async def get_access_token(*args, **kwargs):
-#         if request.param == "user_token":
-#             return {"sub": "1", "context": {"user": {"name": "requestor_user"}}}
-#         if request.param == "client_token":
-#             return {"context": {}, "azp": "test-client-id"}
-
-#     access_token_mock = MagicMock()
-#     access_token_mock.return_value = get_access_token
-
-#     access_token_patch = patch("requestor.auth.access_token", access_token_mock)
-#     access_token_patch.start()
-
-#     yield access_token_mock
-
-#     access_token_patch.stop()
-
-
-# @pytest.fixture(scope="function")
-# def access_token_user_only_patcher(client, request):
-#     """
-#     The `access_token` function will return a token linked to a test user.
-#     This fixture should be used explicitely instead of the automatic
-#     `access_token_user_client_patcher` fixture for endpoints that do not
-#     support client tokens.
-#     """
-
-#     async def get_access_token(*args, **kwargs):
-#         return {"sub": "1", "context": {"user": {"name": "requestor_user"}}}
-
-#     access_token_mock = MagicMock()
-#     access_token_mock.return_value = get_access_token
-
-#     access_token_patch = patch("requestor.auth.access_token", access_token_mock)
-#     access_token_patch.start()
-
-#     yield access_token_mock
-
-#     access_token_patch.stop()
-
-
 # @pytest.fixture(autouse=True)
 # def clean_db():
 #     """
@@ -302,7 +124,7 @@ async def client(request):
 #     # https://github.com/encode/starlette/issues/440, so for now reset
 #     # using alembic.
 #     # pytest-asyncio = "^0.14.0"
-#     # from requestor.models import Request as RequestModel
+#     # from gen3workflow.models import Request as RequestModel
 #     # @pytest.mark.asyncio
 #     # async def clean_db():
 #     #     await RequestModel.delete.gino.all()
@@ -328,106 +150,6 @@ async def client(request):
 #         urls_to_responses = {
 #             "http://arborist-service/auth/request": {
 #                 "POST": ({"auth": authorized}, 200)
-#             },
-#             "http://arborist-service/user/requestor_user": {
-#                 "GET": (
-#                     {
-#                         "name": "requestor_user",
-#                         "groups": [],
-#                         "policies": [{"policy": "test-policy"}],
-#                     },
-#                     200 if authorized else 403,
-#                 )
-#             },
-#             "http://arborist-service/user/requestor_user/policy": {
-#                 "POST": ({}, 204 if authorized else 403)
-#             },
-#             "http://arborist-service/user/other_user/policy": {
-#                 "POST": ({}, 204 if authorized else 403)
-#             },
-#             "http://arborist-service/user/requestor_user/policy/test-policy": {
-#                 "DELETE": ({}, 204 if authorized else 403)
-#             },
-#             "http://arborist-service/policy/?expand": {
-#                 "GET": (
-#                     {
-#                         "policies": [
-#                             {
-#                                 "id": "test-policy",
-#                                 "resource_paths": ["/my/resource"],
-#                                 "roles": [
-#                                     {
-#                                         "id": "reader",
-#                                         "description": "",
-#                                         "permissions": [
-#                                             {
-#                                                 "id": "read",
-#                                                 "description": "",
-#                                                 "action": {
-#                                                     "service": "*",
-#                                                     "method": "read",
-#                                                 },
-#                                             }
-#                                         ],
-#                                     }
-#                                 ],
-#                             },
-#                             {
-#                                 "id": "test-policy-with-redirect",
-#                                 "resource_paths": ["/resource-with-redirect/resource"],
-#                                 "roles": [],
-#                             },
-#                             {
-#                                 "id": "test-policy-with-external-calls",
-#                                 "resource_paths": [
-#                                     "/resource-with-external-calls/resource"
-#                                 ],
-#                                 "roles": [],
-#                             },
-#                             {
-#                                 "id": "test-policy-with-authed-external-call",
-#                                 "resource_paths": [
-#                                     "/resource-with-authed-external-call/resource"
-#                                 ],
-#                                 "roles": [],
-#                             },
-#                             {
-#                                 "id": "test-policy-with-redirect-and-external-call",
-#                                 "resource_paths": [
-#                                     "/resource-with-redirect-and-external-call"
-#                                 ],
-#                                 "roles": [],
-#                             },
-#                             {
-#                                 "id": "test-policy-i-cant-access",
-#                                 "resource_paths": ["something-i-cant-access"],
-#                                 "roles": [],
-#                             },
-#                             {
-#                                 "id": "my.resource_accessor",
-#                                 "resource_paths": ["/my/resource"],
-#                                 "roles": [],
-#                             },
-#                             {
-#                                 "id": "test-existing-policy",
-#                                 "resource_paths": [],
-#                                 "roles": [],
-#                             },
-#                             {
-#                                 "id": "test-existing-policy-2",
-#                                 "resource_paths": [],
-#                                 "roles": [],
-#                             },
-#                         ]
-#                     },
-#                     204 if authorized else 403,
-#                 )
-#             },
-#             "http://arborist-service/auth/mapping": {
-#                 "POST": (
-#                     {"/": [{"service": "*", "method": "*"}]} if authorized else {},
-#                     200,
-#                 )
 #             },
 #         }
 

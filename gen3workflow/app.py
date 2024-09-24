@@ -34,13 +34,11 @@ def get_app(httpx_client=None) -> FastAPI:
     # if custom_arborist_url:
     #     app.arborist_client = ArboristClient(
     #         arborist_base_url=custom_arborist_url,
-    #         authz_provider="requestor",
-    #         logger=get_logger("requestor.gen3authz", log_level="debug"),
+    #         logger=get_logger("gen3workflow.gen3authz", log_level="debug"),
     #     )
     # else:
     #     app.arborist_client = ArboristClient(
-    #         authz_provider="requestor",
-    #         logger=get_logger("requestor.gen3authz", log_level="debug"),
+    #         logger=get_logger("gen3workflow.gen3authz", log_level="debug"),
     #     )
 
     return app
