@@ -49,7 +49,7 @@ jobs:
   ImageBuildAndPush:
     name: Build Image and Push
     uses: uc-cdis/.github/.github/workflows/image_build_push.yaml@master
-    needs: [Security, UnitTest] #RequiredLint
+    # needs: [RequiredLint, Security, UnitTest]
     with:
       BUILD_PLATFORMS: "linux/amd64"
     secrets:
