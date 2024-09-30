@@ -5,7 +5,8 @@ import cdislogging
 import gunicorn.glogging
 # from prometheus_client import multiprocess
 
-from gen3workflow.config import config
+# do not overwrite gunicorn's `config`
+from gen3workflow.config import config as app_config
 
 
 # TODO add metrics support
@@ -39,13 +40,13 @@ class CustomLogger(gunicorn.glogging.Logger):
 
         self._remove_handlers(logging.getLogger())
         cdislogging.get_logger(
-            None, log_level="debug" if config.DEBUG else "warn"
+            None, log_level="debug" if app_config["DEBUG"] else "warn"
         )
         for logger_name in ["gunicorn", "gunicorn.error", "gunicorn.access"]:
             self._remove_handlers(logging.getLogger(logger_name))
             cdislogging.get_logger(
                 logger_name,
-                log_level="debug" if config.DEBUG else "info",
+                log_level="debug" if app_config["DEBUG"] else "info",
             )
 
 

@@ -20,4 +20,4 @@ DOCS_URL_PREFIX: /gen3workflow
 # GA4GH TES        #
 ####################
 
-TES_SERVER_URL: https://pauline.planx-pla.net/funnel #http://funnel-service
+TES_SERVER_URL: http://funnel-service

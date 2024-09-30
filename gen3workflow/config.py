@@ -74,7 +74,7 @@ try:
     else:
         CONFIG_SEARCH_FOLDERS = [
             "/src",
-            "{}/.gen3/gen3workflow".format(os.path.expanduser("~")),
+            "{}/.gen3/gen3-workflow".format(os.path.expanduser("~")),
         ]
         config.load(search_folders=CONFIG_SEARCH_FOLDERS)
 except Exception:
