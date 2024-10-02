@@ -24,4 +24,7 @@ if __name__ == "__main__":
             yaml.dump(schema, f, default_flow_style=False)
         print(f"Saved docs at {path}")
     else:
-        uvicorn.run("gen3workflow.app:app", reload=True)
+        host = "0.0.0.0"
+        port = 8000
+        print(f"gen3workflow.app:app running at {host}:{port}")
+        uvicorn.run("gen3workflow.app:app", host=host, port=port, reload=True)

@@ -56,7 +56,7 @@ wsgi_app = "gen3workflow.app:app"
 bind = "0.0.0.0:8000"
 
 # NOTE: This is always more than 2
-workers = multiprocessing.cpu_count() * 2 + 1
+workers = 2  # multiprocessing.cpu_count() * 2 + 1
 
 # default was `30` for the 2 below
 timeout = 90
