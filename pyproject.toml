@@ -19,7 +19,6 @@ fastapi = "<1"
 gen3authz = "<3"
 gen3config = "<2"
 httpx = "<1"
-# requests = "<3"
 uvicorn = "<1"
 gunicorn = "<24"
 
@@ -27,10 +26,6 @@ gunicorn = "<24"
 pytest = "<9"
 pytest-asyncio = "<1"
 pytest-cov = "<6"
-
-#[tool.poetry.plugins."gen3workflow.modules"]
-#"system" = "gen3workflow.routes.system"
-#"ga4gh_tes" = "gen3workflow.routes.ga4gh_tes"
 
 [build-system]
 requires = ["poetry<2"]

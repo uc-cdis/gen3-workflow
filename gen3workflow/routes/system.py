@@ -22,5 +22,5 @@ async def get_status(request: Request) -> dict:
         logger.error(
             f"Expected status code {HTTP_200_OK} from '{tes_status_url}' and got {res.status_code}: {res.text}"
         )
-        raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, "TODO")
+        raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, "Unable to reach TES API")
     return dict(status="OK")

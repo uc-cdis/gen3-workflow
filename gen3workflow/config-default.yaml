@@ -3,18 +3,7 @@
 ####################
 
 DEBUG: true
-# TEST_KEEP_DB: false
 DOCS_URL_PREFIX: /gen3workflow
-
-# # ignored if already set as an environment variable
-# ARBORIST_URL:
-
-# DB_DRIVER: postgresql
-# DB_HOST: localhost
-# DB_PORT: 5432
-# DB_USER: postgres
-# DB_PASSWORD: postgres
-# DB_DATABASE: gen3workflow
 
 ####################
 # GA4GH TES        #

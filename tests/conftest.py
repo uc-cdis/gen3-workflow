@@ -1,8 +1,7 @@
 import os
 from unittest.mock import MagicMock
 from urllib.parse import urlparse
-# from alembic.config import main as alembic_main
-# import copy
+
 from fastapi import Request
 import httpx
 import pytest_asyncio
@@ -16,24 +15,6 @@ environ["GEN3WORKFLOW_CONFIG_PATH"] = os.path.join(
 
 from gen3workflow.app import get_app
 from gen3workflow.config import config
-
-
-# @pytest.fixture(autouse=True, scope="session")
-# def setup_test_database():
-#     """
-#     At teardown, restore original config and reset test DB.
-#     """
-#     saved_config = copy.deepcopy(config._configs)
-
-#     alembic_main(["--raiseerr", "upgrade", "head"])
-
-#     yield
-
-#     # restore old configs
-#     config.update(saved_config)
-
-#     if not config["TEST_KEEP_DB"]:
-#         alembic_main(["--raiseerr", "downgrade", "base"])
 
 
 def mock_tes_server_request(
@@ -92,12 +73,13 @@ async def client(request):
         status_code = request.param.get("status_code", 200)
 
     async def handle_request(request: Request):
-        print(
-            f"Mocking request '{request.method} {request.url}' to return code {status_code}"
-        )
         url = str(request.url)
-        parsed_url = urlparse(url)
+
         if url.startswith(config["TES_SERVER_URL"]):
+            print(
+                f"Mocking request '{request.method} {url}' to return code {status_code}"
+            )
+            parsed_url = urlparse(url)
             path = url[len(config["TES_SERVER_URL"]) :].split("?")[0]
             return mock_tes_server_request(
                 method=request.method,
@@ -106,90 +88,13 @@ async def client(request):
                 body=request.content.decode(),
                 status_code=status_code,
             )
-        return await real_httpx_client.get("/_status")
+        else:
+            print(f"Not mocking request '{request.method} {url}'")
+            httpx_client_function = getattr(httpx.AsyncClient(), request.method.lower())
+            return await httpx_client_function(url)
 
     mock_httpx_client = httpx.AsyncClient(transport=httpx.MockTransport(handle_request))
     app = get_app(httpx_client=mock_httpx_client)
-    async with httpx.AsyncClient(app=app, base_url="http://test") as real_httpx_client:
-        real_httpx_client.status_code = status_code
+    async with httpx.AsyncClient(app=app, base_url="http://test-gen3-wf") as real_httpx_client:
+        real_httpx_client.status_code = status_code  # for easier access to the param in the tests
         yield real_httpx_client
-
-
-# @pytest.fixture(autouse=True)
-# def clean_db():
-#     """
-#     Before each test, delete all existing requests from the DB
-#     """
-#     # The code below doesn't work because of this issue
-#     # https://github.com/encode/starlette/issues/440, so for now reset
-#     # using alembic.
-#     # pytest-asyncio = "^0.14.0"
-#     # from gen3workflow.models import Request as RequestModel
-#     # @pytest.mark.asyncio
-#     # async def clean_db():
-#     #     await RequestModel.delete.gino.all()
-#     #     yield
-
-#     alembic_main(["--raiseerr", "downgrade", "base"])
-#     alembic_main(["--raiseerr", "upgrade", "head"])
-
-#     yield
-
-
-# @pytest.fixture(scope="function")
-# def mock_arborist_requests(request):
-#     """
-#     This fixture returns a function which you call to mock the call to
-#     arborist client's auth_request method.
-#     By default, it returns a 200 response. If parameter "authorized" is set
-#     to False, it raises a 401 error.
-#     """
-
-#     def do_patch(authorized=True):
-#         # URLs to reponses: { URL: { METHOD: ( content, code ) } }
-#         urls_to_responses = {
-#             "http://arborist-service/auth/request": {
-#                 "POST": ({"auth": authorized}, 200)
-#             },
-#         }
-
-#         def make_mock_response(method, url, *args, **kwargs):
-#             method = method.upper()
-#             mocked_response = MagicMock(requests.Response)
-
-#             if url not in urls_to_responses:
-#                 mocked_response.status_code = 404
-#                 mocked_response.text = "NOT FOUND"
-#             elif method not in urls_to_responses[url]:
-#                 mocked_response.status_code = 405
-#                 mocked_response.text = "METHOD NOT ALLOWED"
-#             else:
-#                 content, code = urls_to_responses[url][method]
-#                 mocked_response.status_code = code
-#                 if isinstance(content, dict):
-#                     mocked_response.json.return_value = content
-#                 else:
-#                     mocked_response.text = content
-
-#             return mocked_response
-
-#         mocked_method = AsyncMock(side_effect=make_mock_response)
-#         patch_method = patch(
-#             "gen3authz.client.arborist.async_client.httpx.AsyncClient.request",
-#             mocked_method,
-#         )
-
-#         patch_method.start()
-#         request.addfinalizer(patch_method.stop)
-
-#     return do_patch
-
-
-# @pytest.fixture(autouse=True)
-# def arborist_authorized(mock_arborist_requests):
-#     """
-#     By default, mocked arborist calls return Authorized.
-#     To mock an unauthorized response, use fixture
-#     "mock_arborist_requests(authorized=False)" in the test itself
-#     """
-#     mock_arborist_requests()

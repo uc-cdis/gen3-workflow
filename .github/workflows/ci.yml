@@ -21,6 +21,7 @@ jobs:
        test-script: 'tests/test.sh'
        python-version: '3.9'
        use-cache: true
+      #  run-coveralls: true # TODO enable once the repo is public
 
   # # this creates linter settings and uploads to an artifact so the configs can be pulled and used across jobs
   # LintConfig:

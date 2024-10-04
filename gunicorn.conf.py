@@ -1,21 +1,10 @@
 import logging
-import multiprocessing
 
 import cdislogging
 import gunicorn.glogging
-# from prometheus_client import multiprocess
 
 # do not overwrite gunicorn's `config`
 from gen3workflow.config import config as app_config
-
-
-# TODO add metrics support
-# def child_exit(server, worker):
-#     """
-#     Required for Prometheus multiprocess setup
-#     See: https://prometheus.github.io/client_python/multiprocess/
-#     """
-#     multiprocess.mark_process_dead(worker.pid)
 
 
 class CustomLogger(gunicorn.glogging.Logger):
@@ -55,8 +44,7 @@ logger_class = CustomLogger
 wsgi_app = "gen3workflow.app:app"
 bind = "0.0.0.0:8000"
 
-# NOTE: This is always more than 2
-workers = 2  # multiprocessing.cpu_count() * 2 + 1
+workers = 2
 
 # default was `30` for the 2 below
 timeout = 90
