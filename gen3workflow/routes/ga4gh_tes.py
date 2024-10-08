@@ -64,8 +64,8 @@ def generate_list_tasks_query_params(
 ):
     """
     The `tag_key` and `tag_value` params support setting multiple values, for example:
-    `?tag_key=tagA&tag_value=valueA&tag_key=tagB&tag_value=valueB` means that that tasks
-    are filtered on: `tagA == valueA and tagB == valueB`.
+    `?tag_key=tagA&tag_value=valueA&tag_key=tagB&tag_value=valueB` means that tasks are
+    filtered on: `tagA == valueA and tagB == valueB`.
     We need to maintain this support, as well as add the `USER_ID` tag so users can only
     list their own tasks.
     """

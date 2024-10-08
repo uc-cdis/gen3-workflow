@@ -44,6 +44,32 @@ def access_token_patcher(client, request):
     access_token_patch.stop()
 
 
+def mock_arborist_request(method: str, path: str, authorized: bool):
+    # paths to reponses: { URL: { METHOD: response body } }
+    paths_to_responses = {
+        "/auth/request": {"POST": {"auth": authorized}},
+    }
+    text, body = None, None
+    if path not in paths_to_responses:
+        print(
+            f"Unable to mock Arborist request: '{path}' is not in `urls_to_responses`."
+        )
+        status_code = 404
+        text = "NOT FOUND"
+    elif method not in paths_to_responses[path]:
+        status_code = 405
+        text = "METHOD NOT ALLOWED"
+    else:
+        content = paths_to_responses[path][method]
+        status_code = 200
+        if isinstance(content, dict):
+            body = content
+        else:
+            text = content
+
+    return httpx.Response(status_code=status_code, json=body, text=text)
+
+
 def mock_tes_server_request_function(
     method: str, path: str, query_params: str, body: str, status_code: int
 ):
@@ -54,7 +80,7 @@ def mock_tes_server_request_function(
         "/tasks/12345": {"GET": {"id": "12345"}},
         "/tasks/12345:cancel": {"POST": {}},
     }
-    text, body = None, None
+    text, out = None, None
     if path not in paths_to_responses:
         print(
             f"Unable to mock TES server request: '{path}' is not in `paths_to_responses`."
@@ -69,10 +95,10 @@ def mock_tes_server_request_function(
         if status_code != 200:
             text = "TES server error"
         elif isinstance(content, dict):
-            body = content
+            out = content
         else:
             text = content
-    return httpx.Response(status_code=status_code, json=body, text=text)
+    return httpx.Response(status_code=status_code, json=out, text=text)
 
 
 # making this function a mock allows tests to check the requests that were made, for
@@ -89,38 +115,12 @@ async def reset_mock_tes_server_request():
     mock_tes_server_request.reset_mock()
 
 
-def mock_arborist_request(method: str, url: str, authorized: bool):
-    # URLs to reponses: { URL: { METHOD: response body } }
-    urls_to_responses = {
-        "http://test-arborist-server/auth/request": {"POST": {"auth": authorized}},
-    }
-
-    text, body = None, None
-    if url not in urls_to_responses:
-        print(
-            f"Unable to mock Arborist request: '{url}' is not in `urls_to_responses`."
-        )
-        status_code = 404
-        text = "NOT FOUND"
-    elif method not in urls_to_responses[url]:
-        status_code = 405
-        text = "METHOD NOT ALLOWED"
-    else:
-        content = urls_to_responses[url][method]
-        status_code = 200
-        if isinstance(content, dict):
-            body = content
-        else:
-            text = content
-
-    return httpx.Response(status_code=status_code, json=body, text=text)
-
-
 @pytest_asyncio.fixture(scope="session")
 async def client(request):
     """
     Requests made by the tests to the app use a real HTTPX client.
-    Requests made by the app to external mocked services (such as Funnel) use a mocked client.
+    Requests made by the app to external services (such as the TES server and Arborist) use
+    a mocked client.
     """
     tes_resp_code = 200
     authorized = True
@@ -142,27 +142,30 @@ async def client(request):
                 status_code=tes_resp_code,
             )
         elif url.startswith(config["ARBORIST_URL"]):
+            path = url[len(config["ARBORIST_URL"]) :].split("?")[0]
             mocked_response = mock_arborist_request(
                 method=request.method,
-                url=url,
+                path=path,
                 authorized=authorized,
             )
 
         if mocked_response is not None:
-            print(
-                f"Mocking request '{request.method} {url}' to return code {tes_resp_code}"
-            )
+            print(f"Mocking request '{request.method} {url}'")
             return mocked_response
         else:
             print(f"Not mocking request '{request.method} {url}'")
             httpx_client_function = getattr(httpx.AsyncClient(), request.method.lower())
             return await httpx_client_function(url)
 
+    # set the httpx clients used by the app and by the Arborist client to mock clients that
+    # call `handle_request`
     mock_httpx_client = httpx.AsyncClient(transport=httpx.MockTransport(handle_request))
     app = get_app(httpx_client=mock_httpx_client)
     app.arborist_client.client_cls = lambda: httpx.AsyncClient(
         transport=httpx.MockTransport(handle_request)
     )
+
+    # the tests use a real httpx client that forwards requests to the app
     async with httpx.AsyncClient(
         app=app, base_url="http://test-gen3-wf"
     ) as real_httpx_client:
