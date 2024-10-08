@@ -17,17 +17,17 @@ from gen3workflow.app import get_app
 from gen3workflow.config import config
 
 
-def mock_tes_server_request(
+def mock_tes_server_request_function(
     method: str, path: str, query_params: str, body: str, status_code: int
 ):
-    # URLs to reponses: { URL: { METHOD: ( code, content ) } }
+    # paths to reponses: { URL: { METHOD: response body } }
     paths_to_responses = {
         "/service-info": {"GET": {"name": "TES server"}},
         "/tasks": {"GET": {"tasks": [{"id": "12345"}]}, "POST": {"id": "12345"}},
         "/tasks/12345": {"GET": {"id": "12345"}},
         "/tasks/12345:cancel": {"POST": {}},
     }
-    text, json = None, None
+    text, body = None, None
     if path not in paths_to_responses:
         print(
             f"Unable to mock TES server request: '{path}' is not in `paths_to_responses`."
@@ -42,15 +42,15 @@ def mock_tes_server_request(
         if status_code != 200:
             text = "TES server error"
         elif isinstance(content, dict):
-            json = content
+            body = content
         else:
             text = content
-    return httpx.Response(status_code=status_code, json=json, text=text)
+    return httpx.Response(status_code=status_code, json=body, text=text)
 
 
 # making this function a mock allows tests to check the requests that were made, for
 # example: `mock_tes_server_request.assert_called_with(...)`
-mock_tes_server_request = MagicMock(side_effect=mock_tes_server_request)
+mock_tes_server_request = MagicMock(side_effect=mock_tes_server_request_function)
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
