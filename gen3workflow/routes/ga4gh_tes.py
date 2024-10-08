@@ -5,10 +5,12 @@ GA4GH TES spec:
 https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-execution-schemas/develop/openapi/task_execution_service.openapi.yaml
 """
 
+from collections import defaultdict
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED
+from starlette.datastructures import QueryParams
+from starlette.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
@@ -55,8 +57,45 @@ async def create_task(request: Request, auth=Depends(Auth)):
     return res.json()
 
 
+def generate_list_tasks_query_params(
+    original_query_params: QueryParams,
+    supported_params: list,
+    user_id: str,
+):
+    """
+    The `tag_key` and `tag_value` params support setting multiple values, for example:
+    `?tag_key=tagA&tag_value=valueA&tag_key=tagB&tag_value=valueB` means that that tasks
+    are filtered on: `tagA == valueA and tagB == valueB`.
+    We need to maintain this support, as well as add the `USER_ID` tag so users can only
+    list their own tasks.
+    """
+    # Convert the query params to a data struct that's easier to work with:
+    # [(tag_key, tagA), (tag_value, valueA), (tag_key, tagB), (tag_value, valueB)]
+    # becomes {tag_key: [tagA, tagB], tag_value: [valueA, valueB]}
+    query_params = defaultdict(list)
+    for k, v in original_query_params.multi_items():
+        if k in supported_params:  # filter out any unsupported params
+            query_params[k].append(v)
+
+    if len(query_params["tag_key"]) != len(query_params["tag_value"]):
+        raise Exception(
+            HTTP_400_BAD_REQUEST, "Parameters `tag_key` and `tag_value` mismatch"
+        )
+
+    # Check if there is already a `USER_ID` tag. If so, its value must be replaced. If not, add one.
+    try:
+        user_id_tag_index = query_params.get("tag_key", []).index("USER_ID")
+    except ValueError:
+        query_params["tag_key"].append("USER_ID")
+        query_params["tag_value"].append(user_id)
+    else:
+        query_params["tag_value"][user_id_tag_index] = user_id
+
+    return query_params
+
+
 @router.get("/tasks", status_code=HTTP_200_OK)
-async def list_tasks(request: Request):
+async def list_tasks(request: Request, auth=Depends(Auth)):
     supported_params = {
         "name_prefix",
         "state",
@@ -66,9 +105,10 @@ async def list_tasks(request: Request):
         "page_token",
         "view",
     }
-    query_params = {
-        k: v for k, v in dict(request.query_params).items() if k in supported_params
-    }
+    user_id = (await auth.get_token_claims()).get("sub")
+    query_params = generate_list_tasks_query_params(
+        request.query_params, supported_params, user_id
+    )
     res = await request.app.async_client.get(
         f"{config['TES_SERVER_URL']}/tasks", params=query_params
     )

@@ -89,14 +89,10 @@ async def reset_mock_tes_server_request():
     mock_tes_server_request.reset_mock()
 
 
-def mock_arborist_request(
-    method: str, url: str, authorized: bool
-):
+def mock_arborist_request(method: str, url: str, authorized: bool):
     # URLs to reponses: { URL: { METHOD: response body } }
     urls_to_responses = {
-        "http://test-arborist-server/auth/request": {
-            "POST": {"auth": authorized}
-        },
+        "http://test-arborist-server/auth/request": {"POST": {"auth": authorized}},
     }
 
     text, body = None, None
@@ -164,8 +160,12 @@ async def client(request):
 
     mock_httpx_client = httpx.AsyncClient(transport=httpx.MockTransport(handle_request))
     app = get_app(httpx_client=mock_httpx_client)
-    app.arborist_client.client_cls = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handle_request))
-    async with httpx.AsyncClient(app=app, base_url="http://test-gen3-wf") as real_httpx_client:
+    app.arborist_client.client_cls = lambda: httpx.AsyncClient(
+        transport=httpx.MockTransport(handle_request)
+    )
+    async with httpx.AsyncClient(
+        app=app, base_url="http://test-gen3-wf"
+    ) as real_httpx_client:
         # for easier access to the param in the tests
         real_httpx_client.tes_resp_code = tes_resp_code
         real_httpx_client.authorized = authorized
