@@ -7,9 +7,10 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 
 import json
 
-from fastapi import APIRouter, HTTPException, Request
-from starlette.status import HTTP_200_OK
+from fastapi import APIRouter, Depends, HTTPException, Request
+from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED
 
+from gen3workflow.auth import Auth
 from gen3workflow.config import config
 
 
@@ -35,8 +36,17 @@ async def service_info(request: Request):
 
 
 @router.post("/tasks", status_code=HTTP_200_OK)
-async def create_task(request: Request):
+async def create_task(request: Request, auth=Depends(Auth)):
+    await auth.authorize("create", ["services/workflow/gen3-workflow/task"])
     body = await get_request_body(request)
+
+    # add the USER_ID tag to the task
+    if "tags" not in body:
+        body["tags"] = {}
+    body["tags"]["USER_ID"] = (await auth.get_token_claims()).get("sub")
+    if not body["tags"]["USER_ID"]:
+        raise HTTPException(HTTP_401_UNAUTHORIZED, "No user sub in token")
+
     res = await request.app.async_client.post(
         f"{config['TES_SERVER_URL']}/tasks", json=body
     )

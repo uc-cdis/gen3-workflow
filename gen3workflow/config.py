@@ -1,5 +1,7 @@
 import os
 
+from jsonschema import validate
+
 from gen3config import Config
 
 from . import logger
@@ -20,7 +22,21 @@ class Gen3WorkflowConfig(Config):
         Perform a series of sanity checks on a loaded config.
         """
         logger.info("Validating configuration")
-        # will do more here when there is more config
+        self.validate_top_level_configs()
+
+    def validate_top_level_configs(self):
+        schema = {
+            "type": "object",
+            "additionalProperties": True,
+            "properties": {
+                "DEBUG": {"type": "boolean"},
+                "DOCS_URL_PREFIX": {"type": "string"},
+                "ARBORIST_URL": {"type": ["string", "null"]},
+                "TES_SERVER_URL": {"type": "string"},
+            },
+        }
+        validate(instance=self, schema=schema)
+
 
 config = Gen3WorkflowConfig(DEFAULT_CFG_PATH)
 try:
