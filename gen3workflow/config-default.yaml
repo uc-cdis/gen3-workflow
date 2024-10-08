@@ -1,0 +1,12 @@
+####################
+# SERVER           #
+####################
+
+DEBUG: true
+DOCS_URL_PREFIX: /gen3workflow
+
+####################
+# GA4GH TES        #
+####################
+
+TES_SERVER_URL: http://funnel-service

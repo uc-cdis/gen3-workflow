@@ -1,0 +1,164 @@
+components:
+  schemas:
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          title: Detail
+          type: array
+      title: HTTPValidationError
+      type: object
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          title: Location
+          type: array
+        msg:
+          title: Message
+          type: string
+        type:
+          title: Error Type
+          type: string
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+      type: object
+info:
+  title: Gen3Workflow
+  version: 0.1.0
+openapi: 3.1.0
+paths:
+  /:
+    get:
+      operationId: get_status__get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                title: Response Get Status  Get
+                type: object
+          description: Successful Response
+      summary: Get Status
+      tags:
+      - System
+  /_status:
+    get:
+      operationId: get_status__status_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                title: Response Get Status  Status Get
+                type: object
+          description: Successful Response
+      summary: Get Status
+      tags:
+      - System
+  /_version:
+    get:
+      operationId: get_version__version_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                title: Response Get Version  Version Get
+                type: object
+          description: Successful Response
+      summary: Get Version
+      tags:
+      - System
+  /ga4gh-tes/v1/service-info:
+    get:
+      operationId: service_info_ga4gh_tes_v1_service_info_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+      summary: Service Info
+      tags:
+      - GA4GH TES
+  /ga4gh-tes/v1/tasks:
+    get:
+      operationId: list_tasks_ga4gh_tes_v1_tasks_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+      summary: List Tasks
+      tags:
+      - GA4GH TES
+    post:
+      operationId: create_task_ga4gh_tes_v1_tasks_post
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+      summary: Create Task
+      tags:
+      - GA4GH TES
+  /ga4gh-tes/v1/tasks/{task_id}:
+    get:
+      operationId: get_task_ga4gh_tes_v1_tasks__task_id__get
+      parameters:
+      - in: path
+        name: task_id
+        required: true
+        schema:
+          title: Task Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Task
+      tags:
+      - GA4GH TES
+  /ga4gh-tes/v1/tasks/{task_id}:cancel:
+    post:
+      operationId: cancel_task_ga4gh_tes_v1_tasks__task_id__cancel_post
+      parameters:
+      - in: path
+        name: task_id
+        required: true
+        schema:
+          title: Task Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Cancel Task
+      tags:
+      - GA4GH TES

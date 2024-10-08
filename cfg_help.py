@@ -47,7 +47,7 @@ import sys
 from gen3config import config
 
 ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
-LOCAL_CONFIG_FOLDER = "{}/.gen3/gen3workflow".format(expanduser("~"))
+LOCAL_CONFIG_FOLDER = "{}/.gen3/gen3-workflow".format(expanduser("~"))
 
 
 def main():

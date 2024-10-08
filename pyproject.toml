@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "gen3workflow"
+version = "0.1.0"
+description = "Gen3 Workflow Execution Service"
+authors = ["CTDS UChicago <cdis@uchicago.edu>"]
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/uc-cdis/gen3workflow"
+include = [
+  "NOTICE",
+]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4"
+alembic = "<2"
+authutils = "<7"
+cdislogging = "<2"
+fastapi = "<1"
+gen3authz = "<3"
+gen3config = "<2"
+httpx = "<1"
+uvicorn = "<1"
+gunicorn = "<24"
+
+[tool.poetry.dev-dependencies]
+pytest = "<9"
+pytest-asyncio = "<1"
+pytest-cov = "<6"
+
+[build-system]
+requires = ["poetry<2"]
+build-backend = "poetry.masonry.api"
