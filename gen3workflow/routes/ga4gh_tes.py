@@ -5,12 +5,10 @@ GA4GH TES spec:
 https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-execution-schemas/develop/openapi/task_execution_service.openapi.yaml
 """
 
-from collections import defaultdict
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from starlette.datastructures import QueryParams
-from starlette.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
+from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
@@ -42,12 +40,13 @@ async def create_task(request: Request, auth=Depends(Auth)):
     await auth.authorize("create", ["services/workflow/gen3-workflow/task"])
     body = await get_request_body(request)
 
-    # add the USER_ID tag to the task
+    # add the `AUTHZ` tag to the task
+    user_id = (await auth.get_token_claims()).get("sub")
+    if not user_id:
+        raise HTTPException(HTTP_401_UNAUTHORIZED, "No user sub in token")
     if "tags" not in body:
         body["tags"] = {}
-    body["tags"]["USER_ID"] = (await auth.get_token_claims()).get("sub")
-    if not body["tags"]["USER_ID"]:
-        raise HTTPException(HTTP_401_UNAUTHORIZED, "No user sub in token")
+    body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
     res = await request.app.async_client.post(
         f"{config['TES_SERVER_URL']}/tasks", json=body
@@ -55,43 +54,6 @@ async def create_task(request: Request, auth=Depends(Auth)):
     if res.status_code != HTTP_200_OK:
         raise HTTPException(res.status_code, res.text)
     return res.json()
-
-
-def generate_list_tasks_query_params(
-    original_query_params: QueryParams,
-    supported_params: list,
-    user_id: str,
-):
-    """
-    The `tag_key` and `tag_value` params support setting multiple values, for example:
-    `?tag_key=tagA&tag_value=valueA&tag_key=tagB&tag_value=valueB` means that tasks are
-    filtered on: `tagA == valueA and tagB == valueB`.
-    We need to maintain this support, as well as add the `USER_ID` tag so users can only
-    list their own tasks.
-    """
-    # Convert the query params to a data struct that's easier to work with:
-    # [(tag_key, tagA), (tag_value, valueA), (tag_key, tagB), (tag_value, valueB)]
-    # becomes {tag_key: [tagA, tagB], tag_value: [valueA, valueB]}
-    query_params = defaultdict(list)
-    for k, v in original_query_params.multi_items():
-        if k in supported_params:  # filter out any unsupported params
-            query_params[k].append(v)
-
-    if len(query_params["tag_key"]) != len(query_params["tag_value"]):
-        raise Exception(
-            HTTP_400_BAD_REQUEST, "Parameters `tag_key` and `tag_value` mismatch"
-        )
-
-    # Check if there is already a `USER_ID` tag. If so, its value must be replaced. If not, add one.
-    try:
-        user_id_tag_index = query_params.get("tag_key", []).index("USER_ID")
-    except ValueError:
-        query_params["tag_key"].append("USER_ID")
-        query_params["tag_value"].append(user_id)
-    else:
-        query_params["tag_value"][user_id_tag_index] = user_id
-
-    return query_params
 
 
 @router.get("/tasks", status_code=HTTP_200_OK)
@@ -105,20 +67,41 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
         "page_token",
         "view",
     }
-    user_id = (await auth.get_token_claims()).get("sub")
-    query_params = generate_list_tasks_query_params(
-        request.query_params, supported_params, user_id
-    )
+    query_params = {
+        k: v for k, v in dict(request.query_params).items() if k in supported_params
+    }
+
+    # TODO handle `next_page_token`
     res = await request.app.async_client.get(
         f"{config['TES_SERVER_URL']}/tasks", params=query_params
     )
     if res.status_code != HTTP_200_OK:
         raise HTTPException(res.status_code, res.text)
-    return res.json()
+    listed_tasks = res.json()
+    all_resource_paths = [
+        task.get("tags", {}).get("AUTHZ")
+        for task in listed_tasks.get("tasks", [])
+        if task.get("tags", {}).get("AUTHZ")
+    ]
+
+    # TODO comments
+    user_access = await auth.arborist_client.can_user_access_resources(
+        jwt=auth.bearer_token,
+        service="gen3-workflow",
+        method="read",
+        resource_paths=all_resource_paths,
+    )
+    listed_tasks["tasks"] = [
+        task
+        for task in listed_tasks.get("tasks", [])
+        if user_access.get(task.get("tags", {}).get("AUTHZ"))
+    ]
+
+    return listed_tasks
 
 
 @router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
-async def get_task(request: Request, task_id: str):
+async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
     supported_params = {"view"}
     query_params = {
         k: v for k, v in dict(request.query_params).items() if k in supported_params
@@ -128,7 +111,16 @@ async def get_task(request: Request, task_id: str):
     )
     if res.status_code != HTTP_200_OK:
         raise HTTPException(res.status_code, res.text)
-    return res.json()
+
+    # check if this user has access to see this task
+    body = res.json()
+    authz_path = body.get("tags", {}).get("AUTHZ")
+    if not authz_path:
+        raise HTTPException(HTTP_403_FORBIDDEN, "No authz tag in task body")
+    authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
+    await auth.authorize("create", [authz_path])
+
+    return body
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)

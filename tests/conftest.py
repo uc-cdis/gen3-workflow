@@ -1,5 +1,5 @@
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
 from fastapi import Request
@@ -48,6 +48,13 @@ def mock_arborist_request(method: str, path: str, authorized: bool):
     # paths to reponses: { URL: { METHOD: response body } }
     paths_to_responses = {
         "/auth/request": {"POST": {"auth": authorized}},
+        "/auth/mapping": {
+            "POST": {
+                f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER": [
+                    {"service": "gen3-workflow", "method": "read"}
+                ],
+            },
+        },
     }
     text, body = None, None
     if path not in paths_to_responses:
@@ -76,8 +83,34 @@ def mock_tes_server_request_function(
     # paths to reponses: { URL: { METHOD: response body } }
     paths_to_responses = {
         "/service-info": {"GET": {"name": "TES server"}},
-        "/tasks": {"GET": {"tasks": [{"id": "12345"}]}, "POST": {"id": "12345"}},
-        "/tasks/12345": {"GET": {"id": "12345"}},
+        "/tasks": {
+            "GET": {
+                "tasks": [
+                    {
+                        "id": "123",
+                        "tags": {
+                            "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                        },
+                    },
+                    {"id": "456"},
+                    {
+                        "id": "789",
+                        "tags": {
+                            "AUTHZ": f"/users/OTHER_USER/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                        },
+                    },
+                ]
+            },
+            "POST": {"id": "12345"},
+        },
+        "/tasks/12345": {
+            "GET": {
+                "id": "12345",
+                "tags": {
+                    "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                },
+            }
+        },
         "/tasks/12345:cancel": {"POST": {}},
     }
     text, out = None, None
