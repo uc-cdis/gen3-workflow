@@ -5,8 +5,10 @@ import pytest
 @pytest.mark.parametrize("endpoint", ["/", "/_status"])
 @pytest.mark.parametrize(
     "client",
-    [{"tes_resp_code": 200}, {"tes_resp_code": 404}],
-    ids=["success", "failure"],
+    [
+        pytest.param({"tes_resp_code": 200}, id="success"),
+        pytest.param({"tes_resp_code": 404}, id="TES failure"),
+    ],
     indirect=True,
 )
 async def test_status_endpoint(client, endpoint):

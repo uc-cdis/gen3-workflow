@@ -49,11 +49,15 @@ def mock_arborist_request(method: str, path: str, authorized: bool):
     paths_to_responses = {
         "/auth/request": {"POST": {"auth": authorized}},
         "/auth/mapping": {
-            "POST": {
-                f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER": [
-                    {"service": "gen3-workflow", "method": "read"}
-                ],
-            },
+            "POST": (
+                {
+                    f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER": [
+                        {"service": "gen3-workflow", "method": "read"}
+                    ],
+                }
+                if authorized
+                else {}
+            ),
         },
     }
     text, body = None, None

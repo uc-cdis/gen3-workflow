@@ -124,10 +124,25 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
-async def cancel_task(request: Request, task_id: str):
+async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
+    # check if this user has access to delete this task
+    res = await request.app.async_client.get(
+        f"{config['TES_SERVER_URL']}/tasks/{task_id}"
+    )
+    if res.status_code != HTTP_200_OK:
+        raise HTTPException(res.status_code, res.text)
+    body = res.json()
+    authz_path = body.get("tags", {}).get("AUTHZ")
+    if not authz_path:
+        raise HTTPException(HTTP_403_FORBIDDEN, "No authz tag in task body")
+    authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
+    await auth.authorize("delete", [authz_path])
+
+    # the user has access: delete the task
     res = await request.app.async_client.post(
         f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
     )
     if res.status_code != HTTP_200_OK:
         raise HTTPException(res.status_code, res.text)
+
     return res.json()

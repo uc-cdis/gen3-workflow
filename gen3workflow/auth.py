@@ -26,7 +26,7 @@ class Auth:
 
     async def get_token_claims(self) -> dict:
         if not self.bearer_token:
-            err_msg = "Must provide an access token."
+            err_msg = "Must provide an access token"
             logger.error(err_msg)
             raise HTTPException(
                 HTTP_401_UNAUTHORIZED,
