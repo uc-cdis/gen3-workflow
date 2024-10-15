@@ -37,10 +37,10 @@ async def service_info(request: Request):
 
 @router.post("/tasks", status_code=HTTP_200_OK)
 async def create_task(request: Request, auth=Depends(Auth)):
-    await auth.authorize("create", ["services/workflow/gen3-workflow/task"])
+    await auth.authorize("create", ["/services/workflow/gen3-workflow/task"])
     body = await get_request_body(request)
 
-    # add the `AUTHZ` tag to the task
+    # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
     user_id = (await auth.get_token_claims()).get("sub")
     if not user_id:
         raise HTTPException(HTTP_401_UNAUTHORIZED, "No user sub in token")
@@ -71,6 +71,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
         k: v for k, v in dict(request.query_params).items() if k in supported_params
     }
 
+    # get all the tasks, regardless of access
     # TODO handle `next_page_token`
     res = await request.app.async_client.get(
         f"{config['TES_SERVER_URL']}/tasks", params=query_params
@@ -78,19 +79,22 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
     if res.status_code != HTTP_200_OK:
         raise HTTPException(res.status_code, res.text)
     listed_tasks = res.json()
+
+    # ask arborist which resource paths the current user has access to.
+    # `user_access` format: { <resource path>: True if user has access, False otherwise }
     all_resource_paths = [
         task.get("tags", {}).get("AUTHZ")
         for task in listed_tasks.get("tasks", [])
         if task.get("tags", {}).get("AUTHZ")
     ]
-
-    # TODO comments
     user_access = await auth.arborist_client.can_user_access_resources(
         jwt=auth.bearer_token,
         service="gen3-workflow",
         method="read",
         resource_paths=all_resource_paths,
     )
+
+    # filter out tasks the current user does not have access to
     listed_tasks["tasks"] = [
         task
         for task in listed_tasks.get("tasks", [])
