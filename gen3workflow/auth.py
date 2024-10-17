@@ -38,14 +38,12 @@ class Auth:
                 "user", "openid", audience="openid", purpose="access"
             )(self.bearer_token)
         except Exception as e:
+            err_msg = "Could not verify, parse, and/or validate provided access token"
             logger.error(
-                f"Could not get token claims:\n{e.detail if hasattr(e, 'detail') else e}",
+                f"{err_msg}:\n{e.detail if hasattr(e, 'detail') else e}",
                 exc_info=True,
             )
-            raise HTTPException(
-                HTTP_401_UNAUTHORIZED,
-                "Could not verify, parse, and/or validate scope from provided access token.",
-            )
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
         return token_claims
 
