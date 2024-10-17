@@ -1,6 +1,6 @@
 import os
 from unittest.mock import MagicMock, patch
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from fastapi import Request
 import httpx
@@ -82,7 +82,7 @@ def mock_arborist_request(method: str, path: str, authorized: bool):
 
 
 def mock_tes_server_request_function(
-    method: str, path: str, query_params: str, body: str, status_code: int
+    method: str, path: str, query_params: dict, body: str, status_code: int
 ):
     # paths to reponses: { URL: { METHOD: response body } }
     paths_to_responses = {
@@ -108,12 +108,16 @@ def mock_tes_server_request_function(
             "POST": {"id": "12345"},
         },
         "/tasks/12345": {
-            "GET": {
-                "id": "12345",
-                "tags": {
-                    "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
-                },
-            }
+            "GET": (
+                {
+                    "id": "12345",
+                    "tags": {
+                        "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                    },
+                }
+                if query_params.get("view") == "FULL"
+                else {"id": "12345"}
+            )
         },
         "/tasks/12345:cancel": {"POST": {}},
     }
@@ -174,7 +178,7 @@ async def client(request):
             mocked_response = mock_tes_server_request(
                 method=request.method,
                 path=path,
-                query_params=parsed_url.query,
+                query_params=dict(parse_qsl(parsed_url.query)),
                 body=request.content.decode(),
                 status_code=tes_resp_code,
             )

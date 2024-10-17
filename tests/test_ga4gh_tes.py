@@ -35,7 +35,8 @@ async def test_service_info_endpoint(client):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
-async def test_get_task(client, access_token_patcher):
+@pytest.mark.parametrize("view", ["BASIC", "FULL"])
+async def test_get_task(client, access_token_patcher, view):
     """
     Calls to `GET /ga4gh-tes/v1/tasks/<task ID>` should be forwarded to the TES server, and any
     unsupported query params should be filtered out.
@@ -43,9 +44,19 @@ async def test_get_task(client, access_token_patcher):
     If the user is not authorized, we should get a 403 error.
     """
     res = await client.get(
-        "/ga4gh-tes/v1/tasks/12345?view=BASIC&unsupported_param=value",
+        f"/ga4gh-tes/v1/tasks/12345?view={view}&unsupported_param=value",
         headers={"Authorization": f"bearer 123"},
     )
+
+    # there is always a 1st call with view=FULL to get the AUTHZ tag
+    mock_tes_server_request.assert_any_call(
+        method="GET",
+        path="/tasks/12345",
+        query_params={"view": "FULL"},
+        body="",
+        status_code=client.tes_resp_code,
+    )
+
     if client.tes_resp_code == 500:
         assert res.status_code == 500, res.text
         assert res.json() == {"detail": "TES server error"}
@@ -54,17 +65,22 @@ async def test_get_task(client, access_token_patcher):
         assert res.json() == {"detail": "Permission denied"}
     else:
         assert res.status_code == 200, res.text
-        assert res.json() == {
-            "id": "12345",
-            "tags": {"AUTHZ": "/users/64/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"},
-        }
-    mock_tes_server_request.assert_called_once_with(
-        method="GET",
-        path="/tasks/12345",
-        query_params="view=BASIC",
-        body="",
-        status_code=client.tes_resp_code,
-    )
+        if view == "BASIC":
+            assert res.json() == {"id": "12345"}
+        else:
+            assert res.json() == {
+                "id": "12345",
+                "tags": {"AUTHZ": "/users/64/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"},
+            }
+
+        # if the 1st call is successful, an additional call is made with the requested view
+        mock_tes_server_request.assert_called_with(
+            method="GET",
+            path="/tasks/12345",
+            query_params={"view": view},
+            body="",
+            status_code=client.tes_resp_code,
+        )
 
 
 @pytest.mark.asyncio
@@ -95,7 +111,7 @@ async def test_create_task(client, access_token_patcher):
         mock_tes_server_request.assert_called_once_with(
             method="POST",
             path="/tasks",
-            query_params="",
+            query_params={},
             body=f'{{"name": "test-task", "tags": {{"AUTHZ": "/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
             status_code=client.tes_resp_code,
         )
@@ -145,7 +161,7 @@ async def test_list_tasks(client, access_token_patcher):
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
-        query_params=f"state=COMPLETE",
+        query_params={"state": "COMPLETE"},
         body="",
         status_code=client.tes_resp_code,
     )
@@ -164,6 +180,16 @@ async def test_delete_task(client, access_token_patcher):
         json={"unsupported_body": "value"},
         headers={"Authorization": f"bearer 123"},
     )
+
+    # there is always a 1st call with view=FULL to get the AUTHZ tag
+    mock_tes_server_request.assert_any_call(
+        method="GET",
+        path="/tasks/12345",
+        query_params={"view": "FULL"},
+        body="",
+        status_code=client.tes_resp_code,
+    )
+
     if client.tes_resp_code == 500:
         assert res.status_code == 500, res.text
         assert res.json() == {"detail": "TES server error"}
@@ -173,18 +199,12 @@ async def test_delete_task(client, access_token_patcher):
     else:
         assert res.status_code == 200, res.text
         assert res.json() == {}
+
+        # if the 1st call is successful, an additional call is made to cancel the task
         mock_tes_server_request.assert_called_with(
             method="POST",
             path="/tasks/12345:cancel",
-            query_params="",
+            query_params={},
             body="",
             status_code=client.tes_resp_code,
         )
-
-    mock_tes_server_request.assert_any_call(
-        method="GET",
-        path="/tasks/12345",
-        query_params="",
-        body="",
-        status_code=client.tes_resp_code,
-    )

@@ -116,6 +116,11 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
     query_params = {
         k: v for k, v in dict(request.query_params).items() if k in supported_params
     }
+
+    # force the use of "FULL" view so the response includes tags
+    original_view = query_params.get("view")
+    query_params["view"] = "FULL"
+
     res = await request.app.async_client.get(
         f"{config['TES_SERVER_URL']}/tasks/{task_id}", params=query_params
     )
@@ -133,6 +138,20 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
     authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("create", [authz_path])
 
+    # if the requested view was not "FULL", made a new call with the requested view
+    if original_view != "FULL":
+        if original_view:
+            query_params["view"] = original_view
+        else:
+            query_params.pop("view")
+        res = await request.app.async_client.get(
+            f"{config['TES_SERVER_URL']}/tasks/{task_id}", params=query_params
+        )
+        if res.status_code != HTTP_200_OK:
+            logger.error(f"TES server error: {res.text}")
+            raise HTTPException(res.status_code, res.text)
+        body = res.json()
+
     return body
 
 
@@ -140,7 +159,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
 async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
     # check if this user has access to delete this task
     res = await request.app.async_client.get(
-        f"{config['TES_SERVER_URL']}/tasks/{task_id}"
+        f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
     )
     if res.status_code != HTTP_200_OK:
         logger.error(f"TES server error: {res.text}")
