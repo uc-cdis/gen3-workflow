@@ -28,6 +28,13 @@ class Auth:
         self.arborist_client = api_request.app.arborist_client
         self.bearer_token = bearer_token
 
+    def get_access_token(self):
+        return (
+            self.bearer_token.credentials
+            if self.bearer_token and hasattr(self.bearer_token, "credentials")
+            else None
+        )
+
     async def get_token_claims(self) -> dict:
         if not self.bearer_token:
             err_msg = "Must provide an access token"
@@ -57,11 +64,7 @@ class Auth:
         resources: list,
         throw: bool = True,
     ) -> bool:
-        token = (
-            self.bearer_token.credentials
-            if self.bearer_token and hasattr(self.bearer_token, "credentials")
-            else None
-        )
+        token = self.get_access_token()
 
         try:
             authorized = await self.arborist_client.auth_request(

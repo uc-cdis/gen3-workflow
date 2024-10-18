@@ -8,6 +8,7 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from gen3workflow import logger
@@ -66,9 +67,38 @@ async def create_task(request: Request, auth=Depends(Auth)):
         logger.error(f"TES server error: {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
-    await auth.grant_user_access_to_their_own_tasks(username=username, user_id=user_id)
+    try:
+        await auth.grant_user_access_to_their_own_tasks(
+            username=username, user_id=user_id
+        )
+    except ArboristError as e:
+        raise HTTPException(e.code, e.message)
 
     return res.json()
+
+
+def apply_view_to_task(view, task) -> dict:
+    """
+    We always set the view to "FULL" when making get/list requests to the TES server, because we
+    need to get the AUTHZ tag in order to check whether users have access. This function applies
+    the view that was originally requested by removing fields according to the TES spec.
+    """
+    if view == "FULL":
+        return task
+
+    if view == "BASIC":
+        return {"id": task.get("id"), "state": task.get("state")}
+
+    # otherwise, view == None or "MINIMAL", which is the default according to the TES spec
+    for i in range(len(task.get("executors", []))):
+        task["executors"][i].pop("stderr", None)
+        task["executors"][i].pop("stdin", None)
+    for i in range(len(task.get("inputs", []))):
+        task["inputs"][i].pop("content", None)
+    for i in range(len(task.get("logs", []))):
+        task["logs"][i].pop("system_logs", None)
+
+    return task
 
 
 @router.get("/tasks", status_code=HTTP_200_OK)
@@ -86,8 +116,11 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
         k: v for k, v in dict(request.query_params).items() if k in supported_params
     }
 
+    # force the use of "FULL" view so the response includes tags
+    original_view = query_params.get("view")
+    query_params["view"] = "FULL"
+
     # get all the tasks, regardless of access
-    # TODO handle `next_page_token`
     res = await request.app.async_client.get(
         f"{config['TES_SERVER_URL']}/tasks", params=query_params
     )
@@ -103,16 +136,19 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
         for task in listed_tasks.get("tasks", [])
         if task.get("tags", {}).get("AUTHZ")
     ]
-    user_access = await auth.arborist_client.can_user_access_resources(
-        jwt=auth.bearer_token,
-        service="gen3-workflow",
-        method="read",
-        resource_paths=all_resource_paths,
-    )
+    try:
+        user_access = await auth.arborist_client.can_user_access_resources(
+            jwt=auth.get_access_token(),
+            service="gen3-workflow",
+            method="read",
+            resource_paths=all_resource_paths,
+        )
+    except ArboristError as e:
+        raise HTTPException(e.code, e.message)
 
     # filter out tasks the current user does not have access to
     listed_tasks["tasks"] = [
-        task
+        apply_view_to_task(original_view, task)
         for task in listed_tasks.get("tasks", [])
         if user_access.get(task.get("tags", {}).get("AUTHZ"))
     ]
@@ -148,21 +184,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
     authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [authz_path])
 
-    # if the requested view was not "FULL", made a new call with the requested view
-    if original_view != "FULL":
-        if original_view:
-            query_params["view"] = original_view
-        else:
-            query_params.pop("view")
-        res = await request.app.async_client.get(
-            f"{config['TES_SERVER_URL']}/tasks/{task_id}", params=query_params
-        )
-        if res.status_code != HTTP_200_OK:
-            logger.error(f"TES server error: {res.status_code} {res.text}")
-            raise HTTPException(res.status_code, res.text)
-        body = res.json()
-
-    return body
+    return apply_view_to_task(original_view, body)
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)

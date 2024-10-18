@@ -116,42 +116,39 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
 def mock_tes_server_request_function(
     method: str, path: str, query_params: dict, body: str, status_code: int
 ):
+    accessible_task = {
+        "id": "123",
+        "state": "COMPLETE",
+        "logs": [{"system_logs": ["blah"]}],
+        "tags": {
+            "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+        },
+    }
     # paths to reponses: { URL: { METHOD: response body } }
     paths_to_responses = {
         "/service-info": {"GET": {"name": "TES server"}},
         "/tasks": {
             "GET": {
                 "tasks": [
-                    {
-                        "id": "123",
-                        "tags": {
-                            "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
-                        },
-                    },
-                    {"id": "456"},
+                    # a task the test user has access to:
+                    accessible_task,
+                    # a task the test user does not have access to:
                     {
                         "id": "789",
+                        "state": "COMPLETE",
+                        "logs": [{"system_logs": ["blah"]}],
                         "tags": {
                             "AUTHZ": f"/users/OTHER_USER/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
                         },
                     },
-                ]
+                    # test that the app can handle a task with no tags:
+                    {"id": "456", "state": "COMPLETE"},
+                ],
             },
-            "POST": {"id": "12345"},
+            "POST": {"id": "123"},
         },
-        "/tasks/12345": {
-            "GET": (
-                {
-                    "id": "12345",
-                    "tags": {
-                        "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
-                    },
-                }
-                if query_params.get("view") == "FULL"
-                else {"id": "12345"}
-            )
-        },
-        "/tasks/12345:cancel": {"POST": {}},
+        "/tasks/123": {"GET": accessible_task},
+        "/tasks/123:cancel": {"POST": {}},
     }
     text, out = None, None
     if path not in paths_to_responses:
