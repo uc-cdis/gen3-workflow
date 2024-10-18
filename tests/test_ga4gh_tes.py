@@ -1,6 +1,11 @@
 import pytest
 
-from conftest import mock_tes_server_request, TEST_USER_ID
+from conftest import (
+    mock_arborist_request,
+    mock_tes_server_request,
+    TEST_USER_ID,
+    NEW_TEST_USER_ID,
+)
 
 
 client_parameters = [
@@ -115,6 +120,63 @@ async def test_create_task(client, access_token_patcher):
             body=f'{{"name": "test-task", "tags": {{"AUTHZ": "/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
             status_code=client.tes_resp_code,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher", [{"user_id": NEW_TEST_USER_ID}], indirect=True
+)
+async def test_create_task_new_user(client, access_token_patcher):
+    """
+    When a user who does not yet have access to their own tasks creates a task, calls to Arborist
+    should be made to create a resource, role, policy and user, and to grant the user access.
+    """
+    res = await client.post(
+        "/ga4gh-tes/v1/tasks",
+        json={"name": "test-task"},
+        headers={"Authorization": f"bearer 123"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {"id": "12345"}
+    mock_tes_server_request.assert_called_once_with(
+        method="POST",
+        path="/tasks",
+        query_params={},
+        body=f'{{"name": "test-task", "tags": {{"AUTHZ": "/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
+        status_code=200,
+    )
+
+    # check arborist calls
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/resource/users/{NEW_TEST_USER_ID}/gen3-workflow",
+        body=f'{{"name": "tasks", "description": "Represents workflow tasks owned by user \'test-username-{NEW_TEST_USER_ID}\'"}}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path="/role",
+        body='{"id": "gen3-workflow_task_owner", "permissions": [{"id": "gen3-workflow-reader", "action": {"service": "gen3-workflow", "method": "read"}}, {"id": "gen3-workflow-deleter", "action": {"service": "gen3-workflow", "method": "delete"}}]}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path="/policy",
+        body=f'{{"id": "gen3-workflow_task_owner_sub-{NEW_TEST_USER_ID}", "description": "policy created by gen3-workflow for user \'test-username-{NEW_TEST_USER_ID}\'", "role_ids": ["gen3-workflow_task_owner"], "resource_paths": ["/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks"]}}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path="/user",
+        body=f'{{"name": "test-username-{NEW_TEST_USER_ID}"}}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/user/test-username-{NEW_TEST_USER_ID}/policy",
+        body=f'{{"policy": "gen3-workflow_task_owner_sub-{NEW_TEST_USER_ID}"}}',
+        authorized=True,
+    )
 
 
 @pytest.mark.asyncio

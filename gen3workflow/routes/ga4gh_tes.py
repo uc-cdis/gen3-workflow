@@ -32,22 +32,29 @@ async def get_request_body(request: Request):
 async def service_info(request: Request):
     res = await request.app.async_client.get(f"{config['TES_SERVER_URL']}/service-info")
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.text}")
+        logger.error(f"TES server error: {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     return res.json()
 
 
 @router.post("/tasks", status_code=HTTP_200_OK)
 async def create_task(request: Request, auth=Depends(Auth)):
-    await auth.authorize("create", ["/services/workflow/gen3-workflow/task"])
+    await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
     body = await get_request_body(request)
 
     # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
-    user_id = (await auth.get_token_claims()).get("sub")
+    token_claims = await auth.get_token_claims()
+    user_id = token_claims.get("sub")
     if not user_id:
         err_msg = "No user sub in token"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+    username = token_claims.get("context", {}).get("user", {}).get("name")
+    if not username:
+        err_msg = "No context.user.name in token"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
     if "tags" not in body:
         body["tags"] = {}
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
@@ -56,8 +63,11 @@ async def create_task(request: Request, auth=Depends(Auth)):
         f"{config['TES_SERVER_URL']}/tasks", json=body
     )
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.text}")
+        logger.error(f"TES server error: {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
+
+    await auth.grant_user_access_to_their_own_tasks(username=username, user_id=user_id)
+
     return res.json()
 
 
@@ -82,7 +92,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
         f"{config['TES_SERVER_URL']}/tasks", params=query_params
     )
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.text}")
+        logger.error(f"TES server error: {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     listed_tasks = res.json()
 
@@ -125,7 +135,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
         f"{config['TES_SERVER_URL']}/tasks/{task_id}", params=query_params
     )
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.text}")
+        logger.error(f"TES server error: {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     # check if this user has access to see this task
@@ -136,7 +146,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
         logger.error(f"{err_msg}: {body}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
     authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
-    await auth.authorize("create", [authz_path])
+    await auth.authorize("read", [authz_path])
 
     # if the requested view was not "FULL", made a new call with the requested view
     if original_view != "FULL":
@@ -148,7 +158,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
             f"{config['TES_SERVER_URL']}/tasks/{task_id}", params=query_params
         )
         if res.status_code != HTTP_200_OK:
-            logger.error(f"TES server error: {res.text}")
+            logger.error(f"TES server error: {res.status_code} {res.text}")
             raise HTTPException(res.status_code, res.text)
         body = res.json()
 
@@ -162,7 +172,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
         f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
     )
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.text}")
+        logger.error(f"TES server error: {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     body = res.json()
     authz_path = body.get("tags", {}).get("AUTHZ")
@@ -178,7 +188,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
         f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
     )
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.text}")
+        logger.error(f"TES server error: {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     return res.json()

@@ -1,3 +1,4 @@
+import json
 import os
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
@@ -19,6 +20,7 @@ from gen3workflow.config import config
 
 
 TEST_USER_ID = "64"
+NEW_TEST_USER_ID = "784"  # a new user that does not already exist in arborist
 
 
 @pytest.fixture(scope="function")
@@ -29,9 +31,15 @@ def access_token_patcher(client, request):
     `access_token_user_client_patcher` fixture for endpoints that do not
     support client tokens.
     """
+    user_id = TEST_USER_ID
+    if hasattr(request, "param"):
+        user_id = request.param.get("user_id", user_id)
 
     async def get_access_token(*args, **kwargs):
-        return {"sub": TEST_USER_ID}
+        return {
+            "sub": user_id,
+            "context": {"user": {"name": f"test-username-{user_id}"}},
+        }
 
     access_token_mock = MagicMock()
     access_token_mock.return_value = get_access_token
@@ -44,23 +52,35 @@ def access_token_patcher(client, request):
     access_token_patch.stop()
 
 
-def mock_arborist_request(method: str, path: str, authorized: bool):
+def mock_arborist_request_function(method: str, path: str, body: str, authorized: bool):
     # paths to reponses: { URL: { METHOD: response body } }
     paths_to_responses = {
-        "/auth/request": {"POST": {"auth": authorized}},
+        # access check:
+        "/auth/request": {"POST": (200, {"auth": authorized})},
+        # list of things the user has access to:
         "/auth/mapping": {
             "POST": (
-                {
-                    f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER": [
-                        {"service": "gen3-workflow", "method": "read"}
-                    ],
-                }
-                if authorized
-                else {}
+                200,
+                (
+                    {
+                        f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER": [
+                            {"service": "gen3-workflow", "method": "read"}
+                        ],
+                    }
+                    if authorized
+                    else {}
+                ),
             ),
         },
+        # resource, role, policy and user creation:
+        f"/resource/users/{NEW_TEST_USER_ID}/gen3-workflow": {"POST": (200, {})},
+        "/role": {"POST": (200, {})},
+        "/policy": {"POST": (200, {})},
+        "/user": {"POST": (200, {})},
+        # grant user access to a policy:
+        f"/user/test-username-{NEW_TEST_USER_ID}/policy": {"POST": (204, {})},
     }
-    text, body = None, None
+    text, out = None, None
     if path not in paths_to_responses:
         print(
             f"Unable to mock Arborist request: '{path}' is not in `urls_to_responses`."
@@ -71,14 +91,26 @@ def mock_arborist_request(method: str, path: str, authorized: bool):
         status_code = 405
         text = "METHOD NOT ALLOWED"
     else:
-        content = paths_to_responses[path][method]
-        status_code = 200
+        status_code, content = paths_to_responses[path][method]
+        try:
+            body = json.loads(body)
+        except Exception:
+            body = {}
+        # exception to mock a user with access to create tasks, but no existing access to their own
+        # tasks in arborist
+        if (
+            path == "/auth/request"
+            and body["requests"][0]["resource"]
+            == f"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks"
+        ):
+            content["auth"] = False
+
         if isinstance(content, dict):
-            body = content
+            out = content
         else:
             text = content
 
-    return httpx.Response(status_code=status_code, json=body, text=text)
+    return httpx.Response(status_code=status_code, json=out, text=text)
 
 
 def mock_tes_server_request_function(
@@ -142,18 +174,22 @@ def mock_tes_server_request_function(
     return httpx.Response(status_code=status_code, json=out, text=text)
 
 
-# making this function a mock allows tests to check the requests that were made, for
+# making these functions into mocks allows tests to check the requests that were made, for
 # example: `mock_tes_server_request.assert_called_with(...)`
 mock_tes_server_request = MagicMock(side_effect=mock_tes_server_request_function)
+mock_arborist_request = MagicMock(side_effect=mock_arborist_request_function)
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
-async def reset_mock_tes_server_request():
+async def reset_requests_mocks():
     """
-    Before each test, reset `mock_tes_server_request` to forget previous function calls.
+    Before each test, reset `mock_tes_server_request` and `mock_arborist_request` to forget
+    previous function calls.
     """
     global mock_tes_server_request
+    global mock_arborist_request
     mock_tes_server_request.reset_mock()
+    mock_arborist_request.reset_mock()
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -174,7 +210,7 @@ async def client(request):
         parsed_url = urlparse(url)
         mocked_response = None
         if url.startswith(config["TES_SERVER_URL"]):
-            path = url[len(config["TES_SERVER_URL"]) :].split("?")[0]
+            path = url[len(config["TES_SERVER_URL"]) :].split("?")[0].rstrip("/")
             mocked_response = mock_tes_server_request(
                 method=request.method,
                 path=path,
@@ -183,10 +219,11 @@ async def client(request):
                 status_code=tes_resp_code,
             )
         elif url.startswith(config["ARBORIST_URL"]):
-            path = url[len(config["ARBORIST_URL"]) :].split("?")[0]
+            path = url[len(config["ARBORIST_URL"]) :].split("?")[0].rstrip("/")
             mocked_response = mock_arborist_request(
                 method=request.method,
                 path=path,
+                body=request.content.decode(),
                 authorized=authorized,
             )
 
