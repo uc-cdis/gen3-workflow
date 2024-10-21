@@ -438,21 +438,17 @@ name = "gen3authz"
 version = "2.2.0"
 description = "Gen3 authz client"
 optional = false
-python-versions = "^3.6"
-files = []
-develop = false
+python-versions = "<4.0,>=3.6"
+files = [
+    {file = "gen3authz-2.2.0-py3-none-any.whl", hash = "sha256:6bdac26030d8572b1a3da68fc4f23b7f369e3aa5f06bdbcacc803e07b5593cd6"},
+    {file = "gen3authz-2.2.0.tar.gz", hash = "sha256:5c6182bb9a22f6d2699683b55826ff042c555a7627ef9b843049766c88dae5fc"},
+]
 
 [package.dependencies]
-backoff = "~=1.6"
+backoff = ">=1.6,<2.0"
 cdiserrors = "<2.0.0"
 httpx = ">=0.20.0,<1.0.0"
-six = "^1.16.0"
-
-[package.source]
-type = "git"
-url = "https://github.com/uc-cdis/gen3authz"
-reference = "feat/can_user_access_resources"
-resolved_reference = "d4d80264eb903bd2150f0d5db3922864d9a88759"
+six = ">=1.16.0,<2.0.0"
 
 [[package]]
 name = "gen3config"
@@ -1419,4 +1415,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4"
-content-hash = "e9b6ca5126d74378eeec65346dd414b5a07eb29deab2930c5fce634d7087c471"
+content-hash = "0dde98060e73a041a6a66b9d688b2809e206de42f6ee4ea7d67183f05c1f8811"
