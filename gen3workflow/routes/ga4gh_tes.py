@@ -139,9 +139,10 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
     try:
         user_access = await auth.arborist_client.can_user_access_resources(
             jwt=auth.get_access_token(),
-            service="gen3-workflow",
-            method="read",
-            resource_paths=all_resource_paths,
+            resources={
+                r: {"service": "gen3-workflow", "method": "read"}
+                for r in all_resource_paths
+            },
         )
     except ArboristError as e:
         raise HTTPException(e.code, e.message)
