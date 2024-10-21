@@ -426,13 +426,13 @@ standard = ["email-validator (>=2.0.0)", "fastapi-cli[standard] (>=0.0.5)", "htt
 
 [[package]]
 name = "gen3authz"
-version = "2.1.0"
+version = "2.2.0"
 description = "Gen3 authz client"
 optional = false
-python-versions = ">=3.6,<4.0"
+python-versions = "<4.0,>=3.6"
 files = [
-    {file = "gen3authz-2.1.0-py3-none-any.whl", hash = "sha256:6817f2214f1c48475cd2c74778da1a286ca0c667100f76087918b63912966827"},
-    {file = "gen3authz-2.1.0.tar.gz", hash = "sha256:158a0c51a85362cdeac4d227ed52dcd3b22de9e89662dc22d21e24740133718b"},
+    {file = "gen3authz-2.2.0-py3-none-any.whl", hash = "sha256:6bdac26030d8572b1a3da68fc4f23b7f369e3aa5f06bdbcacc803e07b5593cd6"},
+    {file = "gen3authz-2.2.0.tar.gz", hash = "sha256:5c6182bb9a22f6d2699683b55826ff042c555a7627ef9b843049766c88dae5fc"},
 ]
 
 [package.dependencies]
