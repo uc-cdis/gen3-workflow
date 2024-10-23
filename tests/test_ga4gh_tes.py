@@ -88,6 +88,15 @@ async def test_get_task(client, access_token_patcher, view):
                 "tags": {"AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
             }
 
+    # check that the appropriate authorization checks were made
+    if client.tes_resp_code != 500:
+        mock_arborist_request.assert_called_with(
+            method="POST",
+            path=f"/auth/request",
+            body=f'{{"requests": [{{"resource": "/users/{TEST_USER_ID}/gen3-workflow/tasks/123", "action": {{"service": "gen3-workflow", "method": "read"}}}}], "user": {{"token": "123"}}}}',
+            authorized=client.authorized,
+        )
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
@@ -120,6 +129,21 @@ async def test_create_task(client, access_token_patcher):
             query_params={},
             body=f'{{"name": "test-task", "tags": {{"AUTHZ": "/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
             status_code=client.tes_resp_code,
+        )
+
+    # check that the appropriate authorization checks were made
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/auth/request",
+        body=f'{{"requests": [{{"resource": "/services/workflow/gen3-workflow/tasks", "action": {{"service": "gen3-workflow", "method": "create"}}}}], "user": {{"token": "123"}}}}',
+        authorized=client.authorized,
+    )
+    if client.authorized and client.tes_resp_code != 500:
+        mock_arborist_request.assert_any_call(
+            method="POST",
+            path=f"/auth/request",
+            body=f'{{"requests": [{{"resource": "/users/{TEST_USER_ID}/gen3-workflow/tasks", "action": {{"service": "gen3-workflow", "method": "read"}}}}], "user": {{"token": "123"}}}}',
+            authorized=client.authorized,
         )
 
 
@@ -253,6 +277,15 @@ async def test_list_tasks(client, access_token_patcher, view):
                     ]
                 }
 
+    # check that the appropriate authorization checks were made
+    if client.tes_resp_code != 500:
+        mock_arborist_request.assert_called_with(
+            method="POST",
+            path="/auth/mapping",
+            body="",
+            authorized=client.authorized,
+        )
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
@@ -294,4 +327,13 @@ async def test_delete_task(client, access_token_patcher):
             query_params={},
             body="",
             status_code=client.tes_resp_code,
+        )
+
+    # check that the appropriate authorization checks were made
+    if client.tes_resp_code != 500:
+        mock_arborist_request.assert_called_with(
+            method="POST",
+            path=f"/auth/request",
+            body=f'{{"requests": [{{"resource": "/users/{TEST_USER_ID}/gen3-workflow/tasks/123", "action": {{"service": "gen3-workflow", "method": "delete"}}}}], "user": {{"token": "123"}}}}',
+            authorized=client.authorized,
         )
