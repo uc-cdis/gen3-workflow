@@ -3,7 +3,7 @@ name: Build docs
 on:
   # 'paths-ignore' are not respected as expected, see https://github.com/actions/runner/issues/2324
   pull_request:
-    types: [opened]
+    types: [opened, reopened, synchronize]
     branches: [ master ]
     # paths-ignore:
     #   - 'docs/**'
