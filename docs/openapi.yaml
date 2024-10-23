@@ -30,6 +30,10 @@ components:
       - type
       title: ValidationError
       type: object
+  securitySchemes:
+    HTTPBearer:
+      scheme: bearer
+      type: http
 info:
   title: Gen3Workflow
   version: 0.1.0
@@ -98,6 +102,8 @@ paths:
             application/json:
               schema: {}
           description: Successful Response
+      security:
+      - HTTPBearer: []
       summary: List Tasks
       tags:
       - GA4GH TES
@@ -109,6 +115,8 @@ paths:
             application/json:
               schema: {}
           description: Successful Response
+      security:
+      - HTTPBearer: []
       summary: Create Task
       tags:
       - GA4GH TES
@@ -134,6 +142,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
+      security:
+      - HTTPBearer: []
       summary: Get Task
       tags:
       - GA4GH TES
@@ -159,6 +169,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
+      security:
+      - HTTPBearer: []
       summary: Cancel Task
       tags:
       - GA4GH TES

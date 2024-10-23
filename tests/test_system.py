@@ -5,8 +5,10 @@ import pytest
 @pytest.mark.parametrize("endpoint", ["/", "/_status"])
 @pytest.mark.parametrize(
     "client",
-    [{"status_code": 200}, {"status_code": 404}],
-    ids=["success", "failure"],
+    [
+        pytest.param({"tes_resp_code": 200}, id="success"),
+        pytest.param({"tes_resp_code": 404}, id="TES failure"),
+    ],
     indirect=True,
 )
 async def test_status_endpoint(client, endpoint):
@@ -15,7 +17,7 @@ async def test_status_endpoint(client, endpoint):
     not, it returns 500.
     """
     res = await client.get(endpoint)
-    if client.status_code == 200:
+    if client.tes_resp_code == 200:
         assert res.status_code == 200
     else:
         assert res.json() == {"detail": "Unable to reach TES API"}

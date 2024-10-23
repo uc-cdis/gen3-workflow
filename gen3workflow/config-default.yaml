@@ -5,6 +5,9 @@
 DEBUG: true
 DOCS_URL_PREFIX: /gen3workflow
 
+# override the default Arborist URL; ignored if already set as an environment variable
+ARBORIST_URL:
+
 ####################
 # GA4GH TES        #
 ####################
