@@ -63,7 +63,7 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
                 200,
                 (
                     {
-                        f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER": [
+                        f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123": [
                             {"service": "gen3-workflow", "method": "read"}
                         ],
                     }

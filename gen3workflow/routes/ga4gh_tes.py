@@ -117,7 +117,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
     }
 
     # force the use of "FULL" view so the response includes tags
-    original_view = query_params.get("view")
+    requested_view = query_params.get("view")
     query_params["view"] = "FULL"
 
     # get all the tasks, regardless of access
@@ -129,13 +129,17 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
         raise HTTPException(res.status_code, res.text)
     listed_tasks = res.json()
 
+    # get all the tasks' authz resource paths, replacing the task ID placeholder with the actual ID
+    all_resource_paths = []
+    for task in listed_tasks.get("tasks", []):
+        if task.get("tags", {}).get("AUTHZ"):
+            task["tags"]["AUTHZ"] = task["tags"]["AUTHZ"].replace(
+                "TASK_ID_PLACEHOLDER", task.get("id")
+            )
+            all_resource_paths.append(task["tags"]["AUTHZ"])
+
     # ask arborist which resource paths the current user has access to.
     # `user_access` format: { <resource path>: True if user has access, False otherwise }
-    all_resource_paths = [
-        task.get("tags", {}).get("AUTHZ")
-        for task in listed_tasks.get("tasks", [])
-        if task.get("tags", {}).get("AUTHZ")
-    ]
     try:
         user_access = await auth.arborist_client.can_user_access_resources(
             jwt=auth.get_access_token(),
@@ -149,7 +153,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
 
     # filter out tasks the current user does not have access to
     listed_tasks["tasks"] = [
-        apply_view_to_task(original_view, task)
+        apply_view_to_task(requested_view, task)
         for task in listed_tasks.get("tasks", [])
         if user_access.get(task.get("tags", {}).get("AUTHZ"))
     ]
@@ -165,7 +169,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
     }
 
     # force the use of "FULL" view so the response includes tags
-    original_view = query_params.get("view")
+    requested_view = query_params.get("view")
     query_params["view"] = "FULL"
 
     res = await request.app.async_client.get(
@@ -182,10 +186,10 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
         err_msg = "No authz tag in task body"
         logger.error(f"{err_msg}: {body}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
-    authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
+    body["tags"]["AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [authz_path])
 
-    return apply_view_to_task(original_view, body)
+    return apply_view_to_task(requested_view, body)
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)

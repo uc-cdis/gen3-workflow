@@ -78,14 +78,14 @@ async def test_get_task(client, access_token_patcher, view):
                 "id": "123",
                 "state": "COMPLETE",
                 "logs": [{"system_logs": ["blah"]}],
-                "tags": {"AUTHZ": "/users/64/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"},
+                "tags": {"AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
             }
         else:  # view == None or "MINIMAL"
             assert res.json() == {
                 "id": "123",
                 "state": "COMPLETE",
                 "logs": [{}],
-                "tags": {"AUTHZ": "/users/64/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"},
+                "tags": {"AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
             }
 
 
@@ -234,7 +234,7 @@ async def test_list_tasks(client, access_token_patcher, view):
                             "state": "COMPLETE",
                             "logs": [{"system_logs": ["blah"]}],
                             "tags": {
-                                "AUTHZ": "/users/64/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"
                             },
                         }
                     ]
@@ -247,7 +247,7 @@ async def test_list_tasks(client, access_token_patcher, view):
                             "state": "COMPLETE",
                             "logs": [{}],
                             "tags": {
-                                "AUTHZ": "/users/64/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"
                             },
                         }
                     ]
