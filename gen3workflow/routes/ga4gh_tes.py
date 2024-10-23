@@ -130,13 +130,13 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
     listed_tasks = res.json()
 
     # get all the tasks' authz resource paths, replacing the task ID placeholder with the actual ID
-    all_resource_paths = []
+    all_resource_paths = set()
     for task in listed_tasks.get("tasks", []):
         if task.get("tags", {}).get("AUTHZ"):
             task["tags"]["AUTHZ"] = task["tags"]["AUTHZ"].replace(
                 "TASK_ID_PLACEHOLDER", task.get("id")
             )
-            all_resource_paths.append(task["tags"]["AUTHZ"])
+            all_resource_paths.add(task["tags"]["AUTHZ"])
 
     # ask arborist which resource paths the current user has access to.
     # `user_access` format: { <resource path>: True if user has access, False otherwise }
