@@ -53,7 +53,7 @@ def access_token_patcher(client, request):
 
 
 def mock_arborist_request_function(method: str, path: str, body: str, authorized: bool):
-    # paths to reponses: { URL: { METHOD: response body } }
+    # paths to reponses: { URL: { METHOD: (status code, response body) } }
     paths_to_responses = {
         # access check:
         "/auth/request": {"POST": (200, {"auth": authorized})},

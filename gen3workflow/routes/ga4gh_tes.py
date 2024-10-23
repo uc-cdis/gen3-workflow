@@ -187,7 +187,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
         logger.error(f"{err_msg}: {body}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
     body["tags"]["AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
-    await auth.authorize("read", [authz_path])
+    await auth.authorize("read", [body["tags"]["AUTHZ"]])
 
     return apply_view_to_task(requested_view, body)
 
