@@ -56,7 +56,30 @@ python run.py
 
 Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/docs> (you might have to set `DOCS_URL_PREFIX` to `""` in your configuration file for the docs endpoint to work).
 
-### Quickstart with Helm
+## Run Nextflow workflows with Gen3Workflow
+
+Example Nextflow configuration:
+```
+plugins {
+	id 'nf-ga4gh'
+}
+process {
+	executor = 'tes'
+	container = 'quay.io/nextflow/bash'
+}
+tes {
+	endpoint = 'http://localhost:8080/ga4gh-tes'
+}
+```
+> `http://localhost:8080/ga4gh-tes` is where Gen3Workflow runs by default when started with `python run.py`.
+
+Run a workflow:
+```
+nextflow run hello
+```
+
+
+## Quickstart with Helm
 
 You can now deploy individual services via Helm!
 
