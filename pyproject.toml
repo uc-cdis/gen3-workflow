@@ -12,7 +12,6 @@ include = [
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4"
-alembic = "<2"
 authutils = "<7"
 cdislogging = "<2"
 fastapi = "<1"

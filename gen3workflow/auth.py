@@ -11,6 +11,7 @@ from starlette.status import (
 from gen3authz.client.arborist.errors import ArboristError
 
 from gen3workflow import logger
+from gen3workflow.config import config
 
 
 # auto_error=False prevents FastAPI from raising a 403 when the request
@@ -29,6 +30,9 @@ class Auth:
         self.bearer_token = bearer_token
 
     def get_access_token(self):
+        if config["MOCK_AUTH"]:
+            return "123"
+
         return (
             self.bearer_token.credentials
             if self.bearer_token and hasattr(self.bearer_token, "credentials")
@@ -36,6 +40,9 @@ class Auth:
         )
 
     async def get_token_claims(self) -> dict:
+        if config["MOCK_AUTH"]:
+            return {"sub": 64, "context": {"user": {"name": "mocked-user"}}}
+
         if not self.bearer_token:
             err_msg = "Must provide an access token"
             logger.error(err_msg)
@@ -64,8 +71,10 @@ class Auth:
         resources: list,
         throw: bool = True,
     ) -> bool:
-        token = self.get_access_token()
+        if config["MOCK_AUTH"]:
+            return True
 
+        token = self.get_access_token()
         try:
             authorized = await self.arborist_client.auth_request(
                 token, "gen3-workflow", method, resources

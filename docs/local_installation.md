@@ -42,23 +42,19 @@ To use a configuration file in a custom location, you can set the `GEN3WORKFLOW_
 
 ## Run Gen3Workflow
 
-Update your configuration file to set `LOCAL_MIGRATION` to `true`, so that no attempts to interact with Arborist are made.
+You will need to run a TES server for Gen3Workflow to talk to. For example, you can start a local Funnel server: https://ohsu-comp-bio.github.io/funnel/#intro.
 
-Run database schema migration:
+Update your configuration file:
+- set `TES_SERVER_URL` to the TES server URL
+- set `MOCK_AUTH` to `true`, so that no attempts to interact with Arborist are made.
 
-```bash
-alembic upgrade head
-```
-
-Run the server with auto-reloading:
+Start the Gen3Workflow app:
 
 ```bash
 python run.py
-OR
-uvicorn gen3workflow.app:app --reload
 ```
 
-Try out the API at <http://localhost:8000/_status> or <http://localhost:8000/docs> (you might have to set `DOCS_URL_PREFIX` to `""` in your configuration file for the docs endpoint to work).
+Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/docs> (you might have to set `DOCS_URL_PREFIX` to `""` in your configuration file for the docs endpoint to work).
 
 ### Quickstart with Helm
 
