@@ -56,6 +56,14 @@ async def create_task(request: Request, auth=Depends(Auth)):
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
+    """
+    TODO:
+    1. Extract the images from the Nextflow request. The `body.executors` field is a list of dictionaries, where each entry includes an `image` key.
+    2. If any of the images are not whitelisted, return a 403 Forbidden error.
+    3. Fetch the list of allowed images from the configuration file. For a data commons that uses Gen3Workflow, whitelisted images should be located in the ECR repository under `<AWS_account_number>.dkr.ecr.us-east-1.amazonaws.com/nextflow-approved/<username>`.
+        - To validate an image, match its name with this prefix and substitute `{{username}}` with the username retrieved from the OAuth token. This ensures the image is allowed.
+    """
+
     if "tags" not in body:
         body["tags"] = {}
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
@@ -115,7 +123,6 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
     query_params = {
         k: v for k, v in dict(request.query_params).items() if k in supported_params
     }
-
     # force the use of "FULL" view so the response includes tags
     requested_view = query_params.get("view")
     query_params["view"] = "FULL"
