@@ -25,6 +25,6 @@ if __name__ == "__main__":
         print(f"Saved docs at {path}")
     else:
         host = "0.0.0.0"
-        port = 8000
+        port = 8080
         print(f"gen3workflow.app:app running at {host}:{port}")
         uvicorn.run("gen3workflow.app:app", host=host, port=port, reload=True)

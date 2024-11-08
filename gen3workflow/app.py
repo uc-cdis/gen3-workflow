@@ -33,6 +33,10 @@ def get_app(httpx_client=None) -> FastAPI:
     get_logger("gen3workflow", log_level=log_level)
 
     logger.info("Initializing Arborist client")
+    if config["MOCK_AUTH"]:
+        logger.warning(
+            "Mock authentication and authorization are enabled! 'MOCK_AUTH' should NOT be enabled in production!"
+        )
     custom_arborist_url = os.environ.get("ARBORIST_URL", config["ARBORIST_URL"])
     if custom_arborist_url:
         app.arborist_client = ArboristClient(

@@ -35,7 +35,7 @@ jobs:
         poetry install -vv --no-interaction
         poetry show -vv
     - name: Build docs
-      run: AUDIT_SERVICE_CONFIG_PATH=src/audit/config-default.yaml poetry run python run.py openapi
+      run: poetry run python run.py openapi
 
     - uses: stefanzweifel/git-auto-commit-action@v4.1.2
       with:

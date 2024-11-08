@@ -99,9 +99,7 @@ def create_config_file(file_name, full_path=None):
     if dir_name and not os.path.exists(dir_name):
         os.makedirs(os.path.dirname(config_path))
 
-    copyfile(
-        os.path.join(ROOT_DIR, "src/gen3workflow/config-default.yaml"), config_path
-    )
+    copyfile(os.path.join(ROOT_DIR, "gen3workflow/config-default.yaml"), config_path)
 
     return config_path
 

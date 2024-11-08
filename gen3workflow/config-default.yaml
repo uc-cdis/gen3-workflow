@@ -8,6 +8,9 @@ DOCS_URL_PREFIX: /gen3workflow
 # override the default Arborist URL; ignored if already set as an environment variable
 ARBORIST_URL:
 
+# /!\ only use for development! Allows running gen3workflow locally without Arborist interaction
+MOCK_AUTH: false
+
 ####################
 # GA4GH TES        #
 ####################
