@@ -1,9 +1,13 @@
-####################
-# SERVER           #
-####################
+##########
+# SERVER #
+##########
 
+HOSTNAME: localhost
 DEBUG: true
 DOCS_URL_PREFIX: /gen3workflow
+
+MAX_IAM_KEYS_PER_USER: 3
+IAM_KEYS_LIFETIME_DAYS: 30
 
 # override the default Arborist URL; ignored if already set as an environment variable
 ARBORIST_URL:
@@ -11,8 +15,8 @@ ARBORIST_URL:
 # /!\ only use for development! Allows running gen3workflow locally without Arborist interaction
 MOCK_AUTH: false
 
-####################
-# GA4GH TES        #
-####################
+#############
+# GA4GH TES #
+#############
 
 TES_SERVER_URL: http://funnel-service

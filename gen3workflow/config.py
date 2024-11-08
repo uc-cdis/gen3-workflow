@@ -29,8 +29,12 @@ class Gen3WorkflowConfig(Config):
             "type": "object",
             "additionalProperties": True,
             "properties": {
+                "HOSTNAME": {"type": "string"},
                 "DEBUG": {"type": "boolean"},
                 "DOCS_URL_PREFIX": {"type": "string"},
+                # aws_utils.list_iam_user_keys should be updated to fetch paginated results if >100
+                "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
+                "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "TES_SERVER_URL": {"type": "string"},
             },
