@@ -31,9 +31,10 @@ async def get_request_body(request: Request):
 
 @router.get("/service-info", status_code=HTTP_200_OK)
 async def service_info(request: Request):
-    res = await request.app.async_client.get(f"{config['TES_SERVER_URL']}/service-info")
+    url = f"{config['TES_SERVER_URL']}/service-info"
+    res = await request.app.async_client.get(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.status_code} {res.text}")
+        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     return res.json()
 
@@ -68,11 +69,10 @@ async def create_task(request: Request, auth=Depends(Auth)):
         body["tags"] = {}
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
-    res = await request.app.async_client.post(
-        f"{config['TES_SERVER_URL']}/tasks", json=body
-    )
+    url = f"{config['TES_SERVER_URL']}/tasks"
+    res = await request.app.async_client.post(url, json=body)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.status_code} {res.text}")
+        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     try:
@@ -128,11 +128,10 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
     query_params["view"] = "FULL"
 
     # get all the tasks, regardless of access
-    res = await request.app.async_client.get(
-        f"{config['TES_SERVER_URL']}/tasks", params=query_params
-    )
+    url = f"{config['TES_SERVER_URL']}/tasks"
+    res = await request.app.async_client.get(url, params=query_params)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.status_code} {res.text}")
+        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     listed_tasks = res.json()
 
@@ -179,11 +178,10 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
     requested_view = query_params.get("view")
     query_params["view"] = "FULL"
 
-    res = await request.app.async_client.get(
-        f"{config['TES_SERVER_URL']}/tasks/{task_id}", params=query_params
-    )
+    url = f"{config['TES_SERVER_URL']}/tasks/{task_id}"
+    res = await request.app.async_client.get(url, params=query_params)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.status_code} {res.text}")
+        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     # check if this user has access to see this task
@@ -202,11 +200,10 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
 async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
     # check if this user has access to delete this task
-    res = await request.app.async_client.get(
-        f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
-    )
+    url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
+    res = await request.app.async_client.get(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.status_code} {res.text}")
+        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     body = res.json()
     authz_path = body.get("tags", {}).get("AUTHZ")
@@ -218,11 +215,10 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
     await auth.authorize("delete", [authz_path])
 
     # the user has access: delete the task
-    res = await request.app.async_client.post(
-        f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
-    )
+    url = f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
+    res = await request.app.async_client.post(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error: {res.status_code} {res.text}")
+        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     return res.json()
