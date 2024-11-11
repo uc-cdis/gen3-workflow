@@ -68,10 +68,10 @@ process {
 	container = 'quay.io/nextflow/bash'
 }
 tes {
-	endpoint = 'http://localhost:8080/ga4gh-tes'
+	endpoint = 'http://localhost:8080/ga4gh/tes'
 }
 ```
-> `http://localhost:8080/ga4gh-tes` is where Gen3Workflow runs by default when started with `python run.py`.
+> `http://localhost:8080` is where Gen3Workflow runs by default when started with `python run.py`.
 
 Run a workflow:
 ```
