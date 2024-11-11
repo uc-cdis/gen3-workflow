@@ -1,3 +1,2 @@
-MAX_IAM_KEYS_PER_USER: 2
 ARBORIST_URL: http://test-arborist-server
 TES_SERVER_URL: http://external-tes-server/tes

@@ -43,33 +43,6 @@ async def generate_user_key(request: Request, auth=Depends(Auth)):
     }
 
 
-# def get_refresh_token_expirations(username, idps):
-#     """
-#     Returns:
-#         dict: IdP to expiration of the most recent refresh token, or None if it's expired.
-#     """
-#     now = int(time.time())
-#     refresh_tokens = (
-#         db.session.query(RefreshToken)
-#         .filter_by(username=username)
-#         .filter(RefreshToken.idp.in_(idps))
-#         .order_by(RefreshToken.expires.asc())
-#     )
-#     if not refresh_tokens:
-#         return {}
-#     # the tokens are ordered by oldest to most recent, because we only want
-#     # to return None if the most recent token is expired
-#     expirations = {idp: None for idp in idps}
-#     expirations.update(
-#         {
-#             t.idp: seconds_to_human_time(t.expires - now)
-#             for t in refresh_tokens
-#             if t.expires > now
-#         }
-#     )
-#     return expirations
-
-
 def seconds_to_human_time(seconds):
     if seconds < 0:
         return None
@@ -92,14 +65,13 @@ async def get_user_keys(request: Request, auth=Depends(Auth)):
     now = datetime.now(timezone.utc)
 
     def get_key_expiration(key_status, key_creation_date):
-        # TODO unit tests for this
         if (
             key_status == "Inactive"
             or (now - key_creation_date).days > config["IAM_KEYS_LIFETIME_DAYS"]
         ):
             return "expired"
         expires_in = (
-            now + timedelta(days=config["IAM_KEYS_LIFETIME_DAYS"]) - key_creation_date
+            key_creation_date + timedelta(days=config["IAM_KEYS_LIFETIME_DAYS"]) - now
         )
         return f"expires in {seconds_to_human_time(expires_in.total_seconds())}"
 

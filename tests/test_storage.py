@@ -1,9 +1,12 @@
 import boto3
+from freezegun import freeze_time
 from moto import mock_aws
 import pytest
 
 from conftest import TEST_USER_ID
 from gen3workflow import aws_utils
+from gen3workflow.config import config
+from gen3workflow.aws_utils import get_iam_user_name
 
 
 @pytest.mark.asyncio
@@ -38,8 +41,14 @@ async def test_create_and_list_user_keys(client, access_token_patcher):
         )
         assert res.status_code == 200, res.text
         assert res.json() == [
-            {"aws_key_id": keys[0]["aws_key_id"], "status": "expires in 30 days"},
-            {"aws_key_id": keys[1]["aws_key_id"], "status": "expires in 30 days"},
+            {
+                "aws_key_id": keys[0]["aws_key_id"],
+                "status": f"expires in {config['IAM_KEYS_LIFETIME_DAYS'] - 1} days",
+            },
+            {
+                "aws_key_id": keys[1]["aws_key_id"],
+                "status": f"expires in {config['IAM_KEYS_LIFETIME_DAYS'] - 1} days",
+            },
         ]
 
         # delete the 2st key
@@ -55,7 +64,71 @@ async def test_create_and_list_user_keys(client, access_token_patcher):
         )
         assert res.status_code == 200, res.text
         assert res.json() == [
-            {"aws_key_id": keys[1]["aws_key_id"], "status": "expires in 30 days"}
+            {
+                "aws_key_id": keys[1]["aws_key_id"],
+                "status": f"expires in {config['IAM_KEYS_LIFETIME_DAYS'] - 1} days",
+            }
+        ]
+
+
+@pytest.mark.asyncio
+async def test_list_user_keys_status(client, access_token_patcher):
+    """
+    Keys that are deactivated or past the expiration date should be listed as "expired" when listing a user's keys.
+    """
+    with mock_aws():
+        aws_utils.iam_client = boto3.client("iam")
+
+        # create 2 keys. The 1st one has a mocked creation date of more than IAM_KEYS_LIFETIME_DAYS
+        # days ago, so it should be expired.
+        keys = []
+        import datetime
+
+        for i in range(2):
+            if i == 0:
+                with freeze_time(
+                    datetime.date.today()
+                    - datetime.timedelta(days=config["IAM_KEYS_LIFETIME_DAYS"] + 1)
+                ):
+                    res = await client.post(
+                        "/storage/credentials", headers={"Authorization": f"bearer 123"}
+                    )
+            else:
+                res = await client.post(
+                    "/storage/credentials", headers={"Authorization": f"bearer 123"}
+                )
+            assert res.status_code == 200, res.text
+            key_data = res.json()
+            assert "aws_key_id" in key_data and "aws_key_secret" in key_data
+            keys.append(key_data)
+
+        # list the user's key; the 1st key should show as expired
+        res = await client.get(
+            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+        )
+        assert res.status_code == 200, res.text
+        assert res.json() == [
+            {"aws_key_id": keys[0]["aws_key_id"], "status": f"expired"},
+            {
+                "aws_key_id": keys[1]["aws_key_id"],
+                "status": f"expires in {config['IAM_KEYS_LIFETIME_DAYS'] - 1} days",
+            },
+        ]
+
+        # deactivate the 2nd key
+        access_key = boto3.resource("iam").AccessKey(
+            get_iam_user_name(TEST_USER_ID), keys[1]["aws_key_id"]
+        )
+        access_key.deactivate()
+
+        # list the user's key; both keys should now show as expired
+        res = await client.get(
+            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+        )
+        assert res.status_code == 200, res.text
+        assert res.json() == [
+            {"aws_key_id": keys[0]["aws_key_id"], "status": "expired"},
+            {"aws_key_id": keys[1]["aws_key_id"], "status": "expired"},
         ]
 
 
@@ -67,8 +140,8 @@ async def test_too_many_user_keys(client, access_token_patcher):
     with mock_aws():
         aws_utils.iam_client = boto3.client("iam")
 
-        # create 2 keys
-        for _ in range(2):
+        # create the max number of keys
+        for _ in range(config["MAX_IAM_KEYS_PER_USER"]):
             res = await client.post(
                 "/storage/credentials", headers={"Authorization": f"bearer 123"}
             )
@@ -76,7 +149,7 @@ async def test_too_many_user_keys(client, access_token_patcher):
             key_data = res.json()
             assert "aws_key_id" in key_data and "aws_key_secret" in key_data
 
-        # attempt to create another key; this should fail since `MAX_IAM_KEYS_PER_USER` is 2
+        # attempt to create another key; this should fail since `MAX_IAM_KEYS_PER_USER` is reached
         res = await client.post(
             "/storage/credentials", headers={"Authorization": f"bearer 123"}
         )

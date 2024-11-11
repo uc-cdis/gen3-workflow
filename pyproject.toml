@@ -24,6 +24,7 @@ jsonschema = "<5"
 uvicorn = "<1"
 
 [tool.poetry.dev-dependencies]
+freezegun = "<2"
 moto = "<6"
 pytest = "<9"
 pytest-asyncio = "<1"

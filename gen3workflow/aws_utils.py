@@ -12,9 +12,23 @@ iam_resp_err = "Unexpected response from AWS IAM"
 
 
 def get_iam_user_name(user_id):
-    # TODO alphanumeric characters and/or the following: +=,.@_-
+    """
+    Generate a valid IAM user name for the specified user.
+    IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
+    and/or the following: +=,.@_-
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+
+    Returns:
+        str: IAM user name
+    """
     escaped_hostname = config["HOSTNAME"].replace(".", "-")
-    iam_user_name = f"gen3wf-{escaped_hostname}-{user_id}"  # TODO max length 64
+    iam_user_name = f"gen3wf-{escaped_hostname}"
+    max = 64 - len(f"-{user_id}")
+    if len(iam_user_name) > max:
+        iam_user_name = iam_user_name[:max]
+    iam_user_name = f"{iam_user_name}-{user_id}"
     return iam_user_name
 
 
@@ -22,7 +36,7 @@ def get_user_bucket_info(user_id):
     """TODO
 
     Args:
-        user_id (_type_): _description_
+        user_id (str): The user's unique Gen3 ID
 
     Returns:
         tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
@@ -152,15 +166,3 @@ def delete_iam_user_key(user_id, key_id):
         UserName=get_iam_user_name(user_id),
         AccessKeyId=key_id,
     )
-
-
-# def delete_expired_iam_user_keys(user_id, keys):
-#     iam_user_name = get_iam_user_name(user_id)
-#     now = datetime.now()
-#     for key in keys:
-#         if key["Status"] == "Inactive" or key["CreateDate"] - now > "TODO":
-#             logger.info(f"Deleting user {user_id}'s expired IAM key '{key["AccessKeyId"]}'")
-#             iam_client.delete_access_key(
-#                 UserName=iam_user_name,
-#                 AccessKeyId=key["AccessKeyId"],
-#             )
