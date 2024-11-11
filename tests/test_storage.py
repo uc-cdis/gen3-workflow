@@ -12,7 +12,7 @@ from gen3workflow.aws_utils import get_iam_user_name
 @pytest.mark.asyncio
 async def test_create_and_list_user_keys(client, access_token_patcher):
     """
-    TODO
+    Create and delete keys, and check that the listing endpoint returns active keys.
     """
     with mock_aws():
         aws_utils.iam_client = boto3.client("iam")
@@ -135,7 +135,7 @@ async def test_list_user_keys_status(client, access_token_patcher):
 @pytest.mark.asyncio
 async def test_too_many_user_keys(client, access_token_patcher):
     """
-    TODO
+    Users should not be able to create new keys after reaching MAX_IAM_KEYS_PER_USER.
     """
     with mock_aws():
         aws_utils.iam_client = boto3.client("iam")
