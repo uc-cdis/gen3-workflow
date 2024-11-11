@@ -51,7 +51,7 @@ async def test_create_and_list_user_keys(client, access_token_patcher):
             },
         ]
 
-        # delete the 2st key
+        # delete the 1st key
         res = await client.delete(
             f"/storage/credentials/{keys[0]['aws_key_id']}",
             headers={"Authorization": f"bearer 123"},
@@ -102,7 +102,7 @@ async def test_list_user_keys_status(client, access_token_patcher):
             assert "aws_key_id" in key_data and "aws_key_secret" in key_data
             keys.append(key_data)
 
-        # list the user's key; the 1st key should show as expired
+        # list the user's keys; the 1st key should show as expired
         res = await client.get(
             "/storage/credentials", headers={"Authorization": f"bearer 123"}
         )
@@ -121,7 +121,7 @@ async def test_list_user_keys_status(client, access_token_patcher):
         )
         access_key.deactivate()
 
-        # list the user's key; both keys should now show as expired
+        # list the user's keys; both keys should now show as expired
         res = await client.get(
             "/storage/credentials", headers={"Authorization": f"bearer 123"}
         )

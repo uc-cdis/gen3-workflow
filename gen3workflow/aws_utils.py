@@ -15,7 +15,8 @@ def get_iam_user_name(user_id):
     """
     Generate a valid IAM user name for the specified user.
     IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
-    and/or the following: +=,.@_-
+    and/or the following: +=,.@_- (not enforced here since user IDs and hostname should not contain
+    special characters).
 
     Args:
         user_id (str): The user's unique Gen3 ID
