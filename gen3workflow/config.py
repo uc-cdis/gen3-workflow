@@ -32,6 +32,7 @@ class Gen3WorkflowConfig(Config):
                 "DEBUG": {"type": "boolean"},
                 "DOCS_URL_PREFIX": {"type": "string"},
                 "ARBORIST_URL": {"type": ["string", "null"]},
+                # "JOB_IMAGES" : {"type": "array", "items" : {"type" : "string"}},
                 "TES_SERVER_URL": {"type": "string"},
             },
         }

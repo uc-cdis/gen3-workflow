@@ -1,5 +1,5 @@
 import pytest
-
+import json
 from conftest import (
     mock_arborist_request,
     mock_tes_server_request,
@@ -14,6 +14,59 @@ client_parameters = [
     pytest.param({"authorized": True, "tes_resp_code": 500}, id="TES failure"),
     pytest.param(
         {"authorized": False, "tes_resp_code": 500}, id="unauthorized + TES failure"
+    ),
+]
+
+body_parameters_with_resp_code = [
+    (
+        {"executors": []},
+        200,
+    ),  # Question!?: If there are no images in the body? Are we expected to send it to TES server, or error out??
+    (
+        {
+            "executors": [
+                {
+                    "image": "public.ecr.aws/random/malicious/public:latest",
+                }
+            ]
+        },
+        403,
+    ),
+    (
+        {
+            "executors": [
+                {
+                    "image": "public.ecr.aws/random/approved/public:latest",
+                }
+            ]
+        },
+        200,
+    ),
+    (
+        {
+            "executors": [
+                {
+                    "image": "quay.io/nextflow/bash",
+                },
+                {
+                    "image": "public.ecr.aws/random/approved/public:latest",
+                },
+            ]
+        },
+        200,
+    ),
+    (
+        {
+            "executors": [
+                {
+                    "image": "quay.io/nextflow/bash",
+                },
+                {
+                    "image": "public.ecr.aws/random/malicious/public:latest",
+                },
+            ]
+        },
+        403,
     ),
 ]
 
@@ -215,6 +268,43 @@ async def test_create_task_without_token(client):
     mock_tes_server_request.assert_not_called()
 
 
+##############################Current Working Part####################################################
+@pytest.mark.asyncio
+@pytest.mark.parametrize("req_body,tes_resp_code", body_parameters_with_resp_code)
+async def test_create_task_with_whitelist_images(
+    client, access_token_patcher, req_body, tes_resp_code
+):
+    """
+    Calls to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server, along with the
+    request body. A tag containing the user ID should be added.
+    When the TES server returns an error, gen3-workflow should return it as well.
+    If the user is not authorized, we should get a 403 error and no TES server requests should
+    be made.
+    """
+    res = await client.post(
+        "/ga4gh-tes/v1/tasks",
+        json=req_body,
+        headers={"Authorization": f"bearer 123"},
+    )
+
+    assert res.status_code == tes_resp_code, res.text
+    if tes_resp_code == 200:
+        result_body = {
+            "executors": req_body["executors"],
+            "tags": {
+                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+            },
+        }
+        mock_tes_server_request.assert_called_once_with(
+            method="POST",
+            path="/tasks",
+            query_params={},
+            body=json.dumps(result_body),
+            status_code=200,
+        )
+
+
+##############################End Current Working Part####################################################
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
