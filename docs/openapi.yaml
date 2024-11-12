@@ -191,7 +191,7 @@ paths:
     post:
       operationId: generate_user_key_storage_credentials_post
       responses:
-        '200':
+        '201':
           content:
             application/json:
               schema: {}
@@ -212,10 +212,7 @@ paths:
           title: Key Id
           type: string
       responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
+        '204':
           description: Successful Response
         '422':
           content:
