@@ -42,6 +42,25 @@ async def service_info(request: Request):
 @router.post("/tasks", status_code=HTTP_200_OK)
 async def create_task(request: Request, auth=Depends(Auth)):
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
+
+    def images_whitelisted(images) -> bool:
+
+        # Fetch the list of whitelisted images, hardcode now, get from config later
+        whitelisted_images = [
+            "quay.io/nextflow/bash",
+            "public.ecr.aws/random/approved/public",
+            "9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/{{username}}",
+        ]  # config['JOB_IMAGE_WHITELIST']
+
+        # Replace the {{username}} placeholder in the whitelisted image with the {username} from the auth token, then convert the list to a set
+        whitelisted_images = {
+            image.replace("{{username}}", username) for image in whitelisted_images
+        }
+
+        image_repos_set = {image.split(":")[0] for image in images}
+        # Returns false if any of the images repos are not from the whitelisted image repos.
+        return image_repos_set.issubset(whitelisted_images)
+
     body = await get_request_body(request)
 
     # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
@@ -63,7 +82,18 @@ async def create_task(request: Request, auth=Depends(Auth)):
     2. If any of the images are not whitelisted, return a 403 Forbidden error.
     3. Fetch the list of allowed images from the configuration file. For a data commons that uses Gen3Workflow, whitelisted images should be located in the ECR repository under `<AWS_account_number>.dkr.ecr.us-east-1.amazonaws.com/nextflow-approved/<username>`.
         - To validate an image, match its name with this prefix and substitute `{{username}}` with the username retrieved from the OAuth token. This ensures the image is allowed.
+        -- Question!? What about the image `quay.io/nextflow/bash` which is responsible for running `nextflow run hello`? Is this not allowed as well?
     """
+    # Fetch the list of images
+    images_from_nextflow = [
+        executor.get("image") for executor in body.get("executors", [])
+    ]
+
+    if not images_whitelisted(images_from_nextflow):
+        raise HTTPException(
+            HTTP_403_FORBIDDEN,
+            "Forbidden: The specified Nextflow image is not among the allowed images.",
+        )
 
     if "tags" not in body:
         body["tags"] = {}
@@ -213,7 +243,6 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
     authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("delete", [authz_path])
-
     # the user has access: delete the task
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
     res = await request.app.async_client.post(url)
