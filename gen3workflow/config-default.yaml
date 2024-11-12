@@ -3,7 +3,7 @@
 ##########
 
 HOSTNAME: localhost
-DEBUG: true
+DEBUG: false
 DOCS_URL_PREFIX: /gen3workflow
 
 MAX_IAM_KEYS_PER_USER: 2  # the default AWS AccessKeysPerUser quota is 2

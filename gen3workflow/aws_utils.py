@@ -112,9 +112,6 @@ def create_iam_user_and_key(user_id):
         # if the user already exists, ignore the error and proceed
         if e.response["Error"]["Code"] != "EntityAlreadyExists":
             raise
-    key = iam_client.create_access_key(UserName=iam_user_name)
-    assert "AccessKeyId" in key.get("AccessKey", {}), f"{iam_resp_err}: {key}"
-    assert "SecretAccessKey" in key.get("AccessKey", {}), f"{iam_resp_err}: {key}"
 
     # grant the IAM user access to the user's s3 bucket
     bucket_name, bucket_prefix, _ = get_user_bucket_info(user_id)
@@ -141,6 +138,11 @@ def create_iam_user_and_key(user_id):
         f"{iam_user_name}-policy", policy_document, path_prefix, iam_tags
     )
     iam_client.attach_user_policy(PolicyArn=policy_arn, UserName=iam_user_name)
+
+    # create a key for this user
+    key = iam_client.create_access_key(UserName=iam_user_name)
+    assert "AccessKeyId" in key.get("AccessKey", {}), f"{iam_resp_err}: {key}"
+    assert "SecretAccessKey" in key.get("AccessKey", {}), f"{iam_resp_err}: {key}"
 
     return key["AccessKey"]["AccessKeyId"], key["AccessKey"]["SecretAccessKey"]
 
