@@ -19,7 +19,7 @@ async def test_create_and_list_user_keys(client, access_token_patcher):
 
         # the user does not have keys yet
         res = await client.get(
-            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+            "/storage/credentials", headers={"Authorization": "bearer 123"}
         )
         assert res.status_code == 200, res.text
         assert res.json() == []
@@ -28,16 +28,16 @@ async def test_create_and_list_user_keys(client, access_token_patcher):
         keys = []
         for _ in range(2):
             res = await client.post(
-                "/storage/credentials", headers={"Authorization": f"bearer 123"}
+                "/storage/credentials", headers={"Authorization": "bearer 123"}
             )
-            assert res.status_code == 200, res.text
+            assert res.status_code == 201, res.text
             key_data = res.json()
             assert "aws_key_id" in key_data and "aws_key_secret" in key_data
             keys.append(key_data)
 
         # both keys should be listed in the user's keys
         res = await client.get(
-            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+            "/storage/credentials", headers={"Authorization": "bearer 123"}
         )
         assert res.status_code == 200, res.text
         assert res.json() == [
@@ -54,13 +54,13 @@ async def test_create_and_list_user_keys(client, access_token_patcher):
         # delete the 1st key
         res = await client.delete(
             f"/storage/credentials/{keys[0]['aws_key_id']}",
-            headers={"Authorization": f"bearer 123"},
+            headers={"Authorization": "bearer 123"},
         )
-        assert res.status_code == 200, res.text
+        assert res.status_code == 204, res.text
 
         # only the 2nd key should now be listed in the user's keys
         res = await client.get(
-            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+            "/storage/credentials", headers={"Authorization": "bearer 123"}
         )
         assert res.status_code == 200, res.text
         assert res.json() == [
@@ -91,20 +91,20 @@ async def test_list_user_keys_status(client, access_token_patcher):
                     - datetime.timedelta(days=config["IAM_KEYS_LIFETIME_DAYS"] + 1)
                 ):
                     res = await client.post(
-                        "/storage/credentials", headers={"Authorization": f"bearer 123"}
+                        "/storage/credentials", headers={"Authorization": "bearer 123"}
                     )
             else:
                 res = await client.post(
-                    "/storage/credentials", headers={"Authorization": f"bearer 123"}
+                    "/storage/credentials", headers={"Authorization": "bearer 123"}
                 )
-            assert res.status_code == 200, res.text
+            assert res.status_code == 201, res.text
             key_data = res.json()
             assert "aws_key_id" in key_data and "aws_key_secret" in key_data
             keys.append(key_data)
 
         # list the user's keys; the 1st key should show as expired
         res = await client.get(
-            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+            "/storage/credentials", headers={"Authorization": "bearer 123"}
         )
         assert res.status_code == 200, res.text
         assert res.json() == [
@@ -123,7 +123,7 @@ async def test_list_user_keys_status(client, access_token_patcher):
 
         # list the user's keys; both keys should now show as expired
         res = await client.get(
-            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+            "/storage/credentials", headers={"Authorization": "bearer 123"}
         )
         assert res.status_code == 200, res.text
         assert res.json() == [
@@ -143,15 +143,15 @@ async def test_too_many_user_keys(client, access_token_patcher):
         # create the max number of keys
         for _ in range(config["MAX_IAM_KEYS_PER_USER"]):
             res = await client.post(
-                "/storage/credentials", headers={"Authorization": f"bearer 123"}
+                "/storage/credentials", headers={"Authorization": "bearer 123"}
             )
-            assert res.status_code == 200, res.text
+            assert res.status_code == 201, res.text
             key_data = res.json()
             assert "aws_key_id" in key_data and "aws_key_secret" in key_data
 
         # attempt to create another key; this should fail since `MAX_IAM_KEYS_PER_USER` is reached
         res = await client.post(
-            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+            "/storage/credentials", headers={"Authorization": "bearer 123"}
         )
         assert res.status_code == 400, res.text
         assert res.json() == {
@@ -161,17 +161,34 @@ async def test_too_many_user_keys(client, access_token_patcher):
         # delete one of the keys
         res = await client.delete(
             f"/storage/credentials/{key_data['aws_key_id']}",
-            headers={"Authorization": f"bearer 123"},
+            headers={"Authorization": "bearer 123"},
         )
-        assert res.status_code == 200, res.text
+        assert res.status_code == 204, res.text
 
         # attempt to create another key; now it should succeed
         res = await client.post(
-            "/storage/credentials", headers={"Authorization": f"bearer 123"}
+            "/storage/credentials", headers={"Authorization": "bearer 123"}
         )
-        assert res.status_code == 200, res.text
+        assert res.status_code == 201, res.text
         key_data = res.json()
         assert "aws_key_id" in key_data and "aws_key_secret" in key_data
+
+
+@pytest.mark.asyncio
+async def test_delete_non_existent_key(client, access_token_patcher):
+    """
+    Attempting to delete a key that does not exist should result in a 404 error.
+    """
+    with mock_aws():
+        aws_utils.iam_client = boto3.client("iam")
+
+        key_id = "thiskeydoesnotexist"
+        res = await client.delete(
+            f"/storage/credentials/{key_id}",
+            headers={"Authorization": "bearer 123"},
+        )
+        assert res.status_code == 404, res.text
+        assert res.json() == {"detail": f"No such key: '{key_id}'"}
 
 
 @pytest.mark.asyncio
@@ -182,9 +199,7 @@ async def test_torage_info(client, access_token_patcher):
     with mock_aws():
         aws_utils.iam_client = boto3.client("iam")
 
-        res = await client.get(
-            "/storage/info", headers={"Authorization": f"bearer 123"}
-        )
+        res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
         assert res.status_code == 200, res.text
         storage_info = res.json()
         assert storage_info == {

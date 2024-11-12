@@ -2,6 +2,8 @@ import json
 
 import boto3
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
+from starlette.status import HTTP_404_NOT_FOUND
 
 from gen3workflow import logger
 from gen3workflow.config import config
@@ -165,7 +167,14 @@ def list_iam_user_keys(user_id):
 
 
 def delete_iam_user_key(user_id, key_id):
-    iam_client.delete_access_key(
-        UserName=get_iam_user_name(user_id),
-        AccessKeyId=key_id,
-    )
+    try:
+        iam_client.delete_access_key(
+            UserName=get_iam_user_name(user_id),
+            AccessKeyId=key_id,
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchEntity":
+            raise HTTPException(
+                HTTP_404_NOT_FOUND,
+                f"No such key: '{key_id}'",
+            )

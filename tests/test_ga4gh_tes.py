@@ -51,7 +51,7 @@ async def test_get_task(client, access_token_patcher, view):
     url = f"/ga4gh/tes/v1/tasks/123?unsupported_param=value"
     if view:
         url += f"&view={view}"
-    res = await client.get(url, headers={"Authorization": f"bearer 123"})
+    res = await client.get(url, headers={"Authorization": "bearer 123"})
 
     # the call to the TES server always has `view=FULL` so we get the AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
@@ -111,7 +111,7 @@ async def test_create_task(client, access_token_patcher):
     res = await client.post(
         "/ga4gh/tes/v1/tasks",
         json={"name": "test-task"},
-        headers={"Authorization": f"bearer 123"},
+        headers={"Authorization": "bearer 123"},
     )
     if not client.authorized:
         assert res.status_code == 403, res.text
@@ -159,7 +159,7 @@ async def test_create_task_new_user(client, access_token_patcher):
     res = await client.post(
         "/ga4gh/tes/v1/tasks",
         json={"name": "test-task"},
-        headers={"Authorization": f"bearer 123"},
+        headers={"Authorization": "bearer 123"},
     )
     assert res.status_code == 200, res.text
     assert res.json() == {"id": "123"}
@@ -228,7 +228,7 @@ async def test_list_tasks(client, access_token_patcher, view):
     url = f"/ga4gh/tes/v1/tasks?state=COMPLETE&unsupported_param=value"
     if view:
         url += f"&view={view}"
-    res = await client.get(url, headers={"Authorization": f"bearer 123"})
+    res = await client.get(url, headers={"Authorization": "bearer 123"})
 
     # the call to the TES server always has `view=FULL` so we get the AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
@@ -298,7 +298,7 @@ async def test_delete_task(client, access_token_patcher):
     res = await client.post(
         "/ga4gh/tes/v1/tasks/123:cancel",
         json={"unsupported_body": "value"},
-        headers={"Authorization": f"bearer 123"},
+        headers={"Authorization": "bearer 123"},
     )
 
     # there is always a 1st call with view=FULL to get the AUTHZ tag

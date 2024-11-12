@@ -1,7 +1,12 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from starlette.status import HTTP_200_OK, HTTP_400_BAD_REQUEST
+from starlette.status import (
+    HTTP_200_OK,
+    HTTP_201_CREATED,
+    HTTP_204_NO_CONTENT,
+    HTTP_400_BAD_REQUEST,
+)
 
 # from gen3workflow import logger
 from gen3workflow.auth import Auth
@@ -24,7 +29,7 @@ async def get_storage_info(request: Request, auth=Depends(Auth)):
     }
 
 
-@router.post("/credentials", status_code=HTTP_200_OK)
+@router.post("/credentials", status_code=HTTP_201_CREATED)
 async def generate_user_key(request: Request, auth=Depends(Auth)):
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
@@ -84,7 +89,7 @@ async def get_user_keys(request: Request, auth=Depends(Auth)):
     ]
 
 
-@router.delete("/credentials/{key_id}", status_code=HTTP_200_OK)
+@router.delete("/credentials/{key_id}", status_code=HTTP_204_NO_CONTENT)
 async def delete_user_key(request: Request, key_id: str, auth=Depends(Auth)):
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
