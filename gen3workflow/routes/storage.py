@@ -8,7 +8,6 @@ from starlette.status import (
     HTTP_400_BAD_REQUEST,
 )
 
-# from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
 from gen3workflow import aws_utils

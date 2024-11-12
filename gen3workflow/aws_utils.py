@@ -104,12 +104,7 @@ def create_iam_user_and_key(user_id):
     ]
 
     try:
-        iam_client.create_user(
-            # Path='string',
-            UserName=iam_user_name,
-            # PermissionsBoundary='string',
-            Tags=iam_tags,
-        )
+        iam_client.create_user(UserName=iam_user_name, Tags=iam_tags)
     except ClientError as e:
         # if the user already exists, ignore the error and proceed
         if e.response["Error"]["Code"] != "EntityAlreadyExists":
