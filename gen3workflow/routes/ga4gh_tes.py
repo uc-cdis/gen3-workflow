@@ -16,7 +16,7 @@ from gen3workflow.auth import Auth
 from gen3workflow.config import config
 
 
-router = APIRouter(prefix="/ga4gh-tes/v1")
+router = APIRouter(prefix="/ga4gh/tes/v1")
 
 
 async def get_request_body(request: Request):

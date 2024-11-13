@@ -1,9 +1,13 @@
-####################
-# SERVER           #
-####################
+##########
+# SERVER #
+##########
 
-DEBUG: true
+HOSTNAME: localhost
+DEBUG: false
 DOCS_URL_PREFIX: /gen3workflow
+
+MAX_IAM_KEYS_PER_USER: 2  # the default AWS AccessKeysPerUser quota is 2
+IAM_KEYS_LIFETIME_DAYS: 30
 
 # override the default Arborist URL; ignored if already set as an environment variable
 ARBORIST_URL:
@@ -14,8 +18,9 @@ MOCK_AUTH: false
 # List of whitelisted images to be allowed by the Gen3Workflow Service to forward to TES server.
 WHITELISTED_REPO_LIST:
 
-####################
-# GA4GH TES        #
-####################
+
+#############
+# GA4GH TES #
+#############
 
 TES_SERVER_URL: http://funnel-service
