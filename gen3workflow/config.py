@@ -17,6 +17,7 @@ class Gen3WorkflowConfig(Config):
     def __init__(self, *args, **kwargs):
         super(Gen3WorkflowConfig, self).__init__(*args, **kwargs)
 
+    # Override the Gen3Config's __iter__ method, in order to prevent from json schema failing over arrays
     def __iter__(self):
         for key in self._configs:
             yield key

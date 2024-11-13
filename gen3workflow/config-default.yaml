@@ -18,7 +18,6 @@ MOCK_AUTH: false
 # List of whitelisted images to be allowed by the Gen3Workflow Service to forward to TES server.
 WHITELISTED_REPO_LIST:
 
-
 #############
 # GA4GH TES #
 #############
