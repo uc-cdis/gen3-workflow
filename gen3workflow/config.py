@@ -40,7 +40,7 @@ class Gen3WorkflowConfig(Config):
                 "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
                 "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "ARBORIST_URL": {"type": ["string", "null"]},
-                "JOB_IMAGE": {"type": "array", "items": {"type": "string"}},
+                "WHITELISTED_REPO_LIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
             },
         }
