@@ -192,7 +192,7 @@ async def test_delete_non_existent_key(client, access_token_patcher):
 
 
 @pytest.mark.asyncio
-async def test_torage_info(client, access_token_patcher):
+async def test_storage_info(client, access_token_patcher):
     """
     TODO
     """

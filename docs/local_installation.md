@@ -1,6 +1,17 @@
 # Local installation
 
-## Install Gen3Workflow
+Contents:
+- [Quickstart from source](#quickstart-from-source)
+  - [Install Gen3Workflow](#install-gen3workflow)
+  - [Create configuration file](#create-configuration-file)
+  - [Start the Gen3Workflow service](#start-the-gen3workflow-service)
+- [Run Nextflow workflows with Gen3Workflow](#run-nextflow-workflows-with-gen3workflow)
+- [AWS access](#aws-access)
+- [Quickstart with Helm](#quickstart-with-helm)
+
+## Quickstart from source
+
+### Install Gen3Workflow
 
 Install required software:
 
@@ -13,7 +24,7 @@ If you don't manage your own, Poetry will create one for you
 during `poetry install`, and you must activate it with `poetry shell`.
 You may also need to upgrade `pip` to the latest version.
 
-## Create configuration file
+### Create configuration file
 
 Gen3Workflow requires a configuration file to run. We have a command line
 utility to help you create one based on a default configuration.
@@ -40,7 +51,7 @@ variables. **Remember to fill out the new configuration file!**
 
 To use a configuration file in a custom location, you can set the `GEN3WORKFLOW_CONFIG_PATH` environment variable.
 
-## Run Gen3Workflow
+### Start the Gen3Workflow service
 
 You will need to run a TES server for Gen3Workflow to talk to. For example, you can start a local Funnel server: https://ohsu-comp-bio.github.io/funnel/#intro.
 
@@ -78,6 +89,9 @@ Run a workflow:
 nextflow run hello
 ```
 
+## AWS access
+
+For full functionality, the Gen3Workflow service requires access to perform a number of operations in AWS. The full policy can be found [here](https://github.com/uc-cdis/cloud-automation/blob/master/gen3/bin/kube-setup-gen3-workflow.sh).
 
 ## Quickstart with Helm
 

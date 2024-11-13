@@ -11,4 +11,5 @@ The server is built with [FastAPI](https://fastapi.tiangolo.com/) and packaged w
 The documentation can be browsed in the [docs](docs) folder, and key documents are linked below.
 
 * [Detailed API Documentation](http://petstore.swagger.io/?url=https://raw.githubusercontent.com/uc-cdis/gen3-workflow/master/docs/openapi.yaml)
+* [Local installation](docs/local_installation.md)
 * [Authorization](docs/authorization.md)
