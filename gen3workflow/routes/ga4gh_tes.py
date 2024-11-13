@@ -45,9 +45,9 @@ async def create_task(request: Request, auth=Depends(Auth)):
 
     def images_whitelisted(images) -> bool:
 
-        # Fetch the list of whitelisted images, hardcode now, get from config later
-        whitelisted_images = config["JOB_IMAGE"]
-        print(f"Whitelisted images are {whitelisted_images}")
+        # Fetch the list of whitelisted image repos, hardcode now, get from config later
+        whitelisted_images = config["WHITELISTED_REPO_LIST"]
+
         # Replace the {{username}} placeholder in the whitelisted image with the {username} from the auth token, then convert the list to a set
         whitelisted_images = {
             image.replace("{{username}}", username) for image in whitelisted_images
