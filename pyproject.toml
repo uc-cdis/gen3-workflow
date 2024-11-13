@@ -28,7 +28,7 @@ freezegun = "<2"
 moto = "<6"
 pytest = "<9"
 pytest-asyncio = "<1"
-pytest-cov = "<6"
+pytest-cov = "<7"
 
 [build-system]
 requires = ["poetry<2"]

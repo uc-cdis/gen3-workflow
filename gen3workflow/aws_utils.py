@@ -13,30 +13,32 @@ iam_client = boto3.client("iam")
 iam_resp_err = "Unexpected response from AWS IAM"
 
 
-def get_iam_user_name(user_id):
+def get_safe_name_from_user_id(user_id):
     """
-    Generate a valid IAM user name for the specified user.
-    IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
+    Generate a valid IAM user name or S3 bucket name for the specified user.
+    - IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
     and/or the following: +=,.@_- (not enforced here since user IDs and hostname should not contain
     special characters).
+    - S3 bucket names can contain up to 63 characters.
 
     Args:
         user_id (str): The user's unique Gen3 ID
 
     Returns:
-        str: IAM user name
+        str: safe name
     """
     escaped_hostname = config["HOSTNAME"].replace(".", "-")
-    iam_user_name = f"gen3wf-{escaped_hostname}"
-    max = 64 - len(f"-{user_id}")
-    if len(iam_user_name) > max:
-        iam_user_name = iam_user_name[:max]
-    iam_user_name = f"{iam_user_name}-{user_id}"
-    return iam_user_name
+    safe_name = f"gen3wf-{escaped_hostname}"
+    max = 63 - len(f"-{user_id}")
+    if len(safe_name) > max:
+        safe_name = safe_name[:max]
+    safe_name = f"{safe_name}-{user_id}"
+    return safe_name
 
 
-def get_user_bucket_info(user_id):
-    """TODO
+def create_user_bucket(user_id):
+    """
+    Create an S3 bucket for the specified user and return information about the bucket.
 
     Args:
         user_id (str): The user's unique Gen3 ID
@@ -44,7 +46,10 @@ def get_user_bucket_info(user_id):
     Returns:
         tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
     """
-    return "TODO", "ga4gh-tes", "us-east-1"
+    user_bucket_name = get_safe_name_from_user_id(user_id)
+    s3_client = boto3.client("s3")
+    s3_client.create_bucket(Bucket=user_bucket_name)
+    return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
 
 
 def create_or_update_policy(policy_name, policy_document, path_prefix, tags):
@@ -94,7 +99,7 @@ def create_or_update_policy(policy_name, policy_document, path_prefix, tags):
 
 
 def create_iam_user_and_key(user_id):
-    iam_user_name = get_iam_user_name(user_id)
+    iam_user_name = get_safe_name_from_user_id(user_id)
     escaped_hostname = config["HOSTNAME"].replace(".", "-")
     iam_tags = [
         {
@@ -111,7 +116,7 @@ def create_iam_user_and_key(user_id):
             raise
 
     # grant the IAM user access to the user's s3 bucket
-    bucket_name, bucket_prefix, _ = get_user_bucket_info(user_id)
+    bucket_name, bucket_prefix, _ = create_user_bucket(user_id)
     policy_document = {
         "Version": "2012-10-17",
         "Statement": [
@@ -145,7 +150,7 @@ def create_iam_user_and_key(user_id):
 
 
 def list_iam_user_keys(user_id):
-    iam_user_name = get_iam_user_name(user_id)
+    iam_user_name = get_safe_name_from_user_id(user_id)
     try:
         response = iam_client.list_access_keys(UserName=iam_user_name)
     except ClientError as e:
@@ -164,7 +169,7 @@ def list_iam_user_keys(user_id):
 def delete_iam_user_key(user_id, key_id):
     try:
         iam_client.delete_access_key(
-            UserName=get_iam_user_name(user_id),
+            UserName=get_safe_name_from_user_id(user_id),
             AccessKeyId=key_id,
         )
     except ClientError as e:
