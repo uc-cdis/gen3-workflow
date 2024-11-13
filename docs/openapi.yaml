@@ -81,7 +81,7 @@ paths:
       summary: Get Version
       tags:
       - System
-  /ga4gh-tes/v1/service-info:
+  /ga4gh/tes/v1/service-info:
     get:
       operationId: service_info_ga4gh_tes_v1_service_info_get
       responses:
@@ -93,7 +93,7 @@ paths:
       summary: Service Info
       tags:
       - GA4GH TES
-  /ga4gh-tes/v1/tasks:
+  /ga4gh/tes/v1/tasks:
     get:
       operationId: list_tasks_ga4gh_tes_v1_tasks_get
       responses:
@@ -120,7 +120,7 @@ paths:
       summary: Create Task
       tags:
       - GA4GH TES
-  /ga4gh-tes/v1/tasks/{task_id}:
+  /ga4gh/tes/v1/tasks/{task_id}:
     get:
       operationId: get_task_ga4gh_tes_v1_tasks__task_id__get
       parameters:
@@ -147,7 +147,7 @@ paths:
       summary: Get Task
       tags:
       - GA4GH TES
-  /ga4gh-tes/v1/tasks/{task_id}:cancel:
+  /ga4gh/tes/v1/tasks/{task_id}:cancel:
     post:
       operationId: cancel_task_ga4gh_tes_v1_tasks__task_id__cancel_post
       parameters:
@@ -174,3 +174,68 @@ paths:
       summary: Cancel Task
       tags:
       - GA4GH TES
+  /storage/credentials:
+    get:
+      operationId: get_user_keys_storage_credentials_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Get User Keys
+      tags:
+      - Storage
+    post:
+      operationId: generate_user_key_storage_credentials_post
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Generate User Key
+      tags:
+      - Storage
+  /storage/credentials/{key_id}:
+    delete:
+      operationId: delete_user_key_storage_credentials__key_id__delete
+      parameters:
+      - in: path
+        name: key_id
+        required: true
+        schema:
+          title: Key Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Delete User Key
+      tags:
+      - Storage
+  /storage/info:
+    get:
+      operationId: get_storage_info_storage_info_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Get Storage Info
+      tags:
+      - Storage

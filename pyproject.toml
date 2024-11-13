@@ -13,6 +13,7 @@ include = [
 [tool.poetry.dependencies]
 python = ">=3.9,<4"
 authutils = "<7"
+boto3 = "<2"
 cdislogging = "<2"
 fastapi = "<1"
 gen3authz = ">=2.2.0,<3"
@@ -23,6 +24,8 @@ jsonschema = "<5"
 uvicorn = "<1"
 
 [tool.poetry.dev-dependencies]
+freezegun = "<2"
+moto = "<6"
 pytest = "<9"
 pytest-asyncio = "<1"
 pytest-cov = "<6"
