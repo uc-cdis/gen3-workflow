@@ -16,7 +16,7 @@ ARBORIST_URL:
 MOCK_AUTH: false
 
 # List of whitelisted images to be allowed by the Gen3Workflow Service to forward to TES server.
-# JOB_IMAGES : []
+JOB_IMAGE:
 
 # List of whitelisted images to be allowed by the Gen3Workflow Service to forward to TES server.
 # JOB_IMAGES : []

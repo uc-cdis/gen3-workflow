@@ -20,8 +20,8 @@ client_parameters = [
 body_parameters_with_resp_code = [
     (
         {"executors": []},
-        200,
-    ),  # Question!?: If there are no images in the body? Are we expected to send it to TES server, or error out??
+        200,  # Forward the request to TES server, even if no images are found.
+    ),
     (
         {
             "executors": [

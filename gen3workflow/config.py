@@ -17,6 +17,10 @@ class Gen3WorkflowConfig(Config):
     def __init__(self, *args, **kwargs):
         super(Gen3WorkflowConfig, self).__init__(*args, **kwargs)
 
+    def __iter__(self):
+        for key in self._configs:
+            yield key
+
     def validate(self) -> None:
         """
         Perform a series of sanity checks on a loaded config.
@@ -36,7 +40,7 @@ class Gen3WorkflowConfig(Config):
                 "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
                 "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "ARBORIST_URL": {"type": ["string", "null"]},
-                # "JOB_IMAGES" : {"type": "array", "items" : {"type" : "string"}},
+                "JOB_IMAGE": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
             },
         }

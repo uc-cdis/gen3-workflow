@@ -46,12 +46,8 @@ async def create_task(request: Request, auth=Depends(Auth)):
     def images_whitelisted(images) -> bool:
 
         # Fetch the list of whitelisted images, hardcode now, get from config later
-        whitelisted_images = [
-            "quay.io/nextflow/bash",
-            "public.ecr.aws/random/approved/public",
-            "9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/{{username}}",
-        ]  # config['JOB_IMAGE_WHITELIST']
-
+        whitelisted_images = config["JOB_IMAGE"]
+        print(f"Whitelisted images are {whitelisted_images}")
         # Replace the {{username}} placeholder in the whitelisted image with the {username} from the auth token, then convert the list to a set
         whitelisted_images = {
             image.replace("{{username}}", username) for image in whitelisted_images
@@ -82,7 +78,6 @@ async def create_task(request: Request, auth=Depends(Auth)):
     2. If any of the images are not whitelisted, return a 403 Forbidden error.
     3. Fetch the list of allowed images from the configuration file. For a data commons that uses Gen3Workflow, whitelisted images should be located in the ECR repository under `<AWS_account_number>.dkr.ecr.us-east-1.amazonaws.com/nextflow-approved/<username>`.
         - To validate an image, match its name with this prefix and substitute `{{username}}` with the username retrieved from the OAuth token. This ensures the image is allowed.
-        -- Question!? What about the image `quay.io/nextflow/bash` which is responsible for running `nextflow run hello`? Is this not allowed as well?
     """
     # Fetch the list of images
     images_from_nextflow = [
