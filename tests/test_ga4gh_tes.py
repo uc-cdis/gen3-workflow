@@ -268,7 +268,6 @@ async def test_create_task_without_token(client):
     mock_tes_server_request.assert_not_called()
 
 
-##############################Current Working Part####################################################
 @pytest.mark.asyncio
 @pytest.mark.parametrize("req_body,tes_resp_code", body_parameters_with_resp_code)
 async def test_create_task_with_whitelist_images(
@@ -301,7 +300,6 @@ async def test_create_task_with_whitelist_images(
         )
 
 
-##############################End Current Working Part####################################################
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
