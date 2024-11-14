@@ -45,7 +45,6 @@ async def create_task(request: Request, auth=Depends(Auth)):
 
     def images_whitelisted(images) -> bool:
 
-        # Fetch the list of whitelisted image repos, hardcode now, get from config later
         whitelisted_images = config["WHITELISTED_REPO_LIST"]
 
         # Replace the {{username}} placeholder in the whitelisted image with the {username} from the auth token, then convert the list to a set
@@ -72,13 +71,6 @@ async def create_task(request: Request, auth=Depends(Auth)):
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    """
-    TODO:
-    1. Extract the images from the Nextflow request. The `body.executors` field is a list of dictionaries, where each entry includes an `image` key.
-    2. If any of the images are not whitelisted, return a 403 Forbidden error.
-    3. Fetch the list of allowed images from the configuration file. For a data commons that uses Gen3Workflow, whitelisted images should be located in the ECR repository under `<AWS_account_number>.dkr.ecr.us-east-1.amazonaws.com/nextflow-approved/<username>`.
-        - To validate an image, match its name with this prefix and substitute `{{username}}` with the username retrieved from the OAuth token. This ensures the image is allowed.
-    """
     # Fetch the list of images
     images_from_nextflow = [
         executor.get("image") for executor in body.get("executors", [])

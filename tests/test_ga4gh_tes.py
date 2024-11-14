@@ -275,11 +275,8 @@ async def test_create_task_with_whitelist_images(
     client, access_token_patcher, req_body, tes_resp_code
 ):
     """
-    Calls to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server, along with the
-    request body. A tag containing the user ID should be added.
-    When the TES server returns an error, gen3-workflow should return it as well.
-    If the user is not authorized, we should get a 403 error and no TES server requests should
-    be made.
+    Requests to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server along with the request body.
+    Ensure that any image sent to the TES server belongs exclusively to whitelisted repositories specified in the configuration.
     """
     res = await client.post(
         "/ga4gh/tes/v1/tasks",
