@@ -282,7 +282,7 @@ async def test_create_task_with_whitelist_images(
     be made.
     """
     res = await client.post(
-        "/ga4gh-tes/v1/tasks",
+        "/ga4gh/tes/v1/tasks",
         json=req_body,
         headers={"Authorization": f"bearer 123"},
     )
