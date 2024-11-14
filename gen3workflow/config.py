@@ -17,11 +17,6 @@ class Gen3WorkflowConfig(Config):
     def __init__(self, *args, **kwargs):
         super(Gen3WorkflowConfig, self).__init__(*args, **kwargs)
 
-    # Override the Gen3Config's __iter__ method, in order to prevent from json schema failing over arrays
-    def __iter__(self):
-        for key in self._configs:
-            yield key
-
     def validate(self) -> None:
         """
         Perform a series of sanity checks on a loaded config.
@@ -45,7 +40,7 @@ class Gen3WorkflowConfig(Config):
                 "TES_SERVER_URL": {"type": "string"},
             },
         }
-        validate(instance=self, schema=schema)
+        validate(instance=dict(self), schema=schema)
 
 
 config = Gen3WorkflowConfig(DEFAULT_CFG_PATH)
