@@ -6,7 +6,7 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 """
 
 import json
-
+import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
@@ -39,22 +39,40 @@ async def service_info(request: Request):
     return res.json()
 
 
+def non_allowed_images(images: set, username: str) -> set:
+    """
+    Returns a set of images that do not match any whitelisted patterns.
+
+    Parameters:
+    - images (set): Set of images to check.
+    - username (str): Username to substitute in the whitelisted patterns.
+
+    Returns:
+    - set: Set of images not allowed based on whitelisted patterns.
+    """
+
+    # Update each whitelisted image to a regex with updated {username} value with an actual username
+    # and `*` with `.*` to match any sequence of characters, storing the resulting patterns in a set
+    whitelisted_images_regex = {
+        image.replace("{username}", username).replace("*", ".*")
+        for image in config["TASK_IMAGE_WHITELIST"]
+    }
+    # Add the image to non_allowed_images if it does not match any pattern in whitelisted_images_regex
+    non_allowed_images = {
+        image
+        for image in images
+        if not any(
+            re.match(f"^{pattern}$", image) for pattern in whitelisted_images_regex
+        )
+    }
+
+    # Returns a set of all the images that are not from the list of whitelisted images.
+    return non_allowed_images
+
+
 @router.post("/tasks", status_code=HTTP_200_OK)
 async def create_task(request: Request, auth=Depends(Auth)):
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
-
-    def images_whitelisted(images) -> bool:
-
-        whitelisted_images = config["WHITELISTED_REPO_LIST"]
-
-        # Replace the {{username}} placeholder in the whitelisted image with the {username} from the auth token, then convert the list to a set
-        whitelisted_images = {
-            image.replace("{{username}}", username) for image in whitelisted_images
-        }
-
-        image_repos_set = {image.split(":")[0] for image in images}
-        # Returns false if any of the images repos are not from the whitelisted image repos.
-        return image_repos_set.issubset(whitelisted_images)
 
     body = await get_request_body(request)
 
@@ -71,15 +89,16 @@ async def create_task(request: Request, auth=Depends(Auth)):
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    # Fetch the list of images
-    images_from_nextflow = [
+    # Fetch the list of images from request body as a set
+    images_from_request = {
         executor.get("image") for executor in body.get("executors", [])
-    ]
+    }
 
-    if not images_whitelisted(images_from_nextflow):
+    invalid_images = non_allowed_images(images_from_request, username)
+    if invalid_images:
         raise HTTPException(
             HTTP_403_FORBIDDEN,
-            "Forbidden: The specified Nextflow image is not among the allowed images.",
+            f"Forbidden: The specified images -- {invalid_images} are not among the allowed images.",
         )
 
     if "tags" not in body:
@@ -140,6 +159,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
     query_params = {
         k: v for k, v in dict(request.query_params).items() if k in supported_params
     }
+
     # force the use of "FULL" view so the response includes tags
     requested_view = query_params.get("view")
     query_params["view"] = "FULL"
@@ -230,6 +250,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
     authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("delete", [authz_path])
+
     # the user has access: delete the task
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
     res = await request.app.async_client.post(url)

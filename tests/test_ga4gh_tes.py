@@ -1,5 +1,7 @@
-import pytest
 import json
+
+import pytest
+
 from conftest import (
     mock_arborist_request,
     mock_tes_server_request,
@@ -14,59 +16,6 @@ client_parameters = [
     pytest.param({"authorized": True, "tes_resp_code": 500}, id="TES failure"),
     pytest.param(
         {"authorized": False, "tes_resp_code": 500}, id="unauthorized + TES failure"
-    ),
-]
-
-body_parameters_with_resp_code = [
-    (
-        {"executors": []},
-        200,  # Forward the request to TES server, even if no images are found.
-    ),
-    (
-        {
-            "executors": [
-                {
-                    "image": "public.ecr.aws/random/malicious/public:latest",
-                }
-            ]
-        },
-        403,
-    ),
-    (
-        {
-            "executors": [
-                {
-                    "image": "public.ecr.aws/random/approved/public:latest",
-                }
-            ]
-        },
-        200,
-    ),
-    (
-        {
-            "executors": [
-                {
-                    "image": "quay.io/nextflow/bash",
-                },
-                {
-                    "image": "public.ecr.aws/random/approved/public:latest",
-                },
-            ]
-        },
-        200,
-    ),
-    (
-        {
-            "executors": [
-                {
-                    "image": "quay.io/nextflow/bash",
-                },
-                {
-                    "image": "public.ecr.aws/random/malicious/public:latest",
-                },
-            ]
-        },
-        403,
     ),
 ]
 
@@ -269,9 +218,115 @@ async def test_create_task_without_token(client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("req_body,tes_resp_code", body_parameters_with_resp_code)
+@pytest.mark.parametrize(
+    "req_body,status_code, error_message",
+    [
+        (
+            {"executors": []},
+            200,  # Forward the request to TES server, even if no images are found.
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "public.ecr.aws/random/malicious/public:latest",  # not whitelisted
+                    }
+                ]
+            },
+            403,
+            "Forbidden: The specified images -- {'public.ecr.aws/random/malicious/public:latest'} are not among the allowed images.",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "public.ecr.aws/random/approved/public:latest",  # whitelisted
+                    }
+                ]
+            },
+            200,
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "quay.io/nextflow/bash",  # whitelisted
+                    },
+                    {
+                        "image": "public.ecr.aws/random/approved/public:latest",  # whitelisted
+                    },
+                ]
+            },
+            200,
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "quay.io/nextflow/bash",  # whitelisted
+                    },
+                    {
+                        "image": "public.ecr.aws/random/malicious/public:latest",  # not whitelisted
+                    },
+                ]
+            },
+            403,
+            "Forbidden: The specified images -- {'public.ecr.aws/random/malicious/public:latest'} are not among the allowed images.",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "public.ecr.aws/random/approved/public:abc",  # whitelisted with image name
+                    },
+                ]
+            },
+            200,
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": f"9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:abc",  # whitelisted with username and image name
+                    },
+                ]
+            },
+            200,
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": f"9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz",  # not whitelisted with username and name
+                    },
+                ]
+            },
+            403,
+            f"Forbidden: The specified images -- {{'9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz'}} are not among the allowed images.",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": f"9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz",  # not whitelisted with image name
+                    },
+                    {
+                        "image": f"*.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:test",  # whitelisted with image name and wildcard
+                    },
+                ]
+            },
+            403,
+            f"Forbidden: The specified images -- {{'9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz'}} are not among the allowed images.",
+        ),
+    ],
+)
 async def test_create_task_with_whitelist_images(
-    client, access_token_patcher, req_body, tes_resp_code
+    client, access_token_patcher, req_body, status_code, error_message
 ):
     """
     Requests to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server along with the request body.
@@ -283,8 +338,10 @@ async def test_create_task_with_whitelist_images(
         headers={"Authorization": f"bearer 123"},
     )
 
-    assert res.status_code == tes_resp_code, res.text
-    if tes_resp_code == 200:
+    assert status_code == res.status_code, res.text
+    if status_code == 403:
+        assert error_message == json.loads(res.text).get("detail"), res.text
+    elif status_code == 200:
         result_body = {
             "executors": req_body["executors"],
             "tags": {
