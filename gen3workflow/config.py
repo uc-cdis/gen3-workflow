@@ -40,7 +40,7 @@ class Gen3WorkflowConfig(Config):
                 "TES_SERVER_URL": {"type": "string"},
             },
         }
-        validate(instance=dict(self), schema=schema)
+        validate(instance=self, schema=schema)
 
 
 config = Gen3WorkflowConfig(DEFAULT_CFG_PATH)
