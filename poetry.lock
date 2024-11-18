@@ -602,12 +602,13 @@ six = ">=1.16.0,<2.0.0"
 
 [[package]]
 name = "gen3config"
-version = "1.1.0"
+version = "2.0.0"
 description = "Gen3 Configuration Library"
 optional = false
-python-versions = "^3.9"
+python-versions = "<4.0,>=3.9"
 files = [
-    {file = "gen3config-1.1.0.tar.gz", hash = "sha256:a8f460d683131a4ad7d46f35e84c6f4f77cd8f1d87126642c37e248404aa0b16"},
+    {file = "gen3config-2.0.0-py3-none-any.whl", hash = "sha256:0d56a64f82e7c4f9a417e7be5645b745e6450431b77a1a4d38f52bea19e56a49"},
+    {file = "gen3config-2.0.0.tar.gz", hash = "sha256:4e4480a5d2b0d8b4263150ad1b354b3dc37406427e010a8acb161e32861c3acb"},
 ]
 
 [package.dependencies]
@@ -1530,4 +1531,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4"
-content-hash = "af80678a4da8f589eff65c78a9cb0a1221cae8cb27df0de67a248ece35f95536"
+content-hash = "1835353d7bec63d495b0b68f7a285b8d0315303cdd800b66936d4e3d6b4a92e6"
