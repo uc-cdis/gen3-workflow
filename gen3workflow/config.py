@@ -68,3 +68,13 @@ try:
 except Exception:
     logger.warning("Unable to load config, using default config...", exc_info=True)
     config.load(config_path=DEFAULT_CFG_PATH)
+
+
+if __name__ == "__main__":
+    # used by `bin._common_setup.sh` to create the database as configured
+    host = os.environ.get("DB_HOST", config["DB_HOST"])
+    port = os.environ.get("DB_PORT", config["DB_PORT"])
+    username = os.environ.get("DB_USER", config["DB_USER"])
+    password = os.environ.get("DB_PASSWORD", config["DB_PASSWORD"])
+    database = os.environ.get("DB_DATABASE", config["DB_DATABASE"])
+    print("\n", host, port, username, password, database)
