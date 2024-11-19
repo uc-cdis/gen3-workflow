@@ -27,8 +27,6 @@ DB_USER: postgres
 DB_PASSWORD: postgres
 DB_DATABASE: gen3workflow_test
 
-
-
 #############
 # GA4GH TES #
 #############
