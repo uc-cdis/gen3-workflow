@@ -20,6 +20,7 @@ gen3authz = ">=2.2.0,<3"
 gen3config = ">=2.0,<3"
 gunicorn = "<24"
 httpx = "<1"
+jsonschema = "<5"
 uvicorn = "<1"
 
 [tool.poetry.dev-dependencies]

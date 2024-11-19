@@ -227,6 +227,11 @@ async def test_create_task_without_token(client):
             "",
         ),
         (
+            {"executors": [{}]},
+            200,  # Forward the request to TES server, even if no images are found.
+            "",
+        ),
+        (
             {
                 "executors": [
                     {
@@ -235,7 +240,7 @@ async def test_create_task_without_token(client):
                 ]
             },
             403,
-            "Forbidden: The specified images -- {'public.ecr.aws/random/malicious/public:latest'} are not among the allowed images.",
+            "The specified images are not allowed: ['public.ecr.aws/random/malicious/public:latest']",
         ),
         (
             {
@@ -274,7 +279,7 @@ async def test_create_task_without_token(client):
                 ]
             },
             403,
-            "Forbidden: The specified images -- {'public.ecr.aws/random/malicious/public:latest'} are not among the allowed images.",
+            "The specified images are not allowed: ['public.ecr.aws/random/malicious/public:latest']",
         ),
         (
             {
@@ -302,12 +307,12 @@ async def test_create_task_without_token(client):
             {
                 "executors": [
                     {
-                        "image": f"9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz",  # not whitelisted with username and name
+                        "image": f"9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz",  # not whitelisted with username and image name
                     },
                 ]
             },
             403,
-            f"Forbidden: The specified images -- {{'9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz'}} are not among the allowed images.",
+            f"The specified images are not allowed: ['9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz']",
         ),
         (
             {
@@ -321,7 +326,7 @@ async def test_create_task_without_token(client):
                 ]
             },
             403,
-            f"Forbidden: The specified images -- {{'9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz'}} are not among the allowed images.",
+            f"The specified images are not allowed: ['9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz']",
         ),
     ],
 )

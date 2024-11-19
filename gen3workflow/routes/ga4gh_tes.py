@@ -7,6 +7,7 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 
 import json
 import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
@@ -39,7 +40,7 @@ async def service_info(request: Request):
     return res.json()
 
 
-def non_allowed_images(images: set, username: str) -> set:
+def get_non_allowed_images(images: set, username: str) -> set:
     """
     Returns a set of images that do not match any whitelisted patterns.
 
@@ -91,14 +92,16 @@ async def create_task(request: Request, auth=Depends(Auth)):
 
     # Fetch the list of images from request body as a set
     images_from_request = {
-        executor.get("image") for executor in body.get("executors", [])
+        executor["image"]
+        for executor in body.get("executors", [])
+        if "image" in executor
     }
 
-    invalid_images = non_allowed_images(images_from_request, username)
+    invalid_images = get_non_allowed_images(images_from_request, username)
     if invalid_images:
         raise HTTPException(
             HTTP_403_FORBIDDEN,
-            f"Forbidden: The specified images -- {invalid_images} are not among the allowed images.",
+            f"The specified images are not allowed: {list(invalid_images)}",
         )
 
     if "tags" not in body:
