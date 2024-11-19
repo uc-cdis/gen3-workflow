@@ -17,6 +17,18 @@ class Gen3WorkflowConfig(Config):
     def __init__(self, *args, **kwargs):
         super(Gen3WorkflowConfig, self).__init__(*args, **kwargs)
 
+    def post_process(self) -> None:
+        # generate DB_CONNECTION_STRING from DB configs or env vars
+        drivername = os.environ.get("DB_DRIVER", self["DB_DRIVER"])
+        host = os.environ.get("DB_HOST", self["DB_HOST"])
+        port = os.environ.get("DB_PORT", self["DB_PORT"])
+        username = os.environ.get("DB_USER", self["DB_USER"])
+        password = os.environ.get("DB_PASSWORD", self["DB_PASSWORD"])
+        database = os.environ.get("DB_DATABASE", self["DB_DATABASE"])
+        self["DB_CONNECTION_STRING"] = (
+            f"{drivername}://{username}:{password}@{host}:{port}/{database}"
+        )
+
     def validate(self) -> None:
         """
         Perform a series of sanity checks on a loaded config.
