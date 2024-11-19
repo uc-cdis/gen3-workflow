@@ -1,11 +1,11 @@
 import json
+from typing import List, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from starlette.status import HTTP_404_NOT_FOUND
 
-from gen3workflow import logger
 from gen3workflow.config import config
 
 
@@ -13,7 +13,7 @@ iam_client = boto3.client("iam")
 iam_resp_err = "Unexpected response from AWS IAM"
 
 
-def get_safe_name_from_user_id(user_id):
+def get_safe_name_from_user_id(user_id: str) -> str:
     """
     Generate a valid IAM user name or S3 bucket name for the specified user.
     - IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
@@ -36,7 +36,7 @@ def get_safe_name_from_user_id(user_id):
     return safe_name
 
 
-def create_user_bucket(user_id):
+def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
 
@@ -52,7 +52,22 @@ def create_user_bucket(user_id):
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
 
 
-def create_or_update_policy(policy_name, policy_document, path_prefix, tags):
+def create_or_update_policy(
+    policy_name: str, policy_document: dict, path_prefix: str, tags: List[dict]
+) -> str:
+    """
+    Update the specified policy with the specified document and tags, or create it if it doesn't
+    exist.
+
+    Args:
+        policy_name (str): name of the IAM policy to create or update
+        policy_document (dict): policy document
+        path_prefix (str): policy path prefix
+        tags (list(dict)): IAM tags to set on the policy
+
+    Returns:
+        str: policy ARN
+    """
     # attempt to create the policy
     try:
         response = iam_client.create_policy(
@@ -98,8 +113,23 @@ def create_or_update_policy(policy_name, policy_document, path_prefix, tags):
         return policy["Arn"]
 
 
-def create_iam_user_and_key(user_id):
-    iam_user_name = get_safe_name_from_user_id(user_id)
+def create_iam_user_and_key(user_id: str, system_key: bool) -> Tuple[str, str]:
+    """
+    Create an IAM user and an IAM key with access to a freshly created bucket associated with
+    this user.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+        system_key (bool): Whether the generated key is meant to be used by the server (if True)
+            or by the end user (if False)
+
+    Returns:
+        tuple(str, str): IAM key ID and secret
+    """
+    if system_key:
+        iam_user_name = get_safe_name_from_user_id(f"{user_id}_bot")
+    else:
+        iam_user_name = get_safe_name_from_user_id(user_id)
     escaped_hostname = config["HOSTNAME"].replace(".", "-")
     iam_tags = [
         {
@@ -149,7 +179,16 @@ def create_iam_user_and_key(user_id):
     return key["AccessKey"]["AccessKeyId"], key["AccessKey"]["SecretAccessKey"]
 
 
-def list_iam_user_keys(user_id):
+def list_iam_user_keys(user_id: str) -> List[dict]:
+    """
+    List the IAM keys associated with the specified user.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+
+    Returns:
+        list[dict]: the user's keys
+    """
     iam_user_name = get_safe_name_from_user_id(user_id)
     try:
         response = iam_client.list_access_keys(UserName=iam_user_name)
@@ -166,7 +205,14 @@ def list_iam_user_keys(user_id):
     return response["AccessKeyMetadata"]
 
 
-def delete_iam_user_key(user_id, key_id):
+def delete_iam_user_key(user_id: str, key_id: str) -> None:
+    """
+    Delete an IAM key from AWS.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+        key_id (str): ID of the IAM key to delete
+    """
     try:
         iam_client.delete_access_key(
             UserName=get_safe_name_from_user_id(user_id),

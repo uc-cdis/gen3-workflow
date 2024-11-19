@@ -36,7 +36,7 @@ class Gen3WorkflowConfig(Config):
         logger.info("Validating configuration")
         self.validate_top_level_configs()
 
-    def validate_top_level_configs(self):
+    def validate_top_level_configs(self) -> None:
         schema = {
             "type": "object",
             "additionalProperties": True,

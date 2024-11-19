@@ -25,11 +25,11 @@ class Auth:
         self,
         api_request: Request,
         bearer_token: HTTPAuthorizationCredentials = Security(bearer),
-    ):
+    ) -> None:
         self.arborist_client = api_request.app.arborist_client
         self.bearer_token = bearer_token
 
-    def get_access_token(self):
+    def get_access_token(self) -> str:
         if config["MOCK_AUTH"]:
             return "123"
 
@@ -95,7 +95,17 @@ class Auth:
 
         return authorized
 
-    async def grant_user_access_to_their_own_tasks(self, username, user_id):
+    async def grant_user_access_to_their_own_tasks(
+        self, username: str, user_id: str
+    ) -> None:
+        """
+        Ensure the specified user exists in Arborist and has a policy granting them access to their
+        own Gen3Workflow tasks ("read" and "delete" access to resource "/users/<user ID>/gen3-workflow/tasks" for service "gen3-workflow").
+
+        Args:
+            username (str): The user's Gen3 username
+            user_id (str): The user's unique Gen3 ID
+        """
         logger.info(
             f"Granting user '{username}' access to their own tasks if they don't already have it"
         )

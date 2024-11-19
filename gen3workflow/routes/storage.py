@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.status import (
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/storage")
 
 
 @router.get("/info", status_code=HTTP_200_OK)
-async def get_storage_info(request: Request, auth=Depends(Auth)):
+async def get_storage_info(auth=Depends(Auth)) -> dict:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     bucket_name, bucket_prefix, bucket_region = aws_utils.create_user_bucket(user_id)
@@ -29,7 +30,7 @@ async def get_storage_info(request: Request, auth=Depends(Auth)):
 
 
 @router.post("/credentials", status_code=HTTP_201_CREATED)
-async def generate_user_key(request: Request, auth=Depends(Auth)):
+async def generate_user_key(auth=Depends(Auth)) -> dict:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
 
@@ -40,14 +41,16 @@ async def generate_user_key(request: Request, auth=Depends(Auth)):
             f"Too many existing keys: only {config['MAX_IAM_KEYS_PER_USER']} are allowed per user. Delete an existing key before creating a new one",
         )
 
-    key_id, key_secret = aws_utils.create_iam_user_and_key(user_id)
+    key_id, key_secret = aws_utils.create_iam_user_and_key(
+        user_id=user_id, system_key=False
+    )
     return {
         "aws_key_id": key_id,
         "aws_key_secret": key_secret,
     }
 
 
-def seconds_to_human_time(seconds):
+def seconds_to_human_time(seconds: int) -> str:
     if seconds < 0:
         return None
     m, s = divmod(seconds, 60)
@@ -63,7 +66,7 @@ def seconds_to_human_time(seconds):
 
 
 @router.get("/credentials", status_code=HTTP_200_OK)
-async def get_user_keys(request: Request, auth=Depends(Auth)):
+async def get_user_keys(auth=Depends(Auth)) -> List[dict]:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     now = datetime.now(timezone.utc)
@@ -89,7 +92,7 @@ async def get_user_keys(request: Request, auth=Depends(Auth)):
 
 
 @router.delete("/credentials/{key_id}", status_code=HTTP_204_NO_CONTENT)
-async def delete_user_key(request: Request, key_id: str, auth=Depends(Auth)):
+async def delete_user_key(key_id: str, auth=Depends(Auth)) -> None:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     aws_utils.delete_iam_user_key(user_id, key_id)

@@ -6,13 +6,17 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 """
 
 import json
+<<<<<<< HEAD
 import re
+=======
+from typing import List
+>>>>>>> e4100e8 (docstrings and types)
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
-from gen3workflow import logger
+from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
 
@@ -31,7 +35,7 @@ async def get_request_body(request: Request):
 
 
 @router.get("/service-info", status_code=HTTP_200_OK)
-async def service_info(request: Request):
+async def service_info(request: Request) -> dict:
     url = f"{config['TES_SERVER_URL']}/service-info"
     res = await request.app.async_client.get(url)
     if res.status_code != HTTP_200_OK:
@@ -72,7 +76,7 @@ def get_non_allowed_images(images: set, username: str) -> set:
 
 
 @router.post("/tasks", status_code=HTTP_200_OK)
-async def create_task(request: Request, auth=Depends(Auth)):
+async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
@@ -124,12 +128,20 @@ async def create_task(request: Request, auth=Depends(Auth)):
     return res.json()
 
 
-def apply_view_to_task(view, task) -> dict:
+def apply_view_to_task(view: str, task: dict) -> dict:
     """
     We always set the view to "FULL" when making get/list requests to the TES server, because we
     need to get the AUTHZ tag in order to check whether users have access. This function applies
     the view that was originally requested by removing fields according to the TES spec.
+
+    Args:
+        view (str): view to apply (FULL, MINIMAL or BASIC). If None, MINIMAL is applied.
+        task (dict): TES task
+
+    Returns:
+        dict: TES task with applied view
     """
+
     if view == "FULL":
         return task
 
@@ -149,7 +161,7 @@ def apply_view_to_task(view, task) -> dict:
 
 
 @router.get("/tasks", status_code=HTTP_200_OK)
-async def list_tasks(request: Request, auth=Depends(Auth)):
+async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     supported_params = {
         "name_prefix",
         "state",
@@ -208,7 +220,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
 
 
 @router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
-async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
+async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     supported_params = {"view"}
     query_params = {
         k: v for k, v in dict(request.query_params).items() if k in supported_params
@@ -238,7 +250,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)):
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
-async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
+async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     # check if this user has access to delete this task
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
     res = await request.app.async_client.get(url)
