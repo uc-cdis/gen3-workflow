@@ -15,8 +15,17 @@ ARBORIST_URL:
 # /!\ only use for development! Allows running gen3workflow locally without Arborist interaction
 MOCK_AUTH: false
 
+
+
 #############
 # GA4GH TES #
 #############
 
 TES_SERVER_URL: http://funnel-service
+
+# List of whitelisted images to be allowed by the Gen3Workflow Service to forward to TES server.
+# Image names can contain wildcards with `*` and username as a placeholder within curly braces e.g. {username}
+TASK_IMAGE_WHITELIST: []
+  # - public.ecr.aws/random/approved/public:*
+  # - 9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/{username}:abc
+  # - quay.io/nextflow/bash:*

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from conftest import (
@@ -213,6 +215,151 @@ async def test_create_task_without_token(client):
     assert res.status_code == 401, res.text
     assert res.json() == {"detail": "Must provide an access token"}
     mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "req_body,status_code, error_message",
+    [
+        (
+            {"executors": []},
+            200,  # Forward the request to TES server, even if no images are found.
+            "",
+        ),
+        (
+            {"executors": [{}]},
+            200,  # Forward the request to TES server, even if no images are found.
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "public.ecr.aws/random/malicious/public:latest",  # not whitelisted
+                    }
+                ]
+            },
+            403,
+            "The specified images are not allowed: ['public.ecr.aws/random/malicious/public:latest']",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "public.ecr.aws/random/approved/public:latest",  # whitelisted
+                    }
+                ]
+            },
+            200,
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "quay.io/nextflow/bash",  # whitelisted
+                    },
+                    {
+                        "image": "public.ecr.aws/random/approved/public:latest",  # whitelisted
+                    },
+                ]
+            },
+            200,
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "quay.io/nextflow/bash",  # whitelisted
+                    },
+                    {
+                        "image": "public.ecr.aws/random/malicious/public:latest",  # not whitelisted
+                    },
+                ]
+            },
+            403,
+            "The specified images are not allowed: ['public.ecr.aws/random/malicious/public:latest']",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": "public.ecr.aws/random/approved/public:abc",  # whitelisted with image name
+                    },
+                ]
+            },
+            200,
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": f"9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:abc",  # whitelisted with username and image name
+                    },
+                ]
+            },
+            200,
+            "",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": f"9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz",  # not whitelisted with username and image name
+                    },
+                ]
+            },
+            403,
+            f"The specified images are not allowed: ['9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz']",
+        ),
+        (
+            {
+                "executors": [
+                    {
+                        "image": f"9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz",  # not whitelisted with image name
+                    },
+                    {
+                        "image": f"*.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:test",  # whitelisted with image name and wildcard
+                    },
+                ]
+            },
+            403,
+            f"The specified images are not allowed: ['9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/test-username-{TEST_USER_ID}:xyz']",
+        ),
+    ],
+)
+async def test_create_task_with_whitelist_images(
+    client, access_token_patcher, req_body, status_code, error_message
+):
+    """
+    Requests to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server along with the request body.
+    Ensure that any image sent to the TES server belongs exclusively to whitelisted repositories specified in the configuration.
+    """
+    res = await client.post(
+        "/ga4gh/tes/v1/tasks",
+        json=req_body,
+        headers={"Authorization": f"bearer 123"},
+    )
+
+    assert status_code == res.status_code, res.text
+    if status_code == 403:
+        assert error_message == json.loads(res.text).get("detail"), res.text
+    elif status_code == 200:
+        result_body = {
+            "executors": req_body["executors"],
+            "tags": {
+                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+            },
+        }
+        mock_tes_server_request.assert_called_once_with(
+            method="POST",
+            path="/tasks",
+            query_params={},
+            body=json.dumps(result_body),
+            status_code=200,
+        )
 
 
 @pytest.mark.asyncio
