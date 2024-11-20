@@ -16,10 +16,10 @@ def test_all_migrations_have_tests():
         for f in os.listdir(CURRENT_DIR)
         if os.path.isfile(os.path.join(CURRENT_DIR, f))
     ]
-    migrations_with_tests = []
+    migrations_with_tests = set()
     for test_file in tests_file:
         try:
-            migrations_with_tests.append(
+            migrations_with_tests.add(
                 test_file.split(".py")[0].split("test_migration_")[1]
             )
         except Exception:
