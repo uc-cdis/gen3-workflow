@@ -49,6 +49,7 @@ class Gen3WorkflowConfig(Config):
                 "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "USER_BUCKETS_REGION": {"type": "string"},
                 "ARBORIST_URL": {"type": ["string", "null"]},
+                "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
             },
         }

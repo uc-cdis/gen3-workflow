@@ -6,6 +6,7 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 """
 
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
@@ -39,9 +40,41 @@ async def service_info(request: Request):
     return res.json()
 
 
+def get_non_allowed_images(images: set, username: str) -> set:
+    """
+    Returns a set of images that do not match any whitelisted patterns.
+
+    Parameters:
+    - images (set): Set of images to check.
+    - username (str): Username to substitute in the whitelisted patterns.
+
+    Returns:
+    - set: Set of images not allowed based on whitelisted patterns.
+    """
+
+    # Update each whitelisted image to a regex with updated {username} value with an actual username
+    # and `*` with `.*` to match any sequence of characters, storing the resulting patterns in a set
+    whitelisted_images_regex = {
+        image.replace("{username}", username).replace("*", ".*")
+        for image in config["TASK_IMAGE_WHITELIST"]
+    }
+    # Add the image to non_allowed_images if it does not match any pattern in whitelisted_images_regex
+    non_allowed_images = {
+        image
+        for image in images
+        if not any(
+            re.match(f"^{pattern}$", image) for pattern in whitelisted_images_regex
+        )
+    }
+
+    # Returns a set of all the images that are not from the list of whitelisted images.
+    return non_allowed_images
+
+
 @router.post("/tasks", status_code=HTTP_200_OK)
 async def create_task(request: Request, auth=Depends(Auth)):
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
+
     body = await get_request_body(request)
 
     # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
@@ -56,6 +89,20 @@ async def create_task(request: Request, auth=Depends(Auth)):
         err_msg = "No context.user.name in token"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    # Fetch the list of images from request body as a set
+    images_from_request = {
+        executor["image"]
+        for executor in body.get("executors", [])
+        if "image" in executor
+    }
+
+    invalid_images = get_non_allowed_images(images_from_request, username)
+    if invalid_images:
+        raise HTTPException(
+            HTTP_403_FORBIDDEN,
+            f"The specified images are not allowed: {list(invalid_images)}",
+        )
 
     if "tags" not in body:
         body["tags"] = {}
