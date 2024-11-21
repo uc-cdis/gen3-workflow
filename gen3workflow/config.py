@@ -17,6 +17,18 @@ class Gen3WorkflowConfig(Config):
     def __init__(self, *args, **kwargs):
         super(Gen3WorkflowConfig, self).__init__(*args, **kwargs)
 
+    def post_process(self) -> None:
+        # generate DB_CONNECTION_STRING from DB configs or env vars
+        drivername = os.environ.get("DB_DRIVER", self["DB_DRIVER"])
+        host = os.environ.get("DB_HOST", self["DB_HOST"])
+        port = os.environ.get("DB_PORT", self["DB_PORT"])
+        username = os.environ.get("DB_USER", self["DB_USER"])
+        password = os.environ.get("DB_PASSWORD", self["DB_PASSWORD"])
+        database = os.environ.get("DB_DATABASE", self["DB_DATABASE"])
+        self["DB_CONNECTION_STRING"] = (
+            f"{drivername}://{username}:{password}@{host}:{port}/{database}"
+        )
+
     def validate(self) -> None:
         """
         Perform a series of sanity checks on a loaded config.
@@ -35,6 +47,7 @@ class Gen3WorkflowConfig(Config):
                 # aws_utils.list_iam_user_keys should be updated to fetch paginated results if >100
                 "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
                 "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
+                "USER_BUCKETS_REGION": {"type": "string"},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
@@ -56,3 +69,13 @@ try:
 except Exception:
     logger.warning("Unable to load config, using default config...", exc_info=True)
     config.load(config_path=DEFAULT_CFG_PATH)
+
+
+if __name__ == "__main__":
+    # used by `bin._common_setup.sh` to create the database as configured
+    host = os.environ.get("DB_HOST", config["DB_HOST"])
+    port = os.environ.get("DB_PORT", config["DB_PORT"])
+    username = os.environ.get("DB_USER", config["DB_USER"])
+    password = os.environ.get("DB_PASSWORD", config["DB_PASSWORD"])
+    database = os.environ.get("DB_DATABASE", config["DB_DATABASE"])
+    print("\n", host, port, username, password, database)

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/storage")
 async def get_storage_info(request: Request, auth=Depends(Auth)):
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
-    bucket_name, bucket_prefix, bucket_region = aws_utils.get_user_bucket_info(user_id)
+    bucket_name, bucket_prefix, bucket_region = aws_utils.create_user_bucket(user_id)
     return {
         "bucket": bucket_name,
         "workdir": f"s3://{bucket_name}/{bucket_prefix}",

@@ -1,3 +1,8 @@
+"""
+See https://github.com/uc-cdis/gen3-user-data-library/blob/main/tests/conftest.py#L1
+"""
+
+import asyncio
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -7,9 +12,10 @@ from fastapi import Request
 import httpx
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.config import environ
 
-# Set GEN3WORKFLOW_CONFIG_PATH *before* loading the app which loads the configuration
+# Set GEN3WORKFLOW_CONFIG_PATH *before* loading the app, which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 environ["GEN3WORKFLOW_CONFIG_PATH"] = os.path.join(
     CURRENT_DIR, "test-gen3workflow-config.yaml"
@@ -17,10 +23,51 @@ environ["GEN3WORKFLOW_CONFIG_PATH"] = os.path.join(
 
 from gen3workflow.app import get_app
 from gen3workflow.config import config
+from gen3workflow.models import Base
 
 
 TEST_USER_ID = "64"
 NEW_TEST_USER_ID = "784"  # a new user that does not already exist in arborist
+
+
+@pytest_asyncio.fixture(scope="function")
+async def engine():
+    """
+    Non-session scoped engine which recreates the database, yields, then drops the tables
+    """
+    engine = create_async_engine(
+        config["DB_CONNECTION_STRING"], echo=False, future=True
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield engine
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture()
+async def session(engine):
+    """
+    Database session which utilizes the above engine and event loop and sets up a nested transaction before yielding.
+    It rolls back the nested transaction after yield.
+    """
+    event_loop = asyncio.get_running_loop()
+    session_maker = async_sessionmaker(
+        engine, expire_on_commit=False, autocommit=False, autoflush=False
+    )
+
+    async with engine.connect() as conn:
+        tsx = await conn.begin()
+        async with session_maker(bind=conn) as session:
+            yield session
+
+            await tsx.rollback()
 
 
 @pytest.fixture(scope="function")

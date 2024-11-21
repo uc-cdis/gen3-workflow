@@ -6,7 +6,7 @@ import pytest
 from conftest import TEST_USER_ID
 from gen3workflow import aws_utils
 from gen3workflow.config import config
-from gen3workflow.aws_utils import get_iam_user_name
+from gen3workflow.aws_utils import get_safe_name_from_user_id
 
 
 @pytest.mark.asyncio
@@ -117,7 +117,8 @@ async def test_list_user_keys_status(client, access_token_patcher):
 
         # deactivate the 2nd key
         access_key = boto3.resource("iam").AccessKey(
-            get_iam_user_name(TEST_USER_ID), keys[1]["aws_key_id"]
+            user_name=get_safe_name_from_user_id(TEST_USER_ID),
+            id=keys[1]["aws_key_id"],
         )
         access_key.deactivate()
 
@@ -193,17 +194,15 @@ async def test_delete_non_existent_key(client, access_token_patcher):
 
 @pytest.mark.asyncio
 async def test_storage_info(client, access_token_patcher):
-    """
-    TODO
-    """
     with mock_aws():
         aws_utils.iam_client = boto3.client("iam")
+        expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 
         res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
         assert res.status_code == 200, res.text
         storage_info = res.json()
         assert storage_info == {
-            "bucket": "TODO",
-            "workdir": "s3://TODO/ga4gh-tes",
-            "region": "us-east-1",
+            "bucket": expected_bucket_name,
+            "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
+            "region": config["USER_BUCKETS_REGION"],
         }

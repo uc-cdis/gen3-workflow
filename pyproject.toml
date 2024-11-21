@@ -12,6 +12,8 @@ include = [
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4"
+alembic = "<2"
+asyncpg = "<1"
 authutils = "<7"
 boto3 = "<2"
 cdislogging = "<2"
@@ -21,6 +23,7 @@ gen3config = ">=2.0,<3"
 gunicorn = "<24"
 httpx = "<1"
 jsonschema = "<5"
+sqlalchemy = { extras = ["asyncio"], version = "<3" }
 uvicorn = "<1"
 
 [tool.poetry.dev-dependencies]
@@ -28,7 +31,7 @@ freezegun = "<2"
 moto = "<6"
 pytest = "<9"
 pytest-asyncio = "<1"
-pytest-cov = "<6"
+pytest-cov = "<7"
 
 [build-system]
 requires = ["poetry<2"]
