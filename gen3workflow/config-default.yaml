@@ -10,7 +10,7 @@ DOCS_URL_PREFIX: /gen3workflow
 ARBORIST_URL:
 
 # /!\ only use for development! Allows running gen3workflow locally without Arborist interaction
-MOCK_AUTH: false # TODO add to config validation. Also add "no unexpected props" to validation.
+MOCK_AUTH: false
 
 MAX_IAM_KEYS_PER_USER: 2  # the default AWS AccessKeysPerUser quota is 2
 IAM_KEYS_LIFETIME_DAYS: 30

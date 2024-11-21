@@ -39,18 +39,26 @@ class Gen3WorkflowConfig(Config):
     def validate_top_level_configs(self) -> None:
         schema = {
             "type": "object",
-            "additionalProperties": True,
+            "additionalProperties": False,
             "properties": {
                 "HOSTNAME": {"type": "string"},
                 "DEBUG": {"type": "boolean"},
                 "DOCS_URL_PREFIX": {"type": "string"},
+                "ARBORIST_URL": {"type": ["string", "null"]},
+                "MOCK_AUTH": {"type": "boolean"},
                 # aws_utils.list_iam_user_keys should be updated to fetch paginated results if >100
                 "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
                 "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "USER_BUCKETS_REGION": {"type": "string"},
-                "ARBORIST_URL": {"type": ["string", "null"]},
-                "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
+                "DB_DRIVER": {"type": "string"},
+                "DB_HOST": {"type": "string"},
+                "DB_PORT": {"type": "integer"},
+                "DB_USER": {"type": "string"},
+                "DB_PASSWORD": {"type": "string"},
+                "DB_DATABASE": {"type": "string"},
+                "DB_CONNECTION_STRING": {"type": "string"},
                 "TES_SERVER_URL": {"type": "string"},
+                "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
             },
         }
         validate(instance=self, schema=schema)
