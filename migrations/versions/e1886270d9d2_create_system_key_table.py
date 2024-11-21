@@ -25,6 +25,9 @@ def upgrade() -> None:
         sa.Column("key_id", sa.VARCHAR(), nullable=False),
         sa.Column("key_secret", sa.VARCHAR(), nullable=False),
         sa.Column("user_id", sa.VARCHAR(), nullable=False),
+        sa.Column(
+            "created_time", sa.DateTime, nullable=False, server_default=sa.func.now()
+        ),
         sa.PrimaryKeyConstraint("key_id", name="system_key_pkey"),
     )
 

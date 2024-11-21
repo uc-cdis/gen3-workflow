@@ -82,28 +82,37 @@ def get_non_allowed_images(images: set, username: str) -> set:
     return non_allowed_images
 =======
 async def get_system_key(user_id):
-    # import time; time.sleep(10)
+    # get existing system keys for this user
     engine = create_async_engine(config["DB_CONNECTION_STRING"], echo=True)
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
     async with session_maker() as session:
         async with session.begin():
-            query = (
-                select(SystemKey).where(SystemKey.user_id == user_id)
-            )
+            query = select(SystemKey).where(SystemKey.user_id == user_id)
             result = await session.execute(query)
     system_keys = result.scalars().all()
-    if system_keys:
-        # TODO get the newest one
-        return system_keys[0].key_id, system_keys[0].key_secret
-    key_id, key_secret = aws_utils.create_iam_user_and_key(user_id=user_id, system_key=True)
+
+    # if there are existing keys, return the newest one
+    newest_key = None
+    for system_key in system_keys:
+        if newest_key is None or system_key.created_time > newest_key.created_time:
+            newest_key = system_key
+    if newest_key:
+        # TODO decrypt
+        return newest_key.key_id, newest_key.key_secret
+
+    # if there are no existing keys, create one
+    key_id, key_secret = aws_utils.create_iam_user_and_key(
+        user_id=user_id, system_key=True
+    )
     # TODO encrypt
-    SystemKey(
+    system_key = SystemKey(
         key_id=key_id,
         key_secret=key_secret,
         user_id=user_id,
     )
-    # db.session.add(new_token)
-    # db.session.commit()
+    async with session_maker() as session:
+        async with session.begin():
+            session.add(system_key)
     return key_id, key_secret
 >>>>>>> 46da7e5 (WIP system keys)
 
@@ -146,7 +155,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
     # TODO pass the key to the server
-    key_id, key_secret = await get_system_key(user_id)
+    # key_id, key_secret = await get_system_key(user_id)
 
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await request.app.async_client.post(url, json=body)

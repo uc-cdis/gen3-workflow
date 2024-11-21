@@ -5,8 +5,8 @@ import pytest
 
 from conftest import TEST_USER_ID
 from gen3workflow import aws_utils
-from gen3workflow.config import config
 from gen3workflow.aws_utils import get_safe_name_from_user_id
+from gen3workflow.config import config
 
 
 @pytest.mark.asyncio
@@ -176,7 +176,7 @@ async def test_too_many_user_keys(client, access_token_patcher):
 
 
 @pytest.mark.asyncio
-async def test_delete_non_existent_key(client, access_token_patcher):
+async def test_delete_non_existent_user_key(client, access_token_patcher):
     """
     Attempting to delete a key that does not exist should result in a 404 error.
     """
