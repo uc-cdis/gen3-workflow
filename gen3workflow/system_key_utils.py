@@ -1,3 +1,5 @@
+from typing import Tuple
+
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.future import select
@@ -7,18 +9,27 @@ from gen3workflow.config import config
 from gen3workflow.models import SystemKey
 
 
-def encrypt(string):
+def encrypt(string: str) -> str:
     encryption_key = Fernet(config["ENCRYPTION_KEY"])
     return encryption_key.encrypt(bytes(string, encoding="utf8")).decode("utf8")
 
 
-def decrypt(string):
+def decrypt(string: str) -> str:
     encryption_key = Fernet(config["ENCRYPTION_KEY"])
     return encryption_key.decrypt(bytes(string, encoding="utf8")).decode("utf8")
 
 
-async def get_system_key(user_id):
+async def get_system_key(user_id: str) -> Tuple[str, str]:
+    """
+    Get a system key from the database if one exists for this user, or generate one and store
+    it in the database. Keys in the database are encrypted.
 
+    Args:
+        user_id (str): The user's unique Gen3 ID
+
+    Returns:
+        Tuple[str, str]: IAM key ID and secret
+    """
     # get existing system keys for this user
     engine = create_async_engine(config["DB_CONNECTION_STRING"], echo=True)
     session_maker = async_sessionmaker(engine, expire_on_commit=False)

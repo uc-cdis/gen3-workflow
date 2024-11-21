@@ -503,14 +503,12 @@ async def test_delete_task(client, access_token_patcher):
 
 
 @pytest.mark.asyncio
-async def test_system_keys(reset_database, client, access_token_patcher, session):
+async def test_system_keys(reset_database, session):
     """
-    TODO
-    Calls to `POST /ga4gh/tes/v1/tasks` should be forwarded to the TES server, along with the
-    request body. A tag containing the user ID should be added.
-    When the TES server returns an error, gen3-workflow should return it as well.
-    If the user is not authorized, we should get a 403 error and no TES server requests should
-    be made.
+    `get_system_key()` should generate a new system key for the specified user if there isn't
+    already one in the database. Otherwise, it should return the newest key from the database.
+    Keys in the database should be encrpyted, but keys returned by `get_system_key()` should be
+    decrypted.
     """
     # the database contains no system keys at first
     query = select(SystemKey)
@@ -520,7 +518,7 @@ async def test_system_keys(reset_database, client, access_token_patcher, session
     # call `get_system_key()` - since there are no existing keys, it should generate one
     with mock_aws():
         aws_utils.iam_client = boto3.client("iam")
-        key_id, key_secret = await get_system_key(TEST_USER_ID)
+        key_id, decrypted_key_secret = await get_system_key(TEST_USER_ID)
 
     # check that the generated key is in the database
     query = select(SystemKey).where(SystemKey.user_id == TEST_USER_ID)
@@ -533,8 +531,8 @@ async def test_system_keys(reset_database, client, access_token_patcher, session
     assert oldest_key.key_id == key_id, oldest_key
 
     # the key secret should be encrypted in the database
-    assert oldest_key.key_secret != key_secret
-    assert decrypt(oldest_key.key_secret) == key_secret
+    assert oldest_key.key_secret != decrypted_key_secret
+    assert decrypt(oldest_key.key_secret) == decrypted_key_secret
 
     # add a 2nd key to the database, set its creation date to tomorrow. it's now the newest key
     # in the database
@@ -557,6 +555,7 @@ async def test_system_keys(reset_database, client, access_token_patcher, session
 
     # call `get_system_key()` - it should return the newest key of the 2 existing ones instead
     # of generating a new one
-    key_id, key_secret = await get_system_key(TEST_USER_ID)
+    key_id, decrypted_key_secret = await get_system_key(TEST_USER_ID)
     assert key_id == newest_key.key_id
-    assert decrypt(newest_key.key_secret) == key_secret
+    assert newest_key.key_secret != decrypted_key_secret
+    assert decrypt(newest_key.key_secret) == decrypted_key_secret
