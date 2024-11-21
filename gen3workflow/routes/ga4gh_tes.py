@@ -6,14 +6,7 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 """
 
 import json
-<<<<<<< HEAD
-<<<<<<< HEAD
 import re
-=======
-from typing import List
->>>>>>> e4100e8 (docstrings and types)
-=======
->>>>>>> 46da7e5 (WIP system keys)
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
@@ -50,7 +43,6 @@ async def service_info(request: Request) -> dict:
     return res.json()
 
 
-<<<<<<< HEAD
 def get_non_allowed_images(images: set, username: str) -> set:
     """
     Returns a set of images that do not match any whitelisted patterns.
@@ -80,7 +72,8 @@ def get_non_allowed_images(images: set, username: str) -> set:
 
     # Returns a set of all the images that are not from the list of whitelisted images.
     return non_allowed_images
-=======
+
+
 async def get_system_key(user_id):
     # get existing system keys for this user
     engine = create_async_engine(config["DB_CONNECTION_STRING"], echo=True)
@@ -114,7 +107,6 @@ async def get_system_key(user_id):
         async with session.begin():
             session.add(system_key)
     return key_id, key_secret
->>>>>>> 46da7e5 (WIP system keys)
 
 
 @router.post("/tasks", status_code=HTTP_200_OK)
