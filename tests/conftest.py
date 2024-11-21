@@ -295,7 +295,7 @@ async def client(request):
 
     # the tests use a real httpx client that forwards requests to the app
     async with httpx.AsyncClient(
-        app=app, base_url="http://test-gen3-wf"
+        transport=httpx.ASGITransport(app=app), base_url="http://test-gen3-wf"
     ) as real_httpx_client:
         # for easier access to the param in the tests
         real_httpx_client.tes_resp_code = tes_resp_code
