@@ -7,6 +7,7 @@ import os
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
 
+from cryptography.fernet import Fernet
 from fastapi import Request
 import httpx
 import pytest
@@ -14,15 +15,17 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.config import environ
 
-# Set GEN3WORKFLOW_CONFIG_PATH *before* loading the app, which loads the configuration
+# Set up the config *before* loading the app, which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 environ["GEN3WORKFLOW_CONFIG_PATH"] = os.path.join(
     CURRENT_DIR, "test-gen3workflow-config.yaml"
 )
+from gen3workflow.config import config
+
+config["ENCRYPTION_KEY"] = Fernet.generate_key().decode("utf-8")
+config.validate()
 
 from gen3workflow.app import get_app
-from gen3workflow.config import config
-from gen3workflow.models import Base
 from tests.migrations.migration_utils import MigrationRunner
 
 

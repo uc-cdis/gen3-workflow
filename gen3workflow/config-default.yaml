@@ -16,6 +16,9 @@ MAX_IAM_KEYS_PER_USER: 2  # the default AWS AccessKeysPerUser quota is 2
 IAM_KEYS_LIFETIME_DAYS: 30
 USER_BUCKETS_REGION: us-east-1
 
+# encryption key for encrypting keys in the database
+ENCRYPTION_KEY: YOUR_KEY_HERE
+
 #############
 # DATABASE #
 #############

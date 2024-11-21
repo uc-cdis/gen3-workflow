@@ -10,14 +10,11 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.future import select
 from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
-from gen3workflow import aws_utils, logger
+from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
-from gen3workflow.models import SystemKey
 
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
@@ -72,41 +69,6 @@ def get_non_allowed_images(images: set, username: str) -> set:
 
     # Returns a set of all the images that are not from the list of whitelisted images.
     return non_allowed_images
-
-
-async def get_system_key(user_id):
-    # get existing system keys for this user
-    engine = create_async_engine(config["DB_CONNECTION_STRING"], echo=True)
-    session_maker = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_maker() as session:
-        async with session.begin():
-            query = select(SystemKey).where(SystemKey.user_id == user_id)
-            result = await session.execute(query)
-    system_keys = result.scalars().all()
-
-    # if there are existing keys, return the newest one
-    newest_key = None
-    for system_key in system_keys:
-        if newest_key is None or system_key.created_time > newest_key.created_time:
-            newest_key = system_key
-    if newest_key:
-        # TODO decrypt
-        return newest_key.key_id, newest_key.key_secret
-
-    # if there are no existing keys, create one
-    key_id, key_secret = aws_utils.create_iam_user_and_key(
-        user_id=user_id, system_key=True
-    )
-    # TODO encrypt
-    system_key = SystemKey(
-        key_id=key_id,
-        key_secret=key_secret,
-        user_id=user_id,
-    )
-    async with session_maker() as session:
-        async with session.begin():
-            session.add(system_key)
-    return key_id, key_secret
 
 
 @router.post("/tasks", status_code=HTTP_200_OK)

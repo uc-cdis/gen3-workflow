@@ -13,8 +13,9 @@ from conftest import (
     NEW_TEST_USER_ID,
 )
 from gen3workflow import aws_utils
+from gen3workflow.config import config
 from gen3workflow.models import SystemKey
-from gen3workflow.routes.ga4gh_tes import get_system_key
+from gen3workflow.system_key_utils import encrypt, decrypt, get_system_key
 
 
 client_parameters = [
@@ -532,13 +533,14 @@ async def test_system_keys(reset_database, client, access_token_patcher, session
     assert oldest_key.key_id == key_id, oldest_key
 
     # the key secret should be encrypted in the database
-    # assert oldest_key.key_secret != key_secret, oldest_key
+    assert oldest_key.key_secret != key_secret
+    assert decrypt(oldest_key.key_secret) == key_secret
 
     # add a 2nd key to the database, set its creation date to tomorrow. it's now the newest key
     # in the database
     newest_key = SystemKey(
         key_id="abcd",
-        key_secret="xyz",
+        key_secret=encrypt("xyz"),
         user_id=TEST_USER_ID,
         created_time=datetime.now() + timedelta(days=1),
     )
@@ -553,7 +555,8 @@ async def test_system_keys(reset_database, client, access_token_patcher, session
     assert all_keys[0].key_id == oldest_key.key_id
     assert all_keys[1].key_id == newest_key.key_id
 
-    # call `get_system_key()` - it should return the newest key of the 2
+    # call `get_system_key()` - it should return the newest key of the 2 existing ones instead
+    # of generating a new one
     key_id, key_secret = await get_system_key(TEST_USER_ID)
     assert key_id == newest_key.key_id
-    # assert key_secret =
+    assert decrypt(newest_key.key_secret) == key_secret

@@ -50,6 +50,7 @@ class Gen3WorkflowConfig(Config):
                 "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
                 "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "USER_BUCKETS_REGION": {"type": "string"},
+                "ENCRYPTION_KEY": {"type": "string"},
                 "DB_DRIVER": {"type": "string"},
                 "DB_HOST": {"type": "string"},
                 "DB_PORT": {"type": "integer"},
