@@ -2,7 +2,6 @@
 See https://github.com/uc-cdis/gen3-user-data-library/blob/main/tests/conftest.py#L1
 """
 
-import asyncio
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -57,7 +56,6 @@ async def session(engine):
     Database session which utilizes the above engine and event loop and sets up a nested transaction before yielding.
     It rolls back the nested transaction after yield.
     """
-    event_loop = asyncio.get_running_loop()
     session_maker = async_sessionmaker(
         engine, expire_on_commit=False, autocommit=False, autoflush=False
     )

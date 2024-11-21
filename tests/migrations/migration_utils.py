@@ -41,6 +41,6 @@ class MigrationRunner:
             else:
                 raise Exception(f"Unknown MigrationRunner action '{self.action}'")
 
-        async_engine = create_async_engine(config["DB_CONNECTION_STRING"], echo=True)
-        async with async_engine.begin() as conn:
+        engine = create_async_engine(config["DB_CONNECTION_STRING"], echo=True)
+        async with engine.begin() as conn:
             await conn.run_sync(_run_command)

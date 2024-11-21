@@ -7,18 +7,24 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 
 import json
 <<<<<<< HEAD
+<<<<<<< HEAD
 import re
 =======
 from typing import List
 >>>>>>> e4100e8 (docstrings and types)
+=======
+>>>>>>> 46da7e5 (WIP system keys)
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.future import select
 from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
+from gen3workflow.models import SystemKey
 
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
@@ -44,6 +50,7 @@ async def service_info(request: Request) -> dict:
     return res.json()
 
 
+<<<<<<< HEAD
 def get_non_allowed_images(images: set, username: str) -> set:
     """
     Returns a set of images that do not match any whitelisted patterns.
@@ -73,6 +80,32 @@ def get_non_allowed_images(images: set, username: str) -> set:
 
     # Returns a set of all the images that are not from the list of whitelisted images.
     return non_allowed_images
+=======
+async def get_system_key(user_id):
+    # import time; time.sleep(10)
+    engine = create_async_engine(config["DB_CONNECTION_STRING"], echo=True)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_maker() as session:
+        async with session.begin():
+            query = (
+                select(SystemKey).where(SystemKey.user_id == user_id)
+            )
+            result = await session.execute(query)
+    system_keys = result.scalars().all()
+    if system_keys:
+        # TODO get the newest one
+        return system_keys[0].key_id, system_keys[0].key_secret
+    key_id, key_secret = aws_utils.create_iam_user_and_key(user_id=user_id, system_key=True)
+    # TODO encrypt
+    SystemKey(
+        key_id=key_id,
+        key_secret=key_secret,
+        user_id=user_id,
+    )
+    # db.session.add(new_token)
+    # db.session.commit()
+    return key_id, key_secret
+>>>>>>> 46da7e5 (WIP system keys)
 
 
 @router.post("/tasks", status_code=HTTP_200_OK)
@@ -111,6 +144,9 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     if "tags" not in body:
         body["tags"] = {}
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+
+    # TODO pass the key to the server
+    key_id, key_secret = await get_system_key(user_id)
 
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await request.app.async_client.post(url, json=body)
