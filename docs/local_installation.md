@@ -86,14 +86,17 @@ process {
 }
 tes {
 	endpoint = 'http://localhost:8080/ga4gh/tes'
+	oauthToken = "${GEN3_TOKEN}"
 }
 ```
 > `http://localhost:8080` is where Gen3Workflow runs by default when started with `python run.py`.
 
 Run a workflow:
 ```
-nextflow run hello
+GEN3_TOKEN=xyz nextflow run hello
 ```
+
+The token is a Gen3 access token which is expected by most endpoints to verify the user's access (see [Authorization](authorization.md) documentation).
 
 ## AWS access
 

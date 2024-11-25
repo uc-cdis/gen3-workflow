@@ -121,13 +121,13 @@ def create_iam_user_and_key(user_id: str, system_key: bool) -> Tuple[str, str]:
     Args:
         user_id (str): The user's unique Gen3 ID
         system_key (bool): Whether the generated key is meant to be used by the server (if True)
-            or by the end user (if False). If True, append "_bot" to the IAM user name.
+            or by the end user (if False). If True, append "-bot" to the IAM user name.
 
     Returns:
         tuple(str, str): IAM key ID and secret
     """
     if system_key:
-        iam_user_name = get_safe_name_from_user_id(f"{user_id}_bot")
+        iam_user_name = get_safe_name_from_user_id(f"{user_id}-bot")
     else:
         iam_user_name = get_safe_name_from_user_id(user_id)
     escaped_hostname = config["HOSTNAME"].replace(".", "-")
