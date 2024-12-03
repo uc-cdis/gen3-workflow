@@ -9,6 +9,7 @@ from gen3authz.client.arborist.async_client import ArboristClient
 from gen3workflow import logger
 from gen3workflow.config import config
 from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
+from gen3workflow.routes.s3 import router as s3_router
 from gen3workflow.routes.storage import router as storage_router
 from gen3workflow.routes.system import router as system_router
 
@@ -28,6 +29,7 @@ def get_app(httpx_client=None) -> FastAPI:
     )
     app.async_client = httpx_client or httpx.AsyncClient()
     app.include_router(ga4gh_tes_router, tags=["GA4GH TES"])
+    app.include_router(s3_router, tags=["S3"])
     app.include_router(storage_router, tags=["Storage"])
     app.include_router(system_router, tags=["System"])
 
