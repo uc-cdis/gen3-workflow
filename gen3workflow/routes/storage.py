@@ -8,9 +8,9 @@ from starlette.status import (
     HTTP_400_BAD_REQUEST,
 )
 
+from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
-from gen3workflow import aws_utils
 
 
 router = APIRouter(prefix="/storage")
@@ -35,10 +35,9 @@ async def generate_user_key(request: Request, auth=Depends(Auth)):
 
     existing_keys = aws_utils.list_iam_user_keys(user_id)
     if len(existing_keys) >= config["MAX_IAM_KEYS_PER_USER"]:
-        raise HTTPException(
-            HTTP_400_BAD_REQUEST,
-            f"Too many existing keys: only {config['MAX_IAM_KEYS_PER_USER']} are allowed per user. Delete an existing key before creating a new one",
-        )
+        err_msg = f"Too many existing keys: only {config['MAX_IAM_KEYS_PER_USER']} are allowed per user. Delete an existing key before creating a new one"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
     key_id, key_secret = aws_utils.create_iam_user_and_key(user_id)
     return {

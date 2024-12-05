@@ -113,7 +113,9 @@ async def todo_rename(path: str, request: Request):
     # - request_path = /pre/fix/
     # - api_endpoint = pre/fix/
     if user_bucket not in path:
-        raise HTTPException(HTTP_401_UNAUTHORIZED, f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'")
+        err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     request_path = path.split(user_bucket)[1]
     api_endpoint = "/".join(request_path.split("/")[1:])
 
@@ -144,12 +146,6 @@ async def todo_rename(path: str, request: Request):
 
     # AWS Credentials for signing
     if config["S3_ENDPOINTS_AWS_ROLE_ARN"]:
-        # sts_client = boto3.client('sts')
-        # response = sts_client.assume_role(
-        #     RoleArn=config["S3_ENDPOINTS_AWS_ROLE_ARN"],
-        #     RoleSessionName='SessionName'
-        # )
-        # credentials = response['Credentials']
         session = boto3.Session()
         credentials = session.get_credentials()
         headers["x-amz-security-token"] = credentials.token

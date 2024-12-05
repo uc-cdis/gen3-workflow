@@ -174,7 +174,6 @@ def delete_iam_user_key(user_id, key_id):
         )
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchEntity":
-            raise HTTPException(
-                HTTP_404_NOT_FOUND,
-                f"No such key: '{key_id}'",
-            )
+            err_msg = f"No such key: '{key_id}'"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_404_NOT_FOUND, err_msg)

@@ -119,6 +119,7 @@ async def create_task(request: Request, auth=Depends(Auth)):
             username=username, user_id=user_id
         )
     except ArboristError as e:
+        logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
     return res.json()
@@ -195,6 +196,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
             },
         )
     except ArboristError as e:
+        logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
     # filter out tasks the current user does not have access to
