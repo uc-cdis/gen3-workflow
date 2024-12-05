@@ -48,13 +48,18 @@ class Gen3WorkflowConfig(Config):
                 "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
                 "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "USER_BUCKETS_REGION": {"type": "string"},
-                # TODO S3_ENDPOINTS_AWS_ROLE_ARN etc
+                "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
+                "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY": {"type": ["string", "null"]},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
             },
         }
         validate(instance=self, schema=schema)
+
+        assert bool(self["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]) == bool(
+            self["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"]
+        ), "Both 'S3_ENDPOINTS_AWS_ACCESS_KEY_ID' and 'S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY' must be configured, or both must be left empty"
 
 
 config = Gen3WorkflowConfig(DEFAULT_CFG_PATH)
