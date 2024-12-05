@@ -4,6 +4,7 @@ import json
 import os
 import urllib.parse
 
+import boto3
 from fastapi import APIRouter, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from botocore.credentials import Credentials
@@ -14,6 +15,7 @@ from starlette.responses import Response
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
+from gen3workflow.config import config
 
 
 # TODO Generate a presigned URL if the request is a GET request, see https://cdis.slack.com/archives/D01DMJWKVB5/p1733169741227879 - is that required?
@@ -91,9 +93,6 @@ async def catch_all_v4(path: str, request: Request):
     Returns:
         _type_: _description_
     """
-    if "KEY" not in os.environ:
-        raise Exception("No key")
-
     # await _log_request(request, path)
 
     # extract the user's access token from the request headers, and use it to get the name of
@@ -140,7 +139,7 @@ async def catch_all_v4(path: str, request: Request):
     #     headers['content-length'] = request.headers['content-length']
     # if 'x-amz-decoded-content-length' in request.headers:
     #     headers['x-amz-decoded-content-length'] = request.headers['x-amz-decoded-content-length']
-    
+
     # Ensure 'x-amz-date' is included in the headers (it's needed for signature calculation)
     amz_date = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
     headers['x-amz-date'] = amz_date
@@ -161,14 +160,21 @@ async def catch_all_v4(path: str, request: Request):
     # logger.debug(f"- Canonical Request:\n{canonical_request}")
 
     # AWS Credentials for signing
-    # TODO support either AWS IAM key or service account
-    credentials = Credentials(
-        access_key=os.environ.get('KEY'),
-        secret_key=os.environ.get('SECRET')
-    )
+    if config["S3_ENDPOINTS_AWS_ROLE_ARN"]:
+        sts_client = boto3.client('sts')
+        response = sts_client.assume_role(
+            RoleArn=config["S3_ENDPOINTS_AWS_ROLE_ARN"],
+            RoleSessionName='SessionName'
+        )
+        credentials = response['Credentials']
+    else:
+        credentials = Credentials(
+            access_key=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
+            secret_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
+        )
 
     # Create the string to sign based on the canonical request
-    region = 'us-east-1'
+    region = config["USER_BUCKETS_REGION"]
     service = 's3'
     date_stamp = headers['x-amz-date'][:8]  # The date portion (YYYYMMDD)
     string_to_sign = (
@@ -195,7 +201,7 @@ async def catch_all_v4(path: str, request: Request):
 
     # Perform the actual HTTP request
     s3_api_url = f"https://{user_bucket}.s3.amazonaws.com/{api_endpoint}"
-    # logger.debug(f"- Making {request.method} request to {s3_api_url}")
+    logger.debug(f"Making {request.method} request to {s3_api_url}")
     async with httpx.AsyncClient() as client:
         response = await client.request(
             method=request.method,

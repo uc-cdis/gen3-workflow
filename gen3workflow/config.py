@@ -48,6 +48,7 @@ class Gen3WorkflowConfig(Config):
                 "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
                 "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "USER_BUCKETS_REGION": {"type": "string"},
+                # TODO S3_ENDPOINTS_AWS_ROLE_ARN etc
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
