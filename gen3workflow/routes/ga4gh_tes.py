@@ -99,10 +99,9 @@ async def create_task(request: Request, auth=Depends(Auth)):
 
     invalid_images = get_non_allowed_images(images_from_request, username)
     if invalid_images:
-        raise HTTPException(
-            HTTP_403_FORBIDDEN,
-            f"The specified images are not allowed: {list(invalid_images)}",
-        )
+        err_msg = f"The specified images are not allowed: {list(invalid_images)}"
+        logger.error(f"{err_msg}. Allowed images: {config['TASK_IMAGE_WHITELIST']}")
+        raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     if "tags" not in body:
         body["tags"] = {}

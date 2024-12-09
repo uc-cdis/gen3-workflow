@@ -16,6 +16,8 @@ MAX_IAM_KEYS_PER_USER: 2  # the default AWS AccessKeysPerUser quota is 2
 IAM_KEYS_LIFETIME_DAYS: 30
 USER_BUCKETS_REGION: us-east-1
 
+# configure an AWS IAM key to use when making S3 requests on behalf of users. If left empty, it
+# is assumed there is an existing STS session we can get credentials from.
 S3_ENDPOINTS_AWS_ACCESS_KEY_ID:
 S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY:
 
@@ -29,8 +31,6 @@ DB_PORT: 5432
 DB_USER: postgres
 DB_PASSWORD: postgres
 DB_DATABASE: gen3workflow_test
-
-
 
 #############
 # GA4GH TES #

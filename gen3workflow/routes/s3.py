@@ -72,8 +72,9 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
 )
 async def s3_endpoint(path: str, request: Request):
     """
-    Receive incoming S3 requests, re-sign them with the appropriate credentials to access the
-    current user's AWS S3 bucket, and forward them to AWS S3.
+    Receive incoming S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
+    appropriate credentials to access the current user's AWS S3 bucket, and forward them to
+    AWS S3.
     """
     logger.debug(f"Incoming S3 request: '{request.method} {path}'")
 
@@ -136,6 +137,7 @@ async def s3_endpoint(path: str, request: Request):
     else:  # running in k8s: get credentials from the assumed role
         session = boto3.Session()
         credentials = session.get_credentials()
+        assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
 
     # construct the canonical request
@@ -185,14 +187,13 @@ async def s3_endpoint(path: str, request: Request):
     )
     s3_api_url = f"https://{user_bucket}.s3.amazonaws.com/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
-    async with httpx.AsyncClient() as client:
-        response = await client.request(
-            method=request.method,
-            url=s3_api_url,
-            headers=headers,
-            params=query_params,
-            data=body,
-        )
+    response = await request.app.async_client.request(
+        method=request.method,
+        url=s3_api_url,
+        headers=headers,
+        params=query_params,
+        data=body,
+    )
     if response.status_code != 200:
         logger.error(f"Error from AWS: {response.status_code} {response.text}")
 
