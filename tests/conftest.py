@@ -50,9 +50,7 @@ MOCKED_S3_RESPONSE_DICT = {
     "Contents": [
         {
             "Key": "test-folder/test-file1.txt",
-            "LastModified": datetime(
-                2024, 12, 9, 22, 32, 20, tzinfo=tzutc()
-            ),
+            "LastModified": datetime(2024, 12, 9, 22, 32, 20, tzinfo=tzutc()),
             "ETag": '"something"',
             "Size": 211,
             "StorageClass": "STANDARD",
@@ -306,7 +304,9 @@ async def client(request):
                 body=request.content.decode(),
                 authorized=authorized,
             )
-        elif url.startswith(f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.amazonaws.com"):
+        elif url.startswith(
+            f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.amazonaws.com"
+        ):
             mocked_response = httpx.Response(
                 status_code=200,
                 text=MOCKED_S3_RESPONSE_XML,
@@ -336,6 +336,7 @@ async def client(request):
     if get_url:  # for tests that need to hit the app URL directly
         host = "0.0.0.0"
         port = 8080
+
         def run_uvicorn():
             uvicorn.run(app, host=host, port=port)
 
