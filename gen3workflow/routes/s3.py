@@ -88,8 +88,8 @@ async def s3_endpoint(path: str, request: Request):
     user_id = token_claims.get("sub")
     user_bucket = aws_utils.get_safe_name_from_user_id(user_id)
 
-    # TODO make sure calls to bucket1 is not allowed when user's bucket is bucket12
-    if user_bucket not in path:
+    request_bucket = path.split("?")[0].split("/")[0]
+    if request_bucket != user_bucket:
         err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
