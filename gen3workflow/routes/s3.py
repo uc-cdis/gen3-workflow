@@ -1,7 +1,5 @@
 from datetime import datetime, timezone
 import hashlib
-import json
-import os
 import urllib.parse
 
 import boto3
@@ -9,7 +7,6 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from botocore.credentials import Credentials
 import hmac
-import httpx
 from starlette.datastructures import Headers
 from starlette.responses import Response
 from starlette.status import HTTP_401_UNAUTHORIZED
@@ -17,9 +14,6 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
-
-
-# TODO Generate a presigned URL if the request is a GET request, see https://cdis.slack.com/archives/D01DMJWKVB5/p1733169741227879 - is that required?
 
 
 router = APIRouter(prefix="/s3")
