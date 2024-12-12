@@ -41,7 +41,7 @@ openapi: 3.1.0
 paths:
   /:
     get:
-      operationId: get_status__get
+      operationId: get_status_2
       responses:
         '200':
           content:
@@ -55,7 +55,7 @@ paths:
       - System
   /_status:
     get:
-      operationId: get_status__status_get
+      operationId: get_status
       responses:
         '200':
           content:
@@ -69,7 +69,7 @@ paths:
       - System
   /_version:
     get:
-      operationId: get_version__version_get
+      operationId: get_version
       responses:
         '200':
           content:
@@ -83,7 +83,7 @@ paths:
       - System
   /ga4gh/tes/v1/service-info:
     get:
-      operationId: service_info_ga4gh_tes_v1_service_info_get
+      operationId: service_info
       responses:
         '200':
           content:
@@ -95,7 +95,7 @@ paths:
       - GA4GH TES
   /ga4gh/tes/v1/tasks:
     get:
-      operationId: list_tasks_ga4gh_tes_v1_tasks_get
+      operationId: list_tasks
       responses:
         '200':
           content:
@@ -108,7 +108,7 @@ paths:
       tags:
       - GA4GH TES
     post:
-      operationId: create_task_ga4gh_tes_v1_tasks_post
+      operationId: create_task
       responses:
         '200':
           content:
@@ -122,7 +122,7 @@ paths:
       - GA4GH TES
   /ga4gh/tes/v1/tasks/{task_id}:
     get:
-      operationId: get_task_ga4gh_tes_v1_tasks__task_id__get
+      operationId: get_task
       parameters:
       - in: path
         name: task_id
@@ -149,7 +149,7 @@ paths:
       - GA4GH TES
   /ga4gh/tes/v1/tasks/{task_id}:cancel:
     post:
-      operationId: cancel_task_ga4gh_tes_v1_tasks__task_id__cancel_post
+      operationId: cancel_task
       parameters:
       - in: path
         name: task_id
@@ -183,7 +183,7 @@ paths:
         them to
 
         AWS S3.'
-      operationId: s3_endpoint_s3__path__patch
+      operationId: s3_endpoint
       parameters:
       - in: path
         name: path
@@ -214,7 +214,7 @@ paths:
         them to
 
         AWS S3.'
-      operationId: s3_endpoint_s3__path__patch
+      operationId: s3_endpoint
       parameters:
       - in: path
         name: path
@@ -245,7 +245,7 @@ paths:
         them to
 
         AWS S3.'
-      operationId: s3_endpoint_s3__path__patch
+      operationId: s3_endpoint
       parameters:
       - in: path
         name: path
@@ -276,7 +276,7 @@ paths:
         them to
 
         AWS S3.'
-      operationId: s3_endpoint_s3__path__patch
+      operationId: s3_endpoint
       parameters:
       - in: path
         name: path
@@ -307,7 +307,7 @@ paths:
         them to
 
         AWS S3.'
-      operationId: s3_endpoint_s3__path__patch
+      operationId: s3_endpoint
       parameters:
       - in: path
         name: path
@@ -338,7 +338,7 @@ paths:
         them to
 
         AWS S3.'
-      operationId: s3_endpoint_s3__path__patch
+      operationId: s3_endpoint
       parameters:
       - in: path
         name: path
@@ -369,7 +369,7 @@ paths:
         them to
 
         AWS S3.'
-      operationId: s3_endpoint_s3__path__patch
+      operationId: s3_endpoint
       parameters:
       - in: path
         name: path
@@ -400,7 +400,7 @@ paths:
         them to
 
         AWS S3.'
-      operationId: s3_endpoint_s3__path__patch
+      operationId: s3_endpoint
       parameters:
       - in: path
         name: path
@@ -425,7 +425,7 @@ paths:
       - S3
   /storage/credentials:
     get:
-      operationId: get_user_keys_storage_credentials_get
+      operationId: get_user_keys
       responses:
         '200':
           content:
@@ -438,7 +438,7 @@ paths:
       tags:
       - Storage
     post:
-      operationId: generate_user_key_storage_credentials_post
+      operationId: generate_user_key
       responses:
         '201':
           content:
@@ -452,7 +452,7 @@ paths:
       - Storage
   /storage/credentials/{key_id}:
     delete:
-      operationId: delete_user_key_storage_credentials__key_id__delete
+      operationId: delete_user_key
       parameters:
       - in: path
         name: key_id
@@ -476,7 +476,7 @@ paths:
       - Storage
   /storage/info:
     get:
-      operationId: get_storage_info_storage_info_get
+      operationId: get_storage_info
       responses:
         '200':
           content:
