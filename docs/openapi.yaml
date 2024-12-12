@@ -174,6 +174,255 @@ paths:
       summary: Cancel Task
       tags:
       - GA4GH TES
+  /s3/{path}:
+    delete:
+      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
+        4 algorithm) with the
+
+        appropriate credentials to access the current user''s AWS S3 bucket, and forward
+        them to
+
+        AWS S3.'
+      operationId: s3_endpoint_s3__path__patch
+      parameters:
+      - in: path
+        name: path
+        required: true
+        schema:
+          title: Path
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: S3 Endpoint
+      tags:
+      - S3
+    get:
+      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
+        4 algorithm) with the
+
+        appropriate credentials to access the current user''s AWS S3 bucket, and forward
+        them to
+
+        AWS S3.'
+      operationId: s3_endpoint_s3__path__patch
+      parameters:
+      - in: path
+        name: path
+        required: true
+        schema:
+          title: Path
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: S3 Endpoint
+      tags:
+      - S3
+    head:
+      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
+        4 algorithm) with the
+
+        appropriate credentials to access the current user''s AWS S3 bucket, and forward
+        them to
+
+        AWS S3.'
+      operationId: s3_endpoint_s3__path__patch
+      parameters:
+      - in: path
+        name: path
+        required: true
+        schema:
+          title: Path
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: S3 Endpoint
+      tags:
+      - S3
+    options:
+      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
+        4 algorithm) with the
+
+        appropriate credentials to access the current user''s AWS S3 bucket, and forward
+        them to
+
+        AWS S3.'
+      operationId: s3_endpoint_s3__path__patch
+      parameters:
+      - in: path
+        name: path
+        required: true
+        schema:
+          title: Path
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: S3 Endpoint
+      tags:
+      - S3
+    patch:
+      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
+        4 algorithm) with the
+
+        appropriate credentials to access the current user''s AWS S3 bucket, and forward
+        them to
+
+        AWS S3.'
+      operationId: s3_endpoint_s3__path__patch
+      parameters:
+      - in: path
+        name: path
+        required: true
+        schema:
+          title: Path
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: S3 Endpoint
+      tags:
+      - S3
+    post:
+      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
+        4 algorithm) with the
+
+        appropriate credentials to access the current user''s AWS S3 bucket, and forward
+        them to
+
+        AWS S3.'
+      operationId: s3_endpoint_s3__path__patch
+      parameters:
+      - in: path
+        name: path
+        required: true
+        schema:
+          title: Path
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: S3 Endpoint
+      tags:
+      - S3
+    put:
+      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
+        4 algorithm) with the
+
+        appropriate credentials to access the current user''s AWS S3 bucket, and forward
+        them to
+
+        AWS S3.'
+      operationId: s3_endpoint_s3__path__patch
+      parameters:
+      - in: path
+        name: path
+        required: true
+        schema:
+          title: Path
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: S3 Endpoint
+      tags:
+      - S3
+    trace:
+      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
+        4 algorithm) with the
+
+        appropriate credentials to access the current user''s AWS S3 bucket, and forward
+        them to
+
+        AWS S3.'
+      operationId: s3_endpoint_s3__path__patch
+      parameters:
+      - in: path
+        name: path
+        required: true
+        schema:
+          title: Path
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: S3 Endpoint
+      tags:
+      - S3
   /storage/credentials:
     get:
       operationId: get_user_keys_storage_credentials_get
