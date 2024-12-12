@@ -75,7 +75,8 @@ Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/doc
 
 ## Run Nextflow workflows with Gen3Workflow
 
-Example Nextflow configuration:
+- Hit the `/storage/info` endpoint to get your working directory
+- Configure Nextflow. Example Nextflow configuration:
 ```
 plugins {
 	id 'nf-ga4gh'
@@ -85,14 +86,32 @@ process {
 	container = 'quay.io/nextflow/bash'
 }
 tes {
-	endpoint = 'http://localhost:8080/ga4gh/tes'
+	endpoint = '<Gen3Workflow URL>/ga4gh/tes'
+	oauthToken = "${GEN3_TOKEN}"
 }
+aws {
+	accessKey = "${GEN3_TOKEN}"
+	secretKey = 'N/A'
+	region = 'us-east-1'
+	client {
+		s3PathStyleAccess = true
+		endpoint = '<Gen3Workflow URL>/s3'
+	}
+}
+workDir = '<your working directory>'
 ```
-> `http://localhost:8080` is where Gen3Workflow runs by default when started with `python run.py`.
+> The Gen3Workflow URL should be set to `http://localhost:8080` in this case; this is where the service runs by default when started with `python run.py`.
 
-Run a workflow:
+- Run a workflow:
+
+When setting your token manually:
 ```
+export GEN3_TOKEN=<your token>
 nextflow run hello
+```
+Or, with the [Gen3 Python SDK](https://github.com/uc-cdis/gen3sdk-python) configured with an API key:
+```
+gen3 run nextflow run hello
 ```
 
 ## AWS access
