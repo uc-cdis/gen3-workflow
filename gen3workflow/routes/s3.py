@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 import hashlib
 import urllib.parse
 
@@ -82,6 +81,7 @@ async def s3_endpoint(path: str, request: Request):
     user_id = token_claims.get("sub")
     user_bucket = aws_utils.get_safe_name_from_user_id(user_id)
 
+    # ensure the user is making a call to their own bucket
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"
@@ -101,26 +101,31 @@ async def s3_endpoint(path: str, request: Request):
     request_path = path.split(user_bucket)[1]
     api_endpoint = "/".join(request_path.split("/")[1:])
 
-    # generate the request headers
-    # headers = dict(request.headers)
-    # headers.pop("authorization")
-    headers = {}
-    # TODO try again to include all the headers
-    # `x-amz-content-sha256` is sometimes set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in
-    # the original request, but i was not able to get the signing working when copying it.
-    # if "Content-Type" in request.headers:
-    #     headers["content-type"] = request.headers["Content-Type"]
-    headers["host"] = f"{user_bucket}.s3.amazonaws.com"
     body = await request.body()
     body_hash = hashlib.sha256(body).hexdigest()
+    timestamp = request.headers["x-amz-date"]
+    date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
+    region = config["USER_BUCKETS_REGION"]
+    service = "s3"
+
+    # generate the request headers:
+    # - first, copy all the headers from the original request.
+    headers = dict(request.headers)
+    # - remove the `authorization` header: it contains a Gen3 token instead of an AWS IAM key.
+    #   The new `authorization` header will be added _after_ generating the signature.
+    headers.pop("authorization")
+    # - overwrite the `x-amz-content-sha256` header value with the body hash. When this header is
+    #   set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in the original request (payload sent over
+    #   multiple chunks), we replace it with the body hash (because I couldn't get the signing to
+    #   work for "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" - I believe it requires using the signature
+    #   from the previous chunk).
+    #   NOTE: This may cause issues when large files are _actually_ uploaded over multiple chunks.
     headers["x-amz-content-sha256"] = body_hash
-    # headers['x-amz-content-sha256'] = request.headers['x-amz-content-sha256']
-    # if 'content-length' in request.headers:
-    #     headers['content-length'] = request.headers['content-length']
-    # if 'x-amz-decoded-content-length' in request.headers:
-    #     headers['x-amz-decoded-content-length'] = request.headers['x-amz-decoded-content-length']
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    headers["x-amz-date"] = timestamp
+    # - remove the `content-md5` header: when the `x-amz-content-sha256` header is overwritten (see
+    #   above), the original `content-md5` value becomes incorrect. It's not required in V4 signing.
+    headers.pop("content-md5", None)
+    # - replace the `host` header, since we are re-signing and sending to a different host.
+    headers["host"] = f"{user_bucket}.s3.amazonaws.com"
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -128,7 +133,7 @@ async def s3_endpoint(path: str, request: Request):
             access_key=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
             secret_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
         )
-    else:  # running in k8s: get credentials from the assumed role
+    else:  # assume the service is running in k8s: get credentials from the assumed role
         session = boto3.Session()
         credentials = session.get_credentials()
         assert credentials, "No AWS credentials found"
@@ -157,9 +162,6 @@ async def s3_endpoint(path: str, request: Request):
     )
 
     # construct the string to sign based on the canonical request
-    date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
-    region = config["USER_BUCKETS_REGION"]
-    service = "s3"
     string_to_sign = (
         f"AWS4-HMAC-SHA256\n"
         f"{timestamp}\n"
