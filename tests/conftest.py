@@ -57,7 +57,7 @@ MOCKED_S3_RESPONSE_DICT = {
             "Owner": {"DisplayName": "something", "ID": "something"},
         }
     ],
-    "Name": "gen3wf-localhost-64",
+    "Name": f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
     "Prefix": "test-folder/test-file1.txt",
     "MaxKeys": 250,
     "EncodingType": "url",
@@ -288,6 +288,7 @@ async def client(request):
         parsed_url = urlparse(url)
         mocked_response = None
         if url.startswith(config["TES_SERVER_URL"]):
+            # mock calls to the TES server
             path = url[len(config["TES_SERVER_URL"]) :].split("?")[0].rstrip("/")
             mocked_response = mock_tes_server_request(
                 method=request.method,
@@ -297,6 +298,7 @@ async def client(request):
                 status_code=tes_resp_code,
             )
         elif url.startswith(config["ARBORIST_URL"]):
+            # mock calls to Arborist
             path = url[len(config["ARBORIST_URL"]) :].split("?")[0].rstrip("/")
             mocked_response = mock_arborist_request(
                 method=request.method,
@@ -307,6 +309,7 @@ async def client(request):
         elif url.startswith(
             f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.amazonaws.com"
         ):
+            # mock calls to AWS S3
             mocked_response = httpx.Response(
                 status_code=200,
                 text=MOCKED_S3_RESPONSE_XML,
