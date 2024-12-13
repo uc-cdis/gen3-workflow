@@ -99,10 +99,9 @@ async def create_task(request: Request, auth=Depends(Auth)):
 
     invalid_images = get_non_allowed_images(images_from_request, username)
     if invalid_images:
-        raise HTTPException(
-            HTTP_403_FORBIDDEN,
-            f"The specified images are not allowed: {list(invalid_images)}",
-        )
+        err_msg = f"The specified images are not allowed: {list(invalid_images)}"
+        logger.error(f"{err_msg}. Allowed images: {config['TASK_IMAGE_WHITELIST']}")
+        raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     if "tags" not in body:
         body["tags"] = {}
@@ -119,6 +118,7 @@ async def create_task(request: Request, auth=Depends(Auth)):
             username=username, user_id=user_id
         )
     except ArboristError as e:
+        logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
     return res.json()
@@ -195,6 +195,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)):
             },
         )
     except ArboristError as e:
+        logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
     # filter out tasks the current user does not have access to

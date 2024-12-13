@@ -1,6 +1,9 @@
 DEBUG: true
 ARBORIST_URL: http://test-arborist-server
 
+S3_ENDPOINTS_AWS_ACCESS_KEY_ID: test-aws-key-id
+S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY: test-aws-key
+
 TES_SERVER_URL: http://external-tes-server/tes
 TASK_IMAGE_WHITELIST:
   - public.ecr.aws/random/approved/public:*

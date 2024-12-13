@@ -3,6 +3,8 @@ See https://github.com/uc-cdis/gen3-user-data-library/blob/main/tests/conftest.p
 """
 
 import asyncio
+from datetime import datetime
+from dateutil.tz import tzutc
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -14,6 +16,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.config import environ
+from threading import Thread
+import uvicorn
 
 # Set GEN3WORKFLOW_CONFIG_PATH *before* loading the app, which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -28,6 +32,36 @@ from gen3workflow.models import Base
 
 TEST_USER_ID = "64"
 NEW_TEST_USER_ID = "784"  # a new user that does not already exist in arborist
+
+# a "ListBucketResult" S3 response from AWS, and the corresponding response as parsed by boto3
+MOCKED_S3_RESPONSE_XML = f"""<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Name><Prefix>test-folder/test-file1.txt</Prefix><Marker></Marker><MaxKeys>250</MaxKeys><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>test-folder/test-file1.txt</Key><LastModified>2024-12-09T22:32:20.000Z</LastModified><ETag>&quot;something&quot;</ETag><Size>211</Size><Owner><ID>something</ID><DisplayName>something</DisplayName></Owner><StorageClass>STANDARD</StorageClass></Contents></ListBucketResult>"""
+MOCKED_S3_RESPONSE_DICT = {
+    "ResponseMetadata": {
+        "HTTPStatusCode": 200,
+        "HTTPHeaders": {
+            "server": "uvicorn",
+            "content-length": "569",
+            "content-type": "application/xml",
+        },
+        "RetryAttempts": 0,
+    },
+    "IsTruncated": False,
+    "Marker": "",
+    "Contents": [
+        {
+            "Key": "test-folder/test-file1.txt",
+            "LastModified": datetime(2024, 12, 9, 22, 32, 20, tzinfo=tzutc()),
+            "ETag": '"something"',
+            "Size": 211,
+            "StorageClass": "STANDARD",
+            "Owner": {"DisplayName": "something", "ID": "something"},
+        }
+    ],
+    "Name": f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
+    "Prefix": "test-folder/test-file1.txt",
+    "MaxKeys": 250,
+    "EncodingType": "url",
+}
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -71,7 +105,7 @@ async def session(engine):
 
 
 @pytest.fixture(scope="function")
-def access_token_patcher(client, request):
+def access_token_patcher(request):
     """
     The `access_token` function will return a token linked to a test user.
     This fixture should be used explicitely instead of the automatic
@@ -254,6 +288,7 @@ async def client(request):
         parsed_url = urlparse(url)
         mocked_response = None
         if url.startswith(config["TES_SERVER_URL"]):
+            # mock calls to the TES server
             path = url[len(config["TES_SERVER_URL"]) :].split("?")[0].rstrip("/")
             mocked_response = mock_tes_server_request(
                 method=request.method,
@@ -263,12 +298,22 @@ async def client(request):
                 status_code=tes_resp_code,
             )
         elif url.startswith(config["ARBORIST_URL"]):
+            # mock calls to Arborist
             path = url[len(config["ARBORIST_URL"]) :].split("?")[0].rstrip("/")
             mocked_response = mock_arborist_request(
                 method=request.method,
                 path=path,
                 body=request.content.decode(),
                 authorized=authorized,
+            )
+        elif url.startswith(
+            f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.amazonaws.com"
+        ):
+            # mock calls to AWS S3
+            mocked_response = httpx.Response(
+                status_code=200,
+                text=MOCKED_S3_RESPONSE_XML,
+                headers={"content-type": "application/xml"},
             )
 
         if mocked_response is not None:
@@ -287,11 +332,29 @@ async def client(request):
         transport=httpx.MockTransport(handle_request)
     )
 
-    # the tests use a real httpx client that forwards requests to the app
-    async with httpx.AsyncClient(
-        app=app, base_url="http://test-gen3-wf"
-    ) as real_httpx_client:
-        # for easier access to the param in the tests
-        real_httpx_client.tes_resp_code = tes_resp_code
-        real_httpx_client.authorized = authorized
-        yield real_httpx_client
+    get_url = False
+    if hasattr(request, "param"):
+        get_url = request.param.get("get_url", get_url)
+
+    if get_url:  # for tests that need to hit the app URL directly
+        host = "0.0.0.0"
+        port = 8080
+
+        def run_uvicorn():
+            uvicorn.run(app, host=host, port=port)
+
+        # start the app in a separate thread
+        thread = Thread(target=run_uvicorn)
+        thread.daemon = True  # ensures the thread ends when the test ends
+        thread.start()
+
+        yield f"http://{host}:{port}"  # URL to use in the tests
+    else:
+        # the tests use a real httpx client that forwards requests to the app
+        async with httpx.AsyncClient(
+            app=app, base_url="http://test-gen3-wf"
+        ) as real_httpx_client:
+            # for easier access to the param in the tests
+            real_httpx_client.tes_resp_code = tes_resp_code
+            real_httpx_client.authorized = authorized
+            yield real_httpx_client
