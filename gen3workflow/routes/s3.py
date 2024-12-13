@@ -71,17 +71,18 @@ async def s3_endpoint(path: str, request: Request):
     """
     logger.debug(f"Incoming S3 request: '{request.method} {path}'")
 
-    # extract the user's access token from the request headers, and use it to get the name of
-    # the user's bucket
+    # extract the user's access token from the request headers, and ensure the user has access
+    # to run workflows
     auth = Auth(api_request=request)
     auth.bearer_token = HTTPAuthorizationCredentials(
         scheme="bearer", credentials=get_access_token(request.headers)
     )
+    await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
+
+    # get the name of the user's bucket and ensure the user is making a call to their own bucket
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     user_bucket = aws_utils.get_safe_name_from_user_id(user_id)
-
-    # ensure the user is making a call to their own bucket
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"

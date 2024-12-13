@@ -43,6 +43,23 @@ def test_s3_endpoint_no_token(s3_client):
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
 
 
+"""
+This test currently doesn't work because the client generated when `get_url` is True is not stopped
+properly, so generating a different client (with `authorized=False` param) triggers an error:
+> OSError: [Errno 48] error while attempting to bind on address ('0.0.0.0', 8080): address already
+  in use
+TODO fix that
+"""
+# @pytest.mark.parametrize("client", [{"get_url": True, "authorized": False}], indirect=True)
+# def test_s3_endpoint_unauthorized(s3_client, access_token_patcher):
+#     """
+#     Hitting the `/s3` endpoint with a Gen3 access token that does not have the appropriate access
+#     should result in a 403 Forbidden error.
+#     """
+#     with pytest.raises(ClientError, match="403"):
+#         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+
+
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
 @pytest.mark.parametrize(
     "bucket_name",
