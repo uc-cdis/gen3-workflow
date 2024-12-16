@@ -46,9 +46,6 @@ class Gen3WorkflowConfig(Config):
                 "DOCS_URL_PREFIX": {"type": "string"},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},
-                # aws_utils.list_iam_user_keys should be updated to fetch paginated results if >100
-                "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
-                "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
                 "USER_BUCKETS_REGION": {"type": "string"},
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY": {"type": ["string", "null"]},

@@ -12,8 +12,6 @@ ARBORIST_URL:
 # /!\ only use for development! Allows running gen3workflow locally without Arborist interaction
 MOCK_AUTH: false
 
-MAX_IAM_KEYS_PER_USER: 2  # the default AWS AccessKeysPerUser quota is 2
-IAM_KEYS_LIFETIME_DAYS: 30
 USER_BUCKETS_REGION: us-east-1
 
 # configure an AWS IAM key to use when making S3 requests on behalf of users. If left empty, it
