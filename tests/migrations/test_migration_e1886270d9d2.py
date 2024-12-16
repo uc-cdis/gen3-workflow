@@ -7,7 +7,7 @@ from tests.migrations.migration_utils import MigrationRunner
 
 
 @pytest.mark.asyncio
-async def test_e1886270d9d2_upgrade(session):
+async def test_e1886270d9d2_upgrade(session, reset_database):
     # state before the migration
     migration_runner = MigrationRunner()
     await migration_runner.downgrade("base")

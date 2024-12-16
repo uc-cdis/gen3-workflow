@@ -1,11 +1,7 @@
-import json
+from typing import Tuple
 
 import boto3
-from botocore.exceptions import ClientError
-from fastapi import HTTPException
-from starlette.status import HTTP_404_NOT_FOUND
 
-from gen3workflow import logger
 from gen3workflow.config import config
 
 
@@ -13,7 +9,7 @@ iam_client = boto3.client("iam")
 iam_resp_err = "Unexpected response from AWS IAM"
 
 
-def get_safe_name_from_user_id(user_id):
+def get_safe_name_from_user_id(user_id: str) -> str:
     """
     Generate a valid IAM user name or S3 bucket name for the specified user.
     - IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
@@ -36,7 +32,7 @@ def get_safe_name_from_user_id(user_id):
     return safe_name
 
 
-def create_user_bucket(user_id):
+def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
 

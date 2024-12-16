@@ -2,6 +2,10 @@
 
 The Gen3 Workflow endpoints are protected by Arborist policies.
 
+Contents:
+- [GA4GH TES](#ga4gh-tes)
+  - [Authorization configuration example](#authorization-configuration-example)
+
 ## GA4GH TES
 
 - To create a task, users need `create` access to resource `/services/workflow/gen3-workflow/tasks` on service `gen3-workflow`.

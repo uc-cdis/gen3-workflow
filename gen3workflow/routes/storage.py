@@ -9,7 +9,7 @@ router = APIRouter(prefix="/storage")
 
 
 @router.get("/info", status_code=HTTP_200_OK)
-async def get_storage_info(request: Request, auth=Depends(Auth)):
+async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     bucket_name, bucket_prefix, bucket_region = aws_utils.create_user_bucket(user_id)
