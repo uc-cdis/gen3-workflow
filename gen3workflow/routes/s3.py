@@ -104,6 +104,9 @@ async def s3_endpoint(path: str, request: Request):
 
     body = await request.body()
     body_hash = hashlib.sha256(body).hexdigest()
+    print("body", body)
+    for k, v in dict(request.headers).items():
+        print(k, v)
     timestamp = request.headers["x-amz-date"]
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
     region = config["USER_BUCKETS_REGION"]
@@ -139,6 +142,7 @@ async def s3_endpoint(path: str, request: Request):
         credentials = session.get_credentials()
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
+        print("credentials.token", credentials.token)
 
     # construct the canonical request
     canonical_headers = "".join(
@@ -173,6 +177,7 @@ async def s3_endpoint(path: str, request: Request):
     # generate the signing key, and generate the signature by signing the string to sign with the
     # signing key
     signing_key = get_signature_key(credentials.secret_key, date, region, service)
+    print("signing_key", signing_key)
     signature = hmac.new(
         signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
     ).hexdigest()
