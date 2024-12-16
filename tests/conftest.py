@@ -15,6 +15,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.config import environ
+from threading import Thread
+import uvicorn
 
 # Set up the config *before* loading the app, which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
