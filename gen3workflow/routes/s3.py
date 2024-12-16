@@ -109,7 +109,12 @@ async def s3_endpoint(path: str, request: Request):
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
 
-    # generate the request headers
+    # generate the request headers.
+    # overwrite the original `x-amz-content-sha256` header value with the body hash. When this
+    # header is set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in the original request (payload sent
+    # over multiple chunks), we still replace it with the body hash (because I couldn't get the
+    # signing to work for "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" - I believe it requires using the signature from the previous chunk).
+    # NOTE: This may cause issues when large files are _actually_ uploaded over multiple chunks.
     headers = {
         "host": f"{user_bucket}.s3.amazonaws.com",
         "x-amz-content-sha256": body_hash,
