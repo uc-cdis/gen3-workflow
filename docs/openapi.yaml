@@ -88,7 +88,9 @@ paths:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                title: Response Service Info Ga4Gh Tes V1 Service Info Get
+                type: object
           description: Successful Response
       summary: Service Info
       tags:
@@ -100,7 +102,9 @@ paths:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                title: Response List Tasks Ga4Gh Tes V1 Tasks Get
+                type: object
           description: Successful Response
       security:
       - HTTPBearer: []
@@ -113,7 +117,9 @@ paths:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                title: Response Create Task Ga4Gh Tes V1 Tasks Post
+                type: object
           description: Successful Response
       security:
       - HTTPBearer: []
@@ -134,7 +140,9 @@ paths:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                title: Response Get Task Ga4Gh Tes V1 Tasks  Task Id  Get
+                type: object
           description: Successful Response
         '422':
           content:
@@ -161,7 +169,9 @@ paths:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                title: Response Cancel Task Ga4Gh Tes V1 Tasks  Task Id  Cancel Post
+                type: object
           description: Successful Response
         '422':
           content:
@@ -430,7 +440,9 @@ paths:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                title: Response Get Storage Info Storage Info Get
+                type: object
           description: Successful Response
       security:
       - HTTPBearer: []
