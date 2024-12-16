@@ -104,32 +104,17 @@ async def s3_endpoint(path: str, request: Request):
 
     body = await request.body()
     body_hash = hashlib.sha256(body).hexdigest()
-    print("body", body)
-    for k, v in dict(request.headers).items():
-        print(k, v)
     timestamp = request.headers["x-amz-date"]
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
 
-    # generate the request headers:
-    # - first, copy all the headers from the original request.
-    headers = dict(request.headers)
-    # - remove the `authorization` header: it contains a Gen3 token instead of an AWS IAM key.
-    #   The new `authorization` header will be added _after_ generating the signature.
-    headers.pop("authorization")
-    # - overwrite the `x-amz-content-sha256` header value with the body hash. When this header is
-    #   set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in the original request (payload sent over
-    #   multiple chunks), we replace it with the body hash (because I couldn't get the signing to
-    #   work for "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" - I believe it requires using the signature
-    #   from the previous chunk).
-    #   NOTE: This may cause issues when large files are _actually_ uploaded over multiple chunks.
-    headers["x-amz-content-sha256"] = body_hash
-    # - remove the `content-md5` header: when the `x-amz-content-sha256` header is overwritten (see
-    #   above), the original `content-md5` value becomes incorrect. It's not required in V4 signing.
-    headers.pop("content-md5", None)
-    # - replace the `host` header, since we are re-signing and sending to a different host.
-    headers["host"] = f"{user_bucket}.s3.amazonaws.com"
+    # generate the request headers
+    headers = {
+        "host": f"{user_bucket}.s3.amazonaws.com",
+        "x-amz-content-sha256": body_hash,
+        "x-amz-date": timestamp,
+    }
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -142,7 +127,6 @@ async def s3_endpoint(path: str, request: Request):
         credentials = session.get_credentials()
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
-        print("credentials.token", credentials.token)
 
     # construct the canonical request
     canonical_headers = "".join(
@@ -177,7 +161,6 @@ async def s3_endpoint(path: str, request: Request):
     # generate the signing key, and generate the signature by signing the string to sign with the
     # signing key
     signing_key = get_signature_key(credentials.secret_key, date, region, service)
-    print("signing_key", signing_key)
     signature = hmac.new(
         signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
     ).hexdigest()
