@@ -423,57 +423,6 @@ paths:
       summary: S3 Endpoint
       tags:
       - S3
-  /storage/credentials:
-    get:
-      operationId: get_user_keys
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-      security:
-      - HTTPBearer: []
-      summary: Get User Keys
-      tags:
-      - Storage
-    post:
-      operationId: generate_user_key
-      responses:
-        '201':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-      security:
-      - HTTPBearer: []
-      summary: Generate User Key
-      tags:
-      - Storage
-  /storage/credentials/{key_id}:
-    delete:
-      operationId: delete_user_key
-      parameters:
-      - in: path
-        name: key_id
-        required: true
-        schema:
-          title: Key Id
-          type: string
-      responses:
-        '204':
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      security:
-      - HTTPBearer: []
-      summary: Delete User Key
-      tags:
-      - Storage
   /storage/info:
     get:
       operationId: get_storage_info
