@@ -2,7 +2,6 @@
 See https://github.com/uc-cdis/gen3-user-data-library/blob/main/tests/conftest.py#L1
 """
 
-import asyncio
 from datetime import datetime
 from dateutil.tz import tzutc
 import json
@@ -19,15 +18,17 @@ from starlette.config import environ
 from threading import Thread
 import uvicorn
 
-# Set GEN3WORKFLOW_CONFIG_PATH *before* loading the app, which loads the configuration
+# Set up the config *before* loading the app, which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 environ["GEN3WORKFLOW_CONFIG_PATH"] = os.path.join(
     CURRENT_DIR, "test-gen3workflow-config.yaml"
 )
+from gen3workflow.config import config
+
+config.validate()
 
 from gen3workflow.app import get_app
-from gen3workflow.config import config
-from gen3workflow.models import Base
+from tests.migrations.migration_utils import MigrationRunner
 
 
 TEST_USER_ID = "64"
@@ -64,44 +65,47 @@ MOCKED_S3_RESPONSE_DICT = {
 }
 
 
-@pytest_asyncio.fixture(scope="function")
-async def engine():
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def migrate_database_to_the_latest():
     """
-    Non-session scoped engine which recreates the database, yields, then drops the tables
+    Migrate the database to the latest version before running the tests.
+    """
+    migration_runner = MigrationRunner()
+    await migration_runner.upgrade("head")
+
+
+@pytest_asyncio.fixture(scope="function")
+async def reset_database():
+    """
+    Most tests do not store data in the database, so for performance this fixture does not
+    autorun. To be used in tests that interact with the database.
+    """
+    migration_runner = MigrationRunner()
+    await migration_runner.downgrade("base")
+    await migration_runner.upgrade("head")
+
+    yield
+
+    await migration_runner.downgrade("base")
+    await migration_runner.upgrade("head")
+
+
+@pytest_asyncio.fixture(scope="function")
+async def session():
+    """
+    Database session
     """
     engine = create_async_engine(
         config["DB_CONNECTION_STRING"], echo=False, future=True
     )
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-
-    yield engine
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-    await engine.dispose()
-
-
-@pytest_asyncio.fixture()
-async def session(engine):
-    """
-    Database session which utilizes the above engine and event loop and sets up a nested transaction before yielding.
-    It rolls back the nested transaction after yield.
-    """
-    event_loop = asyncio.get_running_loop()
     session_maker = async_sessionmaker(
         engine, expire_on_commit=False, autocommit=False, autoflush=False
     )
 
-    async with engine.connect() as conn:
-        tsx = await conn.begin()
-        async with session_maker(bind=conn) as session:
-            yield session
+    async with session_maker() as session:
+        yield session
 
-            await tsx.rollback()
+    await engine.dispose()
 
 
 @pytest.fixture(scope="function")
@@ -352,7 +356,7 @@ async def client(request):
     else:
         # the tests use a real httpx client that forwards requests to the app
         async with httpx.AsyncClient(
-            app=app, base_url="http://test-gen3-wf"
+            transport=httpx.ASGITransport(app=app), base_url="http://test-gen3-wf"
         ) as real_httpx_client:
             # for easier access to the param in the tests
             real_httpx_client.tes_resp_code = tes_resp_code

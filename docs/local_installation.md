@@ -100,6 +100,9 @@ aws {
 }
 workDir = '<your working directory>'
 ```
+
+A Gen3 access token is expected by most endpoints to verify the user's access (see [Authorization](authorization.md) documentation).
+
 > The Gen3Workflow URL should be set to `http://localhost:8080` in this case; this is where the service runs by default when started with `python run.py`.
 
 - Run a workflow:

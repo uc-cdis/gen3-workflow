@@ -36,21 +36,26 @@ class Gen3WorkflowConfig(Config):
         logger.info("Validating configuration")
         self.validate_top_level_configs()
 
-    def validate_top_level_configs(self):
+    def validate_top_level_configs(self) -> None:
         schema = {
             "type": "object",
-            "additionalProperties": True,
+            "additionalProperties": False,
             "properties": {
                 "HOSTNAME": {"type": "string"},
                 "DEBUG": {"type": "boolean"},
                 "DOCS_URL_PREFIX": {"type": "string"},
-                # aws_utils.list_iam_user_keys should be updated to fetch paginated results if >100
-                "MAX_IAM_KEYS_PER_USER": {"type": "integer", "maximum": 100},
-                "IAM_KEYS_LIFETIME_DAYS": {"type": "integer"},
+                "ARBORIST_URL": {"type": ["string", "null"]},
+                "MOCK_AUTH": {"type": "boolean"},
                 "USER_BUCKETS_REGION": {"type": "string"},
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY": {"type": ["string", "null"]},
-                "ARBORIST_URL": {"type": ["string", "null"]},
+                "DB_DRIVER": {"type": "string"},
+                "DB_HOST": {"type": "string"},
+                "DB_PORT": {"type": "integer"},
+                "DB_USER": {"type": "string"},
+                "DB_PASSWORD": {"type": "string"},
+                "DB_DATABASE": {"type": "string"},
+                "DB_CONNECTION_STRING": {"type": "string"},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
             },
