@@ -1,51 +1,37 @@
-FROM quay.io/cdis/amazonlinux:python3.9-master AS build-deps
+ARG AZLINUX_BASE_VERSION=master
 
-USER root
+# Base stage with python-build-base
+FROM quay.io/cdis/python-nginx-al:${AZLINUX_BASE_VERSION} AS base
 
 ENV appname=gen3workflow
 
-RUN pip3 install --no-cache-dir --upgrade poetry
+WORKDIR /${appname}
 
-RUN yum update -y && yum install -y --setopt install_weak_deps=0 \
-    kernel-devel libffi-devel libxml2-devel libxslt-devel postgresql-devel python3-devel \
-    git && yum clean all
+RUN chown -R gen3:gen3 /${appname}
 
-WORKDIR /$appname
+# Builder stage
+FROM base AS builder
 
-# copy ONLY poetry artifact, install the dependencies but not gen3workflow
+USER gen3
+
+# copy ONLY poetry artifact, install the dependencies but not the app;
 # this will make sure that the dependencies are cached
-COPY poetry.lock pyproject.toml /$appname/
-RUN poetry config virtualenvs.in-project true \
-    && poetry install -vv --no-root --only main --no-interaction \
-    && poetry show -v
+COPY poetry.lock pyproject.toml /${appname}/
+RUN poetry install -vv --no-root --only main --no-interaction
 
-# copy source code ONLY after installing dependencies
-COPY . /$appname
+COPY --chown=gen3:gen3 . /${appname}
 
-# install gen3workflow
-RUN poetry config virtualenvs.in-project true \
-    && poetry install -vv --only main --no-interaction \
-    && poetry show -v
+# install the app
+RUN poetry install --without dev --no-interaction
 
-# Creating the runtime image
-FROM quay.io/cdis/amazonlinux:python3.9-master
+# Final stage
+FROM base
 
-ENV appname=gen3workflow
+COPY --from=builder /${appname} /${appname}
 
-USER root
+# Switch to non-root user 'gen3' for the serving process
+USER gen3
 
-RUN pip3 install --no-cache-dir --upgrade poetry
+WORKDIR /${appname}
 
-RUN yum update -y && yum install -y --setopt install_weak_deps=0 \
-    postgresql-devel shadow-utils\
-    bash && yum clean all
-
-RUN useradd -ms /bin/bash appuser
-
-COPY --from=build-deps --chown=appuser:appuser /$appname /$appname
-
-WORKDIR /$appname
-
-USER appuser
-
-CMD ["poetry", "run", "gunicorn", "gen3workflow.app:app", "-k", "uvicorn.workers.UvicornWorker", "-c", "gunicorn.conf.py", "--user", "appuser", "--group", "appuser"]
+CMD ["poetry", "run", "gunicorn", "gen3workflow.app:app", "-k", "uvicorn.workers.UvicornWorker", "-c", "gunicorn.conf.py"]
