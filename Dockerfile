@@ -34,4 +34,4 @@ USER gen3
 
 WORKDIR /${appname}
 
-CMD ["poetry", "run", "gunicorn", "gen3workflow.app:app", "-k", "uvicorn.workers.UvicornWorker", "-c", "gunicorn.conf.py", "--user", "appuser", "--group", "appuser"]
+CMD ["poetry", "run", "gunicorn", "gen3workflow.app:app", "-k", "uvicorn.workers.UvicornWorker", "-c", "gunicorn.conf.py"]
