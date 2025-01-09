@@ -68,6 +68,9 @@ async def s3_endpoint(path: str, request: Request):
     Receive incoming S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
     AWS S3.
+
+    TODO: users can currently use this to get any output files. How to limit access to outputs so
+    users can't for example output and see controlled data?
     """
     logger.debug(f"Incoming S3 request: '{request.method} {path}'")
 

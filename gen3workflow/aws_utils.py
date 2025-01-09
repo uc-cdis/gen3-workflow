@@ -1,7 +1,9 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 import boto3
+from botocore.exceptions import ClientError
 
+from gen3workflow import logger
 from gen3workflow.config import config
 
 
@@ -9,7 +11,7 @@ iam_client = boto3.client("iam")
 iam_resp_err = "Unexpected response from AWS IAM"
 
 
-def get_safe_name_from_user_id(user_id: str) -> str:
+def get_safe_name_from_user_id(user_id: Union[str, None]) -> str:
     """
     Generate a valid IAM user name or S3 bucket name for the specified user.
     - IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
@@ -25,10 +27,13 @@ def get_safe_name_from_user_id(user_id: str) -> str:
     """
     escaped_hostname = config["HOSTNAME"].replace(".", "-")
     safe_name = f"gen3wf-{escaped_hostname}"
-    max = 63 - len(f"-{user_id}")
-    if len(safe_name) > max:
-        safe_name = safe_name[:max]
-    safe_name = f"{safe_name}-{user_id}"
+    max_chars = 63
+    if user_id:
+        max_chars = max_chars - len(f"-{user_id}")
+    if len(safe_name) > max_chars:
+        safe_name = safe_name[:max_chars]
+    if user_id:
+        safe_name = f"{safe_name}-{user_id}"
     return safe_name
 
 
@@ -42,8 +47,97 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     Returns:
         tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
     """
-    # TODO lifetime policy and encryption
     user_bucket_name = get_safe_name_from_user_id(user_id)
     s3_client = boto3.client("s3")
-    s3_client.create_bucket(Bucket=user_bucket_name)
+    if config["USER_BUCKETS_REGION"] == "us-east-1":
+        # it's the default region and cannot be specified in `LocationConstraint`
+        s3_client.create_bucket(Bucket=user_bucket_name)
+    else:
+        s3_client.create_bucket(
+            Bucket=user_bucket_name,
+            CreateBucketConfiguration={
+                "LocationConstraint": config["USER_BUCKETS_REGION"]
+            },
+        )
+    logger.debug(f"Created S3 bucket '{user_bucket_name}'")
+
+    # set up KMS encryption on the bucket.
+    # the only way to check if the KMS key has already been created is to use an alias
+    kms_client = boto3.client("kms")
+    kms_key_alias = f"alias/key-{user_bucket_name}"
+    try:
+        output = kms_client.describe_key(KeyId=kms_key_alias)
+        kms_key_arn = output["KeyMetadata"]["Arn"]
+        logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "NotFoundException":
+            raise
+
+        # the KMS key doesn't exist: create it
+        output = kms_client.create_key(
+            Tags=[
+                {"TagKey": "Name", "TagValue": get_safe_name_from_user_id(user_id=None)}
+            ]
+        )
+        kms_key_arn = output["KeyMetadata"]["Arn"]
+        logger.debug(f"Created KMS key '{kms_key_arn}'")
+
+        kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
+        logger.debug(f"Created KMS key alias '{kms_key_alias}'")
+
+    logger.debug(f"Setting KMS encryption on bucket '{user_bucket_name}'")
+    s3_client.put_bucket_encryption(
+        Bucket=user_bucket_name,
+        ServerSideEncryptionConfiguration={
+            "Rules": [
+                {
+                    "ApplyServerSideEncryptionByDefault": {
+                        "SSEAlgorithm": "aws:kms",
+                        "KMSMasterKeyID": kms_key_arn,
+                    },
+                    "BucketKeyEnabled": True,
+                },
+            ],
+        },
+    )
+
+    logger.debug("Enforcing KMS encryption through bucket policy")
+    s3_client.put_bucket_policy(
+        Bucket=user_bucket_name,
+        Policy=f"""{{
+            "Version": "2012-10-17",
+            "Statement": [
+                {{
+                    "Sid": "RequireKMSEncryption",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": "s3:PutObject",
+                    "Resource": "arn:aws:s3:::{user_bucket_name}/*",
+                    "Condition": {{
+                        "StringNotLikeIfExists": {{
+                            "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
+                        }}
+                    }}
+                }}
+            ]
+        }}
+        """,
+    )
+
+    expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
+    logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
+    s3_client.put_bucket_lifecycle_configuration(
+        Bucket=user_bucket_name,
+        LifecycleConfiguration={
+            "Rules": [
+                {
+                    "Expiration": {"Days": expiration_days},
+                    "Status": "Enabled",
+                    # apply to all objects:
+                    "Filter": {"Prefix": ""},
+                },
+            ],
+        },
+    )
+
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]

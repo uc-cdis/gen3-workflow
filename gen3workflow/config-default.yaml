@@ -12,7 +12,14 @@ ARBORIST_URL:
 # /!\ only use for development! Allows running gen3workflow locally without Arborist interaction
 MOCK_AUTH: false
 
+##########
+# AWS S3 #
+##########
+
 USER_BUCKETS_REGION: us-east-1
+
+# objects created in S3 for/by workflows are deleted after the specified number of days
+S3_OBJECTS_EXPIRATION_DAYS: 30
 
 # configure an AWS IAM key to use when making S3 requests on behalf of users. If left empty, it
 # is assumed there is an existing STS session we can get credentials from.

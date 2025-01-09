@@ -47,6 +47,7 @@ class Gen3WorkflowConfig(Config):
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},
                 "USER_BUCKETS_REGION": {"type": "string"},
+                "S3_OBJECTS_EXPIRATION_DAYS": {"type": "integer", "minimum": 1},
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY": {"type": ["string", "null"]},
                 "DB_DRIVER": {"type": "string"},
