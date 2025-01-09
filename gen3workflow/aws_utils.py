@@ -63,7 +63,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
 
     # set up KMS encryption on the bucket.
     # the only way to check if the KMS key has already been created is to use an alias
-    kms_client = boto3.client("kms")
+    kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
     kms_key_alias = f"alias/key-{user_bucket_name}"
     try:
         output = kms_client.describe_key(KeyId=kms_key_alias)
