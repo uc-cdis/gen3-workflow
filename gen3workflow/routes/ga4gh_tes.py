@@ -273,7 +273,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     except Exception:
         token_claims = {}
     user_id = token_claims.get("sub")
-    logger.info(f"User '{user_id}' deleting TES task '{task_id}'")
+    logger.info(f"User '{user_id}' canceling TES task '{task_id}'")
 
     # check if this user has access to delete this task
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"

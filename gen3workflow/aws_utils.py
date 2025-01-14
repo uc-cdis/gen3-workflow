@@ -8,7 +8,8 @@ from gen3workflow.config import config
 
 
 iam_client = boto3.client("iam")
-iam_resp_err = "Unexpected response from AWS IAM"
+kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
+s3_client = boto3.client("s3")
 
 
 def get_safe_name_from_hostname(user_id: Union[str, None]) -> str:
@@ -48,7 +49,6 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
     """
     user_bucket_name = get_safe_name_from_hostname(user_id)
-    s3_client = boto3.client("s3")
     if config["USER_BUCKETS_REGION"] == "us-east-1":
         # it's the default region and cannot be specified in `LocationConstraint`
         s3_client.create_bucket(Bucket=user_bucket_name)
@@ -63,7 +63,6 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
 
     # set up KMS encryption on the bucket.
     # the only way to check if the KMS key has already been created is to use an alias
-    kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
     kms_key_alias = f"alias/key-{user_bucket_name}"
     try:
         output = kms_client.describe_key(KeyId=kms_key_alias)
