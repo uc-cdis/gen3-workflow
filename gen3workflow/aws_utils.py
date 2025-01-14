@@ -59,7 +59,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
                 "LocationConstraint": config["USER_BUCKETS_REGION"]
             },
         )
-    logger.debug(f"Created S3 bucket '{user_bucket_name}'")
+    logger.info(f"Created S3 bucket '{user_bucket_name} for user '{user_id}'")
 
     # set up KMS encryption on the bucket.
     # the only way to check if the KMS key has already been created is to use an alias

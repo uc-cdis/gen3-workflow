@@ -84,8 +84,10 @@ class Auth:
             authorized = False
 
         if not authorized:
+            token_claims = await self.get_token_claims() if token else {}
+            user_id = token_claims.get("sub")
             logger.error(
-                f"Authorization error: token must have '{method}' access on {resources} for service 'gen3-workflow'."
+                f"Authorization error for user '{user_id}': token must have '{method}' access on {resources} for service 'gen3-workflow'."
             )
             if throw:
                 raise HTTPException(
@@ -104,7 +106,7 @@ class Auth:
             user_id (str): The user's unique Gen3 ID
         """
         logger.info(
-            f"Granting user '{username}' access to their own tasks if they don't already have it"
+            f"Granting user '{user_id}' access to their own tasks if they don't already have it"
         )
         resource_path = f"/users/{user_id}/gen3-workflow/tasks"
         if await self.authorize(method="read", resources=[resource_path], throw=False):

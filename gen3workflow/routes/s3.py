@@ -72,8 +72,6 @@ async def s3_endpoint(path: str, request: Request):
     TODO: users can currently use this to get any output files. How to limit access to outputs so
     users can't for example output and see controlled data?
     """
-    logger.debug(f"Incoming S3 request: '{request.method} {path}'")
-
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
     auth = Auth(api_request=request)
@@ -85,6 +83,7 @@ async def s3_endpoint(path: str, request: Request):
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
+    logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
     user_bucket = aws_utils.get_safe_name_from_user_id(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
