@@ -11,7 +11,7 @@ iam_client = boto3.client("iam")
 iam_resp_err = "Unexpected response from AWS IAM"
 
 
-def get_safe_name_from_user_id(user_id: Union[str, None]) -> str:
+def get_safe_name_from_hostname(user_id: Union[str, None]) -> str:
     """
     Generate a valid IAM user name or S3 bucket name for the specified user.
     - IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
@@ -20,7 +20,7 @@ def get_safe_name_from_user_id(user_id: Union[str, None]) -> str:
     - S3 bucket names can contain up to 63 characters.
 
     Args:
-        user_id (str): The user's unique Gen3 ID
+        user_id (str): The user's unique Gen3 ID. If None, will not be included in the safe name.
 
     Returns:
         str: safe name
@@ -47,7 +47,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     Returns:
         tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
     """
-    user_bucket_name = get_safe_name_from_user_id(user_id)
+    user_bucket_name = get_safe_name_from_hostname(user_id)
     s3_client = boto3.client("s3")
     if config["USER_BUCKETS_REGION"] == "us-east-1":
         # it's the default region and cannot be specified in `LocationConstraint`
@@ -76,7 +76,10 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         # the KMS key doesn't exist: create it
         output = kms_client.create_key(
             Tags=[
-                {"TagKey": "Name", "TagValue": get_safe_name_from_user_id(user_id=None)}
+                {
+                    "TagKey": "Name",
+                    "TagValue": get_safe_name_from_hostname(user_id=None),
+                }
             ]
         )
         kms_key_arn = output["KeyMetadata"]["Arn"]

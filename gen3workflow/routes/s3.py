@@ -84,7 +84,7 @@ async def s3_endpoint(path: str, request: Request):
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
-    user_bucket = aws_utils.get_safe_name_from_user_id(user_id)
+    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"
