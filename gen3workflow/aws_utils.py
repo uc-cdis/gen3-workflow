@@ -54,7 +54,7 @@ def get_existing_kms_key_for_bucket(bucket_name):
         output = kms_client.describe_key(KeyId=kms_key_alias)
         return kms_key_alias, output["KeyMetadata"]["Arn"]
     except ClientError as e:
-        if e.response["Error"]["Code"] != "NotFoundException":
+        if e.response["Error"]["Code"] == "NotFoundException":
             return kms_key_alias, None
         raise
 
