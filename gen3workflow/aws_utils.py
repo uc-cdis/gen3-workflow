@@ -101,44 +101,45 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
         logger.debug(f"Created KMS key alias '{kms_key_alias}'")
 
-    logger.debug(f"Setting KMS encryption on bucket '{user_bucket_name}'")
-    s3_client.put_bucket_encryption(
-        Bucket=user_bucket_name,
-        ServerSideEncryptionConfiguration={
-            "Rules": [
-                {
-                    "ApplyServerSideEncryptionByDefault": {
-                        "SSEAlgorithm": "aws:kms",
-                        "KMSMasterKeyID": kms_key_arn,
-                    },
-                    "BucketKeyEnabled": True,
-                },
-            ],
-        },
-    )
+    # TODO enable when Funnel workers can push with KMS key
+    # logger.debug(f"Setting KMS encryption on bucket '{user_bucket_name}'")
+    # s3_client.put_bucket_encryption(
+    #     Bucket=user_bucket_name,
+    #     ServerSideEncryptionConfiguration={
+    #         "Rules": [
+    #             {
+    #                 "ApplyServerSideEncryptionByDefault": {
+    #                     "SSEAlgorithm": "aws:kms",
+    #                     "KMSMasterKeyID": kms_key_arn,
+    #                 },
+    #                 "BucketKeyEnabled": True,
+    #             },
+    #         ],
+    #     },
+    # )
 
-    logger.debug("Enforcing KMS encryption through bucket policy")
-    s3_client.put_bucket_policy(
-        Bucket=user_bucket_name,
-        Policy=f"""{{
-            "Version": "2012-10-17",
-            "Statement": [
-                {{
-                    "Sid": "RequireKMSEncryption",
-                    "Effect": "Deny",
-                    "Principal": "*",
-                    "Action": "s3:PutObject",
-                    "Resource": "arn:aws:s3:::{user_bucket_name}/*",
-                    "Condition": {{
-                        "StringNotLikeIfExists": {{
-                            "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
-                        }}
-                    }}
-                }}
-            ]
-        }}
-        """,
-    )
+    # logger.debug("Enforcing KMS encryption through bucket policy")
+    # s3_client.put_bucket_policy(
+    #     Bucket=user_bucket_name,
+    #     Policy=f"""{{
+    #         "Version": "2012-10-17",
+    #         "Statement": [
+    #             {{
+    #                 "Sid": "RequireKMSEncryption",
+    #                 "Effect": "Deny",
+    #                 "Principal": "*",
+    #                 "Action": "s3:PutObject",
+    #                 "Resource": "arn:aws:s3:::{user_bucket_name}/*",
+    #                 "Condition": {{
+    #                     "StringNotLikeIfExists": {{
+    #                         "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
+    #                     }}
+    #                 }}
+    #             }}
+    #         ]
+    #     }}
+    #     """,
+    # )
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
