@@ -155,6 +155,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
                 },
             ],
         },
+        ChecksumAlgorithm="SHA256",  # TODO look into this more, check which value to use
     )
 
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
