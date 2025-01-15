@@ -52,7 +52,7 @@ jobs:
     uses: uc-cdis/.github/.github/workflows/image_build_push.yaml@master
     # needs: [RequiredLint, Security, UnitTest]
     with:
-      BUILD_PLATFORMS: "linux/amd64"
+      BUILD_PLATFORMS: "linux/amd64, linux/arm64"
     secrets:
       ECR_AWS_ACCESS_KEY_ID: ${{ secrets.ECR_AWS_ACCESS_KEY_ID }}
       ECR_AWS_SECRET_ACCESS_KEY: ${{ secrets.ECR_AWS_SECRET_ACCESS_KEY }}
