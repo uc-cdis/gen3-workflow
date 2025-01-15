@@ -71,6 +71,8 @@ async def s3_endpoint(path: str, request: Request):
 
     TODO: users can currently use this to get any output files. How to limit access to outputs so
     users can't for example output and see controlled data?
+
+    TODO: catch 403 errors and such from amazon, log them and mask them from the end user
     """
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
@@ -134,6 +136,12 @@ async def s3_endpoint(path: str, request: Request):
         credentials = session.get_credentials()
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
+
+    # if this is a PUT request, we need the KMS key ID to use for encryption
+    if request.method == "PUT":
+        _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
+        headers["x-amz-server-side-encryption"] = "aws:kms"
+        headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request
     canonical_headers = "".join(

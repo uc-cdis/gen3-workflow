@@ -105,9 +105,7 @@ class Auth:
             username (str): The user's Gen3 username
             user_id (str): The user's unique Gen3 ID
         """
-        logger.info(
-            f"Granting user '{user_id}' access to their own tasks if they don't already have it"
-        )
+        logger.info(f"Ensuring user '{user_id}' has access to their own tasks")
         resource_path = f"/users/{user_id}/gen3-workflow/tasks"
         if await self.authorize(method="read", resources=[resource_path], throw=False):
             # if the user already has access to their own tasks, return early
