@@ -137,11 +137,11 @@ async def s3_endpoint(path: str, request: Request):
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
 
-    # if this is a PUT request, we need the KMS key ID to use for encryption
-    if request.method == "PUT":
-        _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
-        headers["x-amz-server-side-encryption"] = "aws:kms"
-        headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
+    # # if this is a PUT request, we need the KMS key ID to use for encryption
+    # if request.method == "PUT":
+    #     _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
+    #     headers["x-amz-server-side-encryption"] = "aws:kms"
+    #     headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request
     canonical_headers = "".join(
