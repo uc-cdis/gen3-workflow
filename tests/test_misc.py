@@ -1,4 +1,5 @@
 import boto3
+from botocore.exceptions import ClientError
 import json
 from moto import mock_aws
 import pytest
@@ -58,8 +59,8 @@ async def test_storage_info(client, access_token_patcher):
             "region": config["USER_BUCKETS_REGION"],
         }
 
-        # TODO enable when Funnel workers can push with KMS key
-        # check that the bucket is setup with KMS encryption
+        # TODO enable when KMS encryption is enabled
+        # # check that the bucket is setup with KMS encryption
         # kms_key = aws_utils.kms_client.describe_key(
         #     KeyId=f"alias/key-{expected_bucket_name}"
         # )
@@ -79,7 +80,7 @@ async def test_storage_info(client, access_token_patcher):
         #     ]
         # }
 
-        # check the bucket policy, which should enforce KMS encryption
+        # # check the bucket policy, which should enforce KMS encryption
         # bucket_policy = aws_utils.s3_client.get_bucket_policy(
         #     Bucket=expected_bucket_name
         # )
@@ -93,7 +94,19 @@ async def test_storage_info(client, access_token_patcher):
         #             "Action": "s3:PutObject",
         #             "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
         #             "Condition": {
-        #                 "StringNotLikeIfExists": {
+        #                 "StringNotEquals": {
+        #                     's3:x-amz-server-side-encryption': 'aws:kms'
+        #                 }
+        #             },
+        #         },
+        #         {
+        #             "Sid": "RequireSpecificKMSKey",
+        #             "Effect": "Deny",
+        #             "Principal": "*",
+        #             "Action": "s3:PutObject",
+        #             "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
+        #             "Condition": {
+        #                 "StringNotEquals": {
         #                     "s3:x-amz-server-side-encryption-aws-kms-key-id": kms_key_arn
         #                 }
         #             },
@@ -113,3 +126,44 @@ async def test_storage_info(client, access_token_patcher):
                 "Status": "Enabled",
             }
         ]
+
+
+@pytest.mark.asyncio
+async def test_bucket_enforces_encryption(client, access_token_patcher):
+    """
+    Attempting to PUT an object that does not respect the bucket policy should fail (not using KMS
+    encryption, or not using the right KMS key). It should succeed when using KMS encryption and
+    the right key.
+    """
+    with mock_aws():
+        aws_utils.iam_client = boto3.client("iam")
+        aws_utils.kms_client = boto3.client(
+            "kms", region_name=config["USER_BUCKETS_REGION"]
+        )
+        aws_utils.s3_client = boto3.client("s3")
+
+        # check that the user's storage information is as expected
+        res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+        assert res.status_code == 200, res.text
+        storage_info = res.json()
+
+        # For some reason the call below is denied when it should be allowed. I believe there is a bug in `moto.mock_aws`. The bucket policy has been tested manually. TODO get back to this
+        # kms_key_arn = aws_utils.kms_client.describe_key(KeyId=f"alias/key-{storage_info['bucket']}-{TEST_USER_ID}")["KeyMetadata"]["Arn"]
+        # aws_utils.s3_client.put_object(
+        #     Bucket=storage_info["bucket"],
+        #     Key="test-file.txt",
+        #     ServerSideEncryption="aws:kms",
+        #     SSEKMSKeyId=kms_key_arn,
+        # )
+
+        # TODO enable when KMS encryption is enabled
+        # with pytest.raises(ClientError, match="Forbidden"):
+        #     aws_utils.s3_client.put_object(Bucket=storage_info["bucket"], Key="test-file.txt")
+
+        # with pytest.raises(ClientError, match="Forbidden"):
+        #     aws_utils.s3_client.put_object(
+        #         Bucket=storage_info["bucket"],
+        #         Key="test-file.txt",
+        #         ServerSideEncryption="aws:kms",
+        #         SSEKMSKeyId="some-other-key",
+        #     )

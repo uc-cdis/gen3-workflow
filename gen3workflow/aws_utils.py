@@ -126,6 +126,12 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     # logger.debug("Enforcing KMS encryption through bucket policy")
     # s3_client.put_bucket_policy(
     #     Bucket=user_bucket_name,
+    #     # using 2 statements here, because for some reason the condition below allows using a
+    #     # different key as long as "s3:x-amz-server-side-encryption: aws:kms" is specified:
+    #     # "StringNotEquals": {
+    #     #     "s3:x-amz-server-side-encryption": "aws:kms",
+    #     #     "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
+    #     # }
     #     Policy=f"""{{
     #         "Version": "2012-10-17",
     #         "Statement": [
@@ -136,7 +142,19 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     #                 "Action": "s3:PutObject",
     #                 "Resource": "arn:aws:s3:::{user_bucket_name}/*",
     #                 "Condition": {{
-    #                     "StringNotLikeIfExists": {{
+    #                     "StringNotEquals": {{
+    #                         "s3:x-amz-server-side-encryption": "aws:kms"
+    #                     }}
+    #                 }}
+    #             }},
+    #             {{
+    #                 "Sid": "RequireSpecificKMSKey",
+    #                 "Effect": "Deny",
+    #                 "Principal": "*",
+    #                 "Action": "s3:PutObject",
+    #                 "Resource": "arn:aws:s3:::{user_bucket_name}/*",
+    #                 "Condition": {{
+    #                     "StringNotEquals": {{
     #                         "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
     #                     }}
     #                 }}
