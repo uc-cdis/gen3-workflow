@@ -136,11 +136,11 @@ async def s3_endpoint(path: str, request: Request):
         headers["x-amz-security-token"] = credentials.token
 
     # TODO enable KMS encryption when Funnel workers can push with KMS key or use our S3 endpoint
-    # # if this is a PUT request, we need the KMS key ID to use for encryption
-    # if request.method == "PUT":
-    #     _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket, user_id)
-    #     headers["x-amz-server-side-encryption"] = "aws:kms"
-    #     headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
+    # if this is a PUT request, we need the KMS key ID to use for encryption
+    if request.method == "PUT":
+        _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket, user_id)
+        headers["x-amz-server-side-encryption"] = "aws:kms"
+        headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request
     canonical_headers = "".join(
