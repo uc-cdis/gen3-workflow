@@ -84,8 +84,10 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
 
     # set up KMS encryption on the bucket.
     # the only way to check if the KMS key has already been created is to use an alias
-    kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket_name)
-    if not kms_key_arn:
+    kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket_name, user_id)
+    if kms_key_arn:
+        logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
+    else:
         # the KMS key doesn't exist: create it
         output = kms_client.create_key(
             Tags=[
@@ -101,7 +103,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
         logger.debug(f"Created KMS key alias '{kms_key_alias}'")
 
-    # TODO enable when Funnel workers can push with KMS key
+    # TODO enable KMS encryption when Funnel workers can push with KMS key or use our S3 endpoint
     # logger.debug(f"Setting KMS encryption on bucket '{user_bucket_name}'")
     # s3_client.put_bucket_encryption(
     #     Bucket=user_bucket_name,
@@ -155,7 +157,10 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
                 },
             ],
         },
-        ChecksumAlgorithm="SHA256",  # TODO look into this more, check which value to use
+        # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5, which is
+        # not allowed by FIPS. When FIPS mode is enabled, not specifying the algorithm causes this
+        # error: `Missing required header for this request: Content-MD5`.
+        ChecksumAlgorithm="SHA256",
     )
 
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]

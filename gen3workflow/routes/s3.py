@@ -8,7 +8,7 @@ from botocore.credentials import Credentials
 import hmac
 from starlette.datastructures import Headers
 from starlette.responses import Response
-from starlette.status import HTTP_401_UNAUTHORIZED
+from starlette.status import HTTP_403_FORBIDDEN
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
@@ -71,8 +71,6 @@ async def s3_endpoint(path: str, request: Request):
 
     TODO: users can currently use this to get any output files. How to limit access to outputs so
     users can't for example output and see controlled data?
-
-    TODO: catch 403 errors and such from amazon, log them and mask them from the end user
     """
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
@@ -91,7 +89,7 @@ async def s3_endpoint(path: str, request: Request):
     if request_bucket != user_bucket:
         err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
-        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
@@ -137,6 +135,7 @@ async def s3_endpoint(path: str, request: Request):
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
 
+    # TODO enable KMS encryption when Funnel workers can push with KMS key or use our S3 endpoint
     # # if this is a PUT request, we need the KMS key ID to use for encryption
     # if request.method == "PUT":
     #     _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
@@ -194,14 +193,23 @@ async def s3_endpoint(path: str, request: Request):
         params=query_params,
         data=body,
     )
-    if response.status_code != 200:
-        logger.error(f"Error from AWS: {response.status_code} {response.text}")
 
-    # return the response from AWS S3
+    if response.status_code != 200:
+        logger.debug(f"Received a non-200 status code from AWS: {response.status_code}")
+        # no need to log 404 errors except in debug mode: they are are expected when running
+        # workflows (e.g. for Nextflow workflows, error output files may not be present when there
+        # were no errors)
+        if response.status_code != 404:
+            logger.error(f"Error from AWS: {response.status_code} {response.text}")
+
+    # return the response from AWS S3.
+    # mask the details of 403 errors from the end user: authentication is done internally by this
+    # function, so 403 errors are internal service errors
+    resp_contents = response.content if response.status_code != 403 else None
     if "Content-Type" in response.headers:
         return Response(
-            content=response.content,
+            content=resp_contents,
             status_code=response.status_code,
             media_type=response.headers["Content-Type"],
         )
-    return Response(content=response.content, status_code=response.status_code)
+    return Response(content=resp_contents, status_code=response.status_code)
