@@ -28,14 +28,17 @@ class CustomLogger(gunicorn.glogging.Logger):
         super().__init__(cfg)
 
         self._remove_handlers(logging.getLogger())
+
+        # httpx uses the log level it sees first when the client is initialized, which is this one
         cdislogging.get_logger(
-            None, log_level="debug" if app_config["DEBUG"] else "warn"
+            None, log_level="debug" if app_config["HTTPX_DEBUG"] else "warn"
         )
+
         for logger_name in ["gunicorn", "gunicorn.error", "gunicorn.access"]:
             self._remove_handlers(logging.getLogger(logger_name))
             cdislogging.get_logger(
                 logger_name,
-                log_level="debug" if app_config["DEBUG"] else "info",
+                log_level="debug" if app_config["APP_DEBUG"] else "info",
             )
 
 

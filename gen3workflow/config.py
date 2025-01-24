@@ -42,7 +42,8 @@ class Gen3WorkflowConfig(Config):
             "additionalProperties": False,
             "properties": {
                 "HOSTNAME": {"type": "string"},
-                "DEBUG": {"type": "boolean"},
+                "APP_DEBUG": {"type": "boolean"},
+                "HTTPX_DEBUG": {"type": "boolean"},
                 "DOCS_URL_PREFIX": {"type": "string"},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},

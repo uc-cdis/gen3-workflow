@@ -3,7 +3,9 @@
 ##########
 
 HOSTNAME: localhost
-DEBUG: false
+APP_DEBUG: false
+# httpx debug mode is very verbose, so the setting is separate from the main app debug mode
+HTTPX_DEBUG: false
 DOCS_URL_PREFIX: /gen3workflow
 
 # override the default Arborist URL; ignored if already set as an environment variable

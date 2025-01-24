@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 import httpx
 from importlib.metadata import version
+import logging
 import os
 
 from cdislogging import get_logger
@@ -18,13 +19,13 @@ def get_app(httpx_client=None) -> FastAPI:
     logger.info("Initializing app")
     config.validate()
 
-    debug = config["DEBUG"]
+    debug = config["APP_DEBUG"]
     log_level = "debug" if debug else "info"
 
     app = FastAPI(
         title="Gen3Workflow",
         version=version("gen3workflow"),
-        debug=debug,
+        debug=config["APP_DEBUG"],
         root_path=config["DOCS_URL_PREFIX"],
     )
     app.async_client = httpx_client or httpx.AsyncClient()
