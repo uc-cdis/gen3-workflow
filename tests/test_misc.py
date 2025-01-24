@@ -158,7 +158,7 @@ async def test_bucket_enforces_encryption(
         )
 
     # For some reason the call below is denied when it should be allowed. I believe there is a bug in `moto.mock_aws`. The bucket policy has been tested manually. TODO get back to this
-    # kms_key_arn = aws_utils.kms_client.describe_key(KeyId=f"alias/key-{storage_info['bucket']}-{TEST_USER_ID}")["KeyMetadata"]["Arn"]
+    # kms_key_arn = aws_utils.kms_client.describe_key(KeyId=f"alias/key-{storage_info['bucket']}")["KeyMetadata"]["Arn"]
     # aws_utils.s3_client.put_object(
     #     Bucket=storage_info["bucket"],
     #     Key="test-file.txt",

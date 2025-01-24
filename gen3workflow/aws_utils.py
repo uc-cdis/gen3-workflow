@@ -38,7 +38,7 @@ def get_safe_name_from_hostname(user_id: Union[str, None]) -> str:
     return safe_name
 
 
-def get_existing_kms_key_for_bucket(bucket_name, user_id):
+def get_existing_kms_key_for_bucket(bucket_name):
     """
     Return the alias and ARN of the KMS key used for this bucket. If the key doesn't exist yet,
     only return the expected key alias.
@@ -50,7 +50,7 @@ def get_existing_kms_key_for_bucket(bucket_name, user_id):
     Returns:
         Tuple (str, str or None): KMS key alias, and KMS key ARN if the key exists, None otherwise
     """
-    kms_key_alias = f"alias/key-{bucket_name}-{user_id}"
+    kms_key_alias = f"alias/key-{bucket_name}"
     try:
         output = kms_client.describe_key(KeyId=kms_key_alias)
         return kms_key_alias, output["KeyMetadata"]["Arn"]
@@ -85,9 +85,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
 
     # set up KMS encryption on the bucket.
     # the only way to check if the KMS key has already been created is to use an alias
-    kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(
-        user_bucket_name, user_id
-    )
+    kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket_name)
     if kms_key_arn:
         logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
     else:
