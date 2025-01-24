@@ -8,7 +8,7 @@ from botocore.credentials import Credentials
 import hmac
 from starlette.datastructures import Headers
 from starlette.responses import Response
-from starlette.status import HTTP_403_FORBIDDEN
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
@@ -139,6 +139,12 @@ async def s3_endpoint(path: str, request: Request):
     # if this is a PUT request, we need the KMS key ID to use for encryption
     if request.method == "PUT":
         _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket, user_id)
+        if not kms_key_arn:
+            err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
+            logger.error(
+                f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
+            )
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
         headers["x-amz-server-side-encryption"] = "aws:kms"
         headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
