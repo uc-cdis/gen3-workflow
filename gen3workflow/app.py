@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 import httpx
 from importlib.metadata import version
-import logging
 import os
 
 from cdislogging import get_logger

@@ -18,7 +18,7 @@ def get_version(request: Request) -> dict:
 @router.get("/_status")
 async def get_status(request: Request) -> dict:
     tes_status_url = f"{config['TES_SERVER_URL']}/service-info"
-    try:  # TODO test status check by not deploying funnel pod
+    try:
         res = await request.app.async_client.get(tes_status_url)
     except ConnectError as e:
         logger.error(f"Unable to reach '{tes_status_url}': {e}")
