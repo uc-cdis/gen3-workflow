@@ -4,8 +4,6 @@ import json
 from moto import mock_aws
 import pytest
 
-from unittest.mock import MagicMock
-
 from conftest import TEST_USER_ID
 from gen3workflow import aws_utils
 from gen3workflow.aws_utils import get_safe_name_from_hostname
@@ -139,7 +137,6 @@ async def test_bucket_enforces_encryption(
     encryption, or not using the right KMS key). It should succeed when using KMS encryption and
     the right key.
     """
-    # check that the user's storage information is as expected
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
     assert res.status_code == 200, res.text
     storage_info = res.json()
@@ -149,19 +146,30 @@ async def test_bucket_enforces_encryption(
             Bucket=storage_info["bucket"], Key="test-file.txt"
         )
 
+    unauthorized_kms_key_arn = aws_utils.kms_client.create_key(
+        Tags=[
+            {
+                "TagKey": "Name",
+                "TagValue": "some-other-key",
+            }
+        ]
+    )["KeyMetadata"]["Arn"]
     with pytest.raises(ClientError, match="Forbidden"):
         aws_utils.s3_client.put_object(
             Bucket=storage_info["bucket"],
             Key="test-file.txt",
             ServerSideEncryption="aws:kms",
-            SSEKMSKeyId="some-other-key",
+            SSEKMSKeyId=unauthorized_kms_key_arn,
         )
 
-    # For some reason the call below is denied when it should be allowed. I believe there is a bug in `moto.mock_aws`. The bucket policy has been tested manually. TODO get back to this
-    # kms_key_arn = aws_utils.kms_client.describe_key(KeyId=f"alias/key-{storage_info['bucket']}")["KeyMetadata"]["Arn"]
+    # For some reason the call below is denied when it should be allowed. I believe there is a bug
+    # in `moto.mock_aws`. This test works well when ran against the real AWS.
+    # Against the real AWS, the 2 calls above also raise `AccessDenied` instead of `Forbidden`.
+
+    # authorized_kms_key_arn = aws_utils.kms_client.describe_key(KeyId=f"alias/key-{storage_info['bucket']}")["KeyMetadata"]["Arn"]
     # aws_utils.s3_client.put_object(
     #     Bucket=storage_info["bucket"],
     #     Key="test-file.txt",
     #     ServerSideEncryption="aws:kms",
-    #     SSEKMSKeyId=kms_key_arn,
+    #     SSEKMSKeyId=authorized_kms_key_arn,
     # )

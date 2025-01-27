@@ -83,28 +83,28 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         )
     logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
-    # set up KMS encryption on the bucket.
-    # the only way to check if the KMS key has already been created is to use an alias
-    kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket_name)
-    if kms_key_arn:
-        logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
-    else:
-        # the KMS key doesn't exist: create it
-        output = kms_client.create_key(
-            Tags=[
-                {
-                    "TagKey": "Name",
-                    "TagValue": get_safe_name_from_hostname(user_id=None),
-                }
-            ]
-        )
-        kms_key_arn = output["KeyMetadata"]["Arn"]
-        logger.debug(f"Created KMS key '{kms_key_arn}'")
-
-        kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
-        logger.debug(f"Created KMS key alias '{kms_key_alias}'")
-
     # TODO enable KMS encryption when Funnel workers can push with KMS key or use our S3 endpoint
+    # # set up KMS encryption on the bucket.
+    # # the only way to check if the KMS key has already been created is to use an alias
+    # kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket_name)
+    # if kms_key_arn:
+    #     logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
+    # else:
+    #     # the KMS key doesn't exist: create it
+    #     output = kms_client.create_key(
+    #         Tags=[
+    #             {
+    #                 "TagKey": "Name",
+    #                 "TagValue": get_safe_name_from_hostname(user_id=None),
+    #             }
+    #         ]
+    #     )
+    #     kms_key_arn = output["KeyMetadata"]["Arn"]
+    #     logger.debug(f"Created KMS key '{kms_key_arn}'")
+
+    #     kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
+    #     logger.debug(f"Created KMS key alias '{kms_key_alias}'")
+
     # logger.debug(f"Setting KMS encryption on bucket '{user_bucket_name}'")
     # s3_client.put_bucket_encryption(
     #     Bucket=user_bucket_name,
