@@ -62,56 +62,55 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
         "region": config["USER_BUCKETS_REGION"],
     }
 
-    # TODO enable when KMS encryption is enabled
     # check that the bucket is setup with KMS encryption
-    # kms_key = aws_utils.kms_client.describe_key(
-    #     KeyId=f"alias/key-{expected_bucket_name}"
-    # )
-    # kms_key_arn = kms_key["KeyMetadata"]["Arn"]
-    # bucket_encryption = aws_utils.s3_client.get_bucket_encryption(
-    #     Bucket=expected_bucket_name
-    # )
-    # assert bucket_encryption.get("ServerSideEncryptionConfiguration") == {
-    #     "Rules": [
-    #         {
-    #             "ApplyServerSideEncryptionByDefault": {
-    #                 "SSEAlgorithm": "aws:kms",
-    #                 "KMSMasterKeyID": kms_key_arn,
-    #             },
-    #             "BucketKeyEnabled": True,
-    #         }
-    #     ]
-    # }
+    kms_key = aws_utils.kms_client.describe_key(
+        KeyId=f"alias/key-{expected_bucket_name}"
+    )
+    kms_key_arn = kms_key["KeyMetadata"]["Arn"]
+    bucket_encryption = aws_utils.s3_client.get_bucket_encryption(
+        Bucket=expected_bucket_name
+    )
+    assert bucket_encryption.get("ServerSideEncryptionConfiguration") == {
+        "Rules": [
+            {
+                "ApplyServerSideEncryptionByDefault": {
+                    "SSEAlgorithm": "aws:kms",
+                    "KMSMasterKeyID": kms_key_arn,
+                },
+                "BucketKeyEnabled": True,
+            }
+        ]
+    }
 
-    # # check the bucket policy, which should enforce KMS encryption
-    # bucket_policy = aws_utils.s3_client.get_bucket_policy(Bucket=expected_bucket_name)
-    # assert json.loads(bucket_policy.get("Policy", "{}")) == {
-    #     "Version": "2012-10-17",
-    #     "Statement": [
-    #         {
-    #             "Sid": "RequireKMSEncryption",
-    #             "Effect": "Deny",
-    #             "Principal": "*",
-    #             "Action": "s3:PutObject",
-    #             "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
-    #             "Condition": {
-    #                 "StringNotEquals": {"s3:x-amz-server-side-encryption": "aws:kms"}
-    #             },
-    #         },
-    #         {
-    #             "Sid": "RequireSpecificKMSKey",
-    #             "Effect": "Deny",
-    #             "Principal": "*",
-    #             "Action": "s3:PutObject",
-    #             "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
-    #             "Condition": {
-    #                 "StringNotEquals": {
-    #                     "s3:x-amz-server-side-encryption-aws-kms-key-id": kms_key_arn
-    #                 }
-    #             },
-    #         },
-    #     ],
-    # }
+    # check the bucket policy, which should enforce KMS encryption
+    bucket_policy = aws_utils.s3_client.get_bucket_policy(Bucket=expected_bucket_name)
+    assert json.loads(bucket_policy.get("Policy", "{}")) == {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "RequireKMSEncryption",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:PutObject",
+                "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
+                "Condition": {
+                    "StringNotEquals": {"s3:x-amz-server-side-encryption": "aws:kms"}
+                },
+            },
+            {
+                "Sid": "RequireSpecificKMSKey",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:PutObject",
+                "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
+                "Condition": {
+                    "StringNotEquals": {
+                        "s3:x-amz-server-side-encryption-aws-kms-key-id": kms_key_arn
+                    }
+                },
+            },
+        ],
+    }
 
     # check the bucket's lifecycle configuration
     lifecycle_config = aws_utils.s3_client.get_bucket_lifecycle_configuration(
@@ -127,7 +126,6 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
     ]
 
 
-@pytest.mark.skip(reason="TODO enable when KMS encryption is enabled")
 @pytest.mark.asyncio
 async def test_bucket_enforces_encryption(
     client, access_token_patcher, mock_aws_services

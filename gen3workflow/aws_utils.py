@@ -60,6 +60,86 @@ def get_existing_kms_key_for_bucket(bucket_name):
         raise
 
 
+def setup_kms_encryption_on_bucket(bucket_name):
+    # set up KMS encryption on the bucket.
+    # the only way to check if the KMS key has already been created is to use an alias
+    kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
+    if kms_key_arn:
+        logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
+    else:
+        # the KMS key doesn't exist: create it
+        output = kms_client.create_key(
+            Tags=[
+                {
+                    "TagKey": "Name",
+                    "TagValue": get_safe_name_from_hostname(user_id=None),
+                }
+            ]
+        )
+        kms_key_arn = output["KeyMetadata"]["Arn"]
+        logger.debug(f"Created KMS key '{kms_key_arn}'")
+
+        kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
+        logger.debug(f"Created KMS key alias '{kms_key_alias}'")
+
+    logger.debug(f"Setting KMS encryption on bucket '{bucket_name}'")
+    s3_client.put_bucket_encryption(
+        Bucket=bucket_name,
+        ServerSideEncryptionConfiguration={
+            "Rules": [
+                {
+                    "ApplyServerSideEncryptionByDefault": {
+                        "SSEAlgorithm": "aws:kms",
+                        "KMSMasterKeyID": kms_key_arn,
+                    },
+                    "BucketKeyEnabled": True,
+                },
+            ],
+        },
+    )
+
+    logger.debug("Enforcing KMS encryption through bucket policy")
+    s3_client.put_bucket_policy(
+        Bucket=bucket_name,
+        # using 2 statements here, because for some reason the condition below allows using a
+        # different key as long as "s3:x-amz-server-side-encryption: aws:kms" is specified:
+        # "StringNotEquals": {
+        #     "s3:x-amz-server-side-encryption": "aws:kms",
+        #     "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
+        # }
+        Policy=f"""{{
+            "Version": "2012-10-17",
+            "Statement": [
+                {{
+                    "Sid": "RequireKMSEncryption",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": "s3:PutObject",
+                    "Resource": "arn:aws:s3:::{bucket_name}/*",
+                    "Condition": {{
+                        "StringNotEquals": {{
+                            "s3:x-amz-server-side-encryption": "aws:kms"
+                        }}
+                    }}
+                }},
+                {{
+                    "Sid": "RequireSpecificKMSKey",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": "s3:PutObject",
+                    "Resource": "arn:aws:s3:::{bucket_name}/*",
+                    "Condition": {{
+                        "StringNotEquals": {{
+                            "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
+                        }}
+                    }}
+                }}
+            ]
+        }}
+        """,
+    )
+
+
 def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
@@ -83,84 +163,10 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         )
     logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
-    # TODO enable KMS encryption when Funnel workers can push with KMS key or use our S3 endpoint
-    # # set up KMS encryption on the bucket.
-    # # the only way to check if the KMS key has already been created is to use an alias
-    # kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket_name)
-    # if kms_key_arn:
-    #     logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
-    # else:
-    #     # the KMS key doesn't exist: create it
-    #     output = kms_client.create_key(
-    #         Tags=[
-    #             {
-    #                 "TagKey": "Name",
-    #                 "TagValue": get_safe_name_from_hostname(user_id=None),
-    #             }
-    #         ]
-    #     )
-    #     kms_key_arn = output["KeyMetadata"]["Arn"]
-    #     logger.debug(f"Created KMS key '{kms_key_arn}'")
-
-    #     kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
-    #     logger.debug(f"Created KMS key alias '{kms_key_alias}'")
-
-    # logger.debug(f"Setting KMS encryption on bucket '{user_bucket_name}'")
-    # s3_client.put_bucket_encryption(
-    #     Bucket=user_bucket_name,
-    #     ServerSideEncryptionConfiguration={
-    #         "Rules": [
-    #             {
-    #                 "ApplyServerSideEncryptionByDefault": {
-    #                     "SSEAlgorithm": "aws:kms",
-    #                     "KMSMasterKeyID": kms_key_arn,
-    #                 },
-    #                 "BucketKeyEnabled": True,
-    #             },
-    #         ],
-    #     },
-    # )
-
-    # logger.debug("Enforcing KMS encryption through bucket policy")
-    # s3_client.put_bucket_policy(
-    #     Bucket=user_bucket_name,
-    #     # using 2 statements here, because for some reason the condition below allows using a
-    #     # different key as long as "s3:x-amz-server-side-encryption: aws:kms" is specified:
-    #     # "StringNotEquals": {
-    #     #     "s3:x-amz-server-side-encryption": "aws:kms",
-    #     #     "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
-    #     # }
-    #     Policy=f"""{{
-    #         "Version": "2012-10-17",
-    #         "Statement": [
-    #             {{
-    #                 "Sid": "RequireKMSEncryption",
-    #                 "Effect": "Deny",
-    #                 "Principal": "*",
-    #                 "Action": "s3:PutObject",
-    #                 "Resource": "arn:aws:s3:::{user_bucket_name}/*",
-    #                 "Condition": {{
-    #                     "StringNotEquals": {{
-    #                         "s3:x-amz-server-side-encryption": "aws:kms"
-    #                     }}
-    #                 }}
-    #             }},
-    #             {{
-    #                 "Sid": "RequireSpecificKMSKey",
-    #                 "Effect": "Deny",
-    #                 "Principal": "*",
-    #                 "Action": "s3:PutObject",
-    #                 "Resource": "arn:aws:s3:::{user_bucket_name}/*",
-    #                 "Condition": {{
-    #                     "StringNotEquals": {{
-    #                         "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
-    #                     }}
-    #                 }}
-    #             }}
-    #         ]
-    #     }}
-    #     """,
-    # )
+    if config["KMS_ENCRYPTION_ENABLED"]:
+        setup_kms_encryption_on_bucket(user_bucket_name)
+    else:
+        logger.debug(f"Skipping KMS encryption setup on bucket '{user_bucket_name}'")
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")

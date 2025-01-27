@@ -51,6 +51,7 @@ class Gen3WorkflowConfig(Config):
                 "S3_OBJECTS_EXPIRATION_DAYS": {"type": "integer", "minimum": 1},
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY": {"type": ["string", "null"]},
+                "KMS_ENCRYPTION_ENABLED": {"type": "boolean"},
                 "DB_DRIVER": {"type": "string"},
                 "DB_HOST": {"type": "string"},
                 "DB_PORT": {"type": "integer"},

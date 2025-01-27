@@ -135,18 +135,17 @@ async def s3_endpoint(path: str, request: Request):
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
 
-    # TODO enable KMS encryption when Funnel workers can push with KMS key or use our S3 endpoint
     # if this is a PUT request, we need the KMS key ID to use for encryption
-    # if request.method == "PUT":
-    #     _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
-    #     if not kms_key_arn:
-    #         err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
-    #         logger.error(
-    #             f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
-    #         )
-    #         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-    #     headers["x-amz-server-side-encryption"] = "aws:kms"
-    #     headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
+    if config["KMS_ENCRYPTION_ENABLED"] and request.method == "PUT":
+        _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
+        if not kms_key_arn:
+            err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
+            logger.error(
+                f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
+            )
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+        headers["x-amz-server-side-encryption"] = "aws:kms"
+        headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request
     canonical_headers = "".join(
