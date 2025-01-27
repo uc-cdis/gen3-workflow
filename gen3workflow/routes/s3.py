@@ -59,6 +59,8 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
+# TODO: users can currently use this to get any output files. How to limit access to outputs so
+# users can't for example output and see controlled data?
 @router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "TRACE", "HEAD"],
@@ -68,9 +70,6 @@ async def s3_endpoint(path: str, request: Request):
     Receive incoming S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
     AWS S3.
-
-    TODO: users can currently use this to get any output files. How to limit access to outputs so
-    users can't for example output and see controlled data?
     """
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
