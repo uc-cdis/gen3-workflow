@@ -2,10 +2,12 @@
 See https://github.com/uc-cdis/gen3-user-data-library/blob/main/tests/conftest.py#L1
 """
 
+import contextlib
 from datetime import datetime
 from dateutil.tz import tzutc
 import json
 import os
+import time
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
 
@@ -274,6 +276,25 @@ async def reset_requests_mocks():
     mock_arborist_request.reset_mock()
 
 
+class UvicornServer(uvicorn.Server):
+    """
+    Server that can be stopped when the unit test completes. Used for tests that need to hit
+    the app URL directly.
+    """
+
+    @contextlib.contextmanager
+    def run_in_thread(self):
+        thread = Thread(target=self.run)
+        thread.start()
+        try:
+            while not self.started:
+                time.sleep(1e-3)
+            yield
+        finally:
+            self.should_exit = True
+            thread.join()
+
+
 @pytest_asyncio.fixture(scope="session")
 async def client(request):
     """
@@ -343,16 +364,11 @@ async def client(request):
     if get_url:  # for tests that need to hit the app URL directly
         host = "0.0.0.0"
         port = 8080
-
-        def run_uvicorn():
-            uvicorn.run(app, host=host, port=port)
-
-        # start the app in a separate thread
-        thread = Thread(target=run_uvicorn)
-        thread.daemon = True  # ensures the thread ends when the test ends
-        thread.start()
-
-        yield f"http://{host}:{port}"  # URL to use in the tests
+        server = UvicornServer(
+            config=uvicorn.Config(app, host=host, port=port, log_level="debug")
+        )
+        with server.run_in_thread():
+            yield f"http://{host}:{port}"
     else:
         # the tests use a real httpx client that forwards requests to the app
         async with httpx.AsyncClient(
