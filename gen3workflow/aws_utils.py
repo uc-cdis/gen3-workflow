@@ -50,7 +50,7 @@ def get_existing_kms_key_for_bucket(bucket_name):
     Returns:
         Tuple (str, str or None): KMS key alias, and KMS key ARN if the key exists, None otherwise
     """
-    kms_key_alias = f"alias/key-{bucket_name}"
+    kms_key_alias = f"alias/{bucket_name}"
     try:
         output = kms_client.describe_key(KeyId=kms_key_alias)
         return kms_key_alias, output["KeyMetadata"]["Arn"]

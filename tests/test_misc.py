@@ -63,9 +63,7 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
     }
 
     # check that the bucket is setup with KMS encryption
-    kms_key = aws_utils.kms_client.describe_key(
-        KeyId=f"alias/key-{expected_bucket_name}"
-    )
+    kms_key = aws_utils.kms_client.describe_key(KeyId=f"alias/{expected_bucket_name}")
     kms_key_arn = kms_key["KeyMetadata"]["Arn"]
     bucket_encryption = aws_utils.s3_client.get_bucket_encryption(
         Bucket=expected_bucket_name
@@ -164,7 +162,7 @@ async def test_bucket_enforces_encryption(
     # in `moto.mock_aws`. This test works well when ran against the real AWS.
     # Against the real AWS, the 2 calls above also raise `AccessDenied` instead of `Forbidden`.
 
-    # authorized_kms_key_arn = aws_utils.kms_client.describe_key(KeyId=f"alias/key-{storage_info['bucket']}")["KeyMetadata"]["Arn"]
+    # authorized_kms_key_arn = aws_utils.kms_client.describe_key(KeyId=f"alias/{storage_info['bucket']}")["KeyMetadata"]["Arn"]
     # aws_utils.s3_client.put_object(
     #     Bucket=storage_info["bucket"],
     #     Key="test-file.txt",
