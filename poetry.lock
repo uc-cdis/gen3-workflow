@@ -131,13 +131,13 @@ test = ["distro (>=1.9.0,<1.10.0)", "flake8 (>=6.1,<7.0)", "flake8-pyi (>=24.1.0
 
 [[package]]
 name = "attrs"
-version = "24.3.0"
+version = "25.1.0"
 description = "Classes Without Boilerplate"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "attrs-24.3.0-py3-none-any.whl", hash = "sha256:ac96cd038792094f438ad1f6ff80837353805ac950cd2aa0e0625ef19850c308"},
-    {file = "attrs-24.3.0.tar.gz", hash = "sha256:8f5c07333d543103541ba7be0e2ce16eeee8130cb0b3f9238ab904ce1e85baff"},
+    {file = "attrs-25.1.0-py3-none-any.whl", hash = "sha256:c75a69e28a550a7e93789579c22aa26b0f5b83b75dc4e08fe092980051e1090a"},
+    {file = "attrs-25.1.0.tar.gz", hash = "sha256:1c97078a80c814273a76b2a298a932eb681c87415c11dee0a6921de7f1b02c3e"},
 ]
 
 [package.extras]
@@ -150,13 +150,13 @@ tests-mypy = ["mypy (>=1.11.1)", "pytest-mypy-plugins"]
 
 [[package]]
 name = "authlib"
-version = "1.4.0"
+version = "1.4.1"
 description = "The ultimate Python library in building OAuth and OpenID Connect servers and clients."
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "Authlib-1.4.0-py2.py3-none-any.whl", hash = "sha256:4bb20b978c8b636222b549317c1815e1fe62234fc1c5efe8855d84aebf3a74e3"},
-    {file = "authlib-1.4.0.tar.gz", hash = "sha256:1c1e6608b5ed3624aeeee136ca7f8c120d6f51f731aa152b153d54741840e1f2"},
+    {file = "Authlib-1.4.1-py2.py3-none-any.whl", hash = "sha256:edc29c3f6a3e72cd9e9f45fff67fc663a2c364022eb0371c003f22d5405915c1"},
+    {file = "authlib-1.4.1.tar.gz", hash = "sha256:30ead9ea4993cdbab821dc6e01e818362f92da290c04c7f6a1940f86507a790d"},
 ]
 
 [package.dependencies]
@@ -199,17 +199,17 @@ files = [
 
 [[package]]
 name = "boto3"
-version = "1.36.5"
+version = "1.36.7"
 description = "The AWS SDK for Python"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "boto3-1.36.5-py3-none-any.whl", hash = "sha256:a404ad5ec94ff40c176215a991bf62f0db5514a93a3dd361b7b2ab9660f811f4"},
-    {file = "boto3-1.36.5.tar.gz", hash = "sha256:58a6b7c3d5145b3ac04d4b6caa76223b8ef88004b4237444e553041e29581a11"},
+    {file = "boto3-1.36.7-py3-none-any.whl", hash = "sha256:ab501f75557863e2d2c9fa731e4fe25c45f35e0d92ea0ee11a4eaa63929d3ede"},
+    {file = "boto3-1.36.7.tar.gz", hash = "sha256:ae98634efa7b47ced1b0d7342e2940b32639eee913f33ab406590b8ed55ee94b"},
 ]
 
 [package.dependencies]
-botocore = ">=1.36.5,<1.37.0"
+botocore = ">=1.36.7,<1.37.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.11.0,<0.12.0"
 
@@ -218,13 +218,13 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "botocore"
-version = "1.36.5"
+version = "1.36.7"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "botocore-1.36.5-py3-none-any.whl", hash = "sha256:6d9f70afa9bf9d21407089dc22b8cc8ec6fa44866d4660858c062c74fc8555eb"},
-    {file = "botocore-1.36.5.tar.gz", hash = "sha256:234ed3d29a8954c37a551c933453bf14c6ae44a69a4f273ffef377a2612ca6a6"},
+    {file = "botocore-1.36.7-py3-none-any.whl", hash = "sha256:a6c6772d777af2957ac9975207fac1ccc4ce101408b85e9b5e3c5ba0bb949102"},
+    {file = "botocore-1.36.7.tar.gz", hash = "sha256:9abc64bde5e7d8f814ea91d6fc0a8142511fc96427c19fe9209677c20a0c9e6e"},
 ]
 
 [package.dependencies]
@@ -1125,13 +1125,13 @@ files = [
 
 [[package]]
 name = "pydantic"
-version = "2.10.5"
+version = "2.10.6"
 description = "Data validation using Python type hints"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "pydantic-2.10.5-py3-none-any.whl", hash = "sha256:4dd4e322dbe55472cb7ca7e73f4b63574eecccf2835ffa2af9021ce113c83c53"},
-    {file = "pydantic-2.10.5.tar.gz", hash = "sha256:278b38dbbaec562011d659ee05f63346951b3a248a6f3642e1bc68894ea2b4ff"},
+    {file = "pydantic-2.10.6-py3-none-any.whl", hash = "sha256:427d664bf0b8a2b34ff5dd0f5a18df00591adcee7198fbd71981054cef37b584"},
+    {file = "pydantic-2.10.6.tar.gz", hash = "sha256:ca5daa827cce33de7a42be142548b0096bf05a7e7b365aebfa5f8eeec7128236"},
 ]
 
 [package.dependencies]
@@ -1411,13 +1411,13 @@ files = [
 
 [[package]]
 name = "referencing"
-version = "0.36.1"
+version = "0.36.2"
 description = "JSON Referencing + Python"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "referencing-0.36.1-py3-none-any.whl", hash = "sha256:363d9c65f080d0d70bc41c721dce3c7f3e77fc09f269cd5c8813da18069a6794"},
-    {file = "referencing-0.36.1.tar.gz", hash = "sha256:ca2e6492769e3602957e9b831b94211599d2aade9477f5d44110d2530cf9aade"},
+    {file = "referencing-0.36.2-py3-none-any.whl", hash = "sha256:e8699adbbf8b5c7de96d8ffa0eb5c158b3beafce084968e2ea8bb08c6794dcd0"},
+    {file = "referencing-0.36.2.tar.gz", hash = "sha256:df2e89862cd09deabbdba16944cc3f10feb6b3e6f18e902f7cc25609a34775aa"},
 ]
 
 [package.dependencies]
@@ -1713,13 +1713,13 @@ sqlcipher = ["sqlcipher3_binary"]
 
 [[package]]
 name = "starlette"
-version = "0.45.2"
+version = "0.45.3"
 description = "The little ASGI library that shines."
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "starlette-0.45.2-py3-none-any.whl", hash = "sha256:4daec3356fb0cb1e723a5235e5beaf375d2259af27532958e2d79df549dad9da"},
-    {file = "starlette-0.45.2.tar.gz", hash = "sha256:bba1831d15ae5212b22feab2f218bab6ed3cd0fc2dc1d4442443bb1ee52260e0"},
+    {file = "starlette-0.45.3-py3-none-any.whl", hash = "sha256:dfb6d332576f136ec740296c7e8bb8c8a7125044e7c6da30744718880cdd059d"},
+    {file = "starlette-0.45.3.tar.gz", hash = "sha256:2cbcba2a75806f8a41c722141486f37c28e30a0921c5f6fe4346cb0dcee1302f"},
 ]
 
 [package.dependencies]
