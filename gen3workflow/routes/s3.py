@@ -59,8 +59,6 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
-# TODO: users can currently use this to get any output files. How to limit access to outputs so
-# users can't for example output and see controlled data?
 @router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "TRACE", "HEAD"],
