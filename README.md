@@ -12,5 +12,6 @@ The documentation can be browsed in the [docs](docs) folder, and key documents a
 
 * [Detailed API Documentation](http://petstore.swagger.io/?url=https://raw.githubusercontent.com/uc-cdis/gen3-workflow/master/docs/openapi.yaml)
 * [Local installation](docs/local_installation.md)
+* [Deployment to a Gen3 instance](docs/gen3-deployment.md)
 * [Authorization](docs/authorization.md)
 * [S3 interaction](docs/s3.md)
