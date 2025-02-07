@@ -66,3 +66,19 @@ Kubernetes:
 8. Update the `user.yaml` file as described in the [authorization documentation](authorization.md) and run the `usersync` job.
 
 9. Follow [these steps](local_installation.md#run-nextflow-workflows-with-gen3workflow) to test the deployment.
+
+## Automation notes
+
+Some manual steps are currently necessary to deploy Gen3Workflow to a new Gen3 instance.
+
+- Karpenter resources for workflows
+
+We need to deploy karpenter resources for workflow per-user. We have generic workflow resources deployed, but they are not tested, and should ideally not be used. More context [here](https://cdis.slack.com/archives/CLZJVC38B/p1738882314962669?thread_ts=1738880648.216489&cid=CLZJVC38B).
+
+- S3 mountpoint
+
+We need to make sure the S3 mountpoint is configured correctly, and ideally we should have per-pod identity so that the workflows can use per-user buckets. See [this](https://github.com/awslabs/mountpoint-s3-csi-driver/issues/334#issuecomment-2613552946). More context [here](https://cdis.slack.com/archives/CLZJVC38B/p1738882570732499?thread_ts=1738880648.216489&cid=CLZJVC38B).
+
+- s3-csi-driver IAM policy
+
+The new buckets created by Gen3Workflow must be added to the s3-csi-driver IAM policy. Ideally when the code creates the bucket, we also create a role per user that we can use [this](https://aws.amazon.com/about-aws/whats-new/2024/10/mountpoint-amazon-s3-csi-driver-access-controls-kubernetes-pods/) for. And if we can generate [NodeClasses](https://karpenter.sh/docs/concepts/nodeclasses/) and [NodePools](https://karpenter.sh/docs/concepts/nodepools/) per user and tell the workflow pods to only run on these nodes, we will get cost tracking as well (that's what we do for Argo workflows). More context [here](https://cdis.slack.com/archives/CLZJVC38B/p1738965383510779?thread_ts=1738947430.566729&cid=CLZJVC38B).
