@@ -92,6 +92,8 @@ paths:
                 title: Response Service Info Ga4Gh Tes V1 Service Info Get
                 type: object
           description: Successful Response
+      security:
+      - HTTPBearer: []
       summary: Service Info
       tags:
       - GA4GH TES

@@ -1,4 +1,4 @@
-DEBUG: true
+APP_DEBUG: true
 ARBORIST_URL: http://test-arborist-server
 
 S3_ENDPOINTS_AWS_ACCESS_KEY_ID: test-aws-key-id

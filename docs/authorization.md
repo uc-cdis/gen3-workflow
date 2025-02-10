@@ -36,13 +36,13 @@ authz:
   - id: gen3_workflow_user
     description: Allows the creation of workflow tasks
     role_ids:
-    - workflow_user
+    - gen3_workflow_creator
     resource_paths:
     - /services/workflow/gen3-workflow/tasks
   - id: gen3_workflow_admin
     description: Allows access to view tasks created by all users
     role_ids:
-    - reader
+    - gen3_workflow_reader
     resource_paths:
     - /services/workflow/gen3-workflow/tasks
 
@@ -50,13 +50,13 @@ authz:
   - id: gen3_workflow_reader
     permissions:
     - id: gen3_workflow_reader_action
-        action:
+      action:
         service: gen3-workflow
         method: read
   - id: gen3_workflow_creator
     permissions:
     - id: gen3_workflow_creator_action
-        action:
+      action:
         service: gen3-workflow
         method: create
 ```

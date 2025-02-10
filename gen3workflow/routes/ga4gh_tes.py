@@ -31,7 +31,14 @@ async def get_request_body(request: Request):
 
 
 @router.get("/service-info", status_code=HTTP_200_OK)
-async def service_info(request: Request) -> dict:
+async def service_info(request: Request, auth=Depends(Auth)) -> dict:
+    try:
+        token_claims = await auth.get_token_claims()
+    except Exception:
+        token_claims = {}
+    user_id = token_claims.get("sub")
+    logger.info(f"User '{user_id}' getting TES service info")
+
     url = f"{config['TES_SERVER_URL']}/service-info"
     res = await request.app.async_client.get(url)
     if res.status_code != HTTP_200_OK:
@@ -89,6 +96,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         err_msg = "No context.user.name in token"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+    logger.info(f"User '{user_id}' creating TES task")
 
     # Fetch the list of images from request body as a set
     images_from_request = {
@@ -156,6 +164,13 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 
 @router.get("/tasks", status_code=HTTP_200_OK)
 async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
+    try:
+        token_claims = await auth.get_token_claims()
+    except Exception:
+        token_claims = {}
+    user_id = token_claims.get("sub")
+    logger.info(f"User '{user_id}' listing TES tasks")
+
     supported_params = {
         "name_prefix",
         "state",
@@ -216,6 +231,13 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 
 @router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
 async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
+    try:
+        token_claims = await auth.get_token_claims()
+    except Exception:
+        token_claims = {}
+    user_id = token_claims.get("sub")
+    logger.info(f"User '{user_id}' getting TES task '{task_id}'")
+
     supported_params = {"view"}
     query_params = {
         k: v for k, v in dict(request.query_params).items() if k in supported_params
@@ -246,6 +268,13 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
 async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
+    try:
+        token_claims = await auth.get_token_claims()
+    except Exception:
+        token_claims = {}
+    user_id = token_claims.get("sub")
+    logger.info(f"User '{user_id}' canceling TES task '{task_id}'")
+
     # check if this user has access to delete this task
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
     res = await request.app.async_client.get(url)

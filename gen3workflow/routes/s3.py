@@ -8,7 +8,7 @@ from botocore.credentials import Credentials
 import hmac
 from starlette.datastructures import Headers
 from starlette.responses import Response
-from starlette.status import HTTP_401_UNAUTHORIZED
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
@@ -69,8 +69,6 @@ async def s3_endpoint(path: str, request: Request):
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
     AWS S3.
     """
-    logger.debug(f"Incoming S3 request: '{request.method} {path}'")
-
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
     auth = Auth(api_request=request)
@@ -82,12 +80,13 @@ async def s3_endpoint(path: str, request: Request):
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
-    user_bucket = aws_utils.get_safe_name_from_user_id(user_id)
+    logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
+    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
-        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
@@ -132,6 +131,18 @@ async def s3_endpoint(path: str, request: Request):
         credentials = session.get_credentials()
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
+
+    # if this is a PUT request, we need the KMS key ID to use for encryption
+    if config["KMS_ENCRYPTION_ENABLED"] and request.method == "PUT":
+        _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
+        if not kms_key_arn:
+            err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
+            logger.error(
+                f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
+            )
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+        headers["x-amz-server-side-encryption"] = "aws:kms"
+        headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request
     canonical_headers = "".join(
@@ -184,14 +195,23 @@ async def s3_endpoint(path: str, request: Request):
         params=query_params,
         data=body,
     )
-    if response.status_code != 200:
-        logger.error(f"Error from AWS: {response.status_code} {response.text}")
 
-    # return the response from AWS S3
+    if response.status_code != 200:
+        logger.debug(f"Received a non-200 status code from AWS: {response.status_code}")
+        # no need to log 404 errors except in debug mode: they are are expected when running
+        # workflows (e.g. for Nextflow workflows, error output files may not be present when there
+        # were no errors)
+        if response.status_code != 404:
+            logger.error(f"Error from AWS: {response.status_code} {response.text}")
+
+    # return the response from AWS S3.
+    # mask the details of 403 errors from the end user: authentication is done internally by this
+    # function, so 403 errors are internal service errors
+    resp_contents = response.content if response.status_code != 403 else None
     if "Content-Type" in response.headers:
         return Response(
-            content=response.content,
+            content=resp_contents,
             status_code=response.status_code,
             media_type=response.headers["Content-Type"],
         )
-    return Response(content=response.content, status_code=response.status_code)
+    return Response(content=resp_contents, status_code=response.status_code)
