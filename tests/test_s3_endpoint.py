@@ -69,3 +69,19 @@ def test_s3_endpoint_wrong_bucket(s3_client, access_token_patcher, bucket_name):
     """
     with pytest.raises(ClientError, match="Forbidden"):
         s3_client.list_objects(Bucket=bucket_name)
+
+
+@pytest.mark.asyncio
+async def test_s3_endpoint_with_bearer_token(client):
+    """
+    Hitting the `/s3` endpoint with a bearer token instead of using the AWS SDK/CLI should result
+    in a 401 error.
+    """
+    res = await client.get(
+        f"/s3/gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
+        headers={"Authorization": "bearer 123"},
+    )
+    assert res.status_code == 401, res.text
+    assert res.json() == {
+        "detail": "Bearer tokens in the authorization header are not supported by this endpoint. Please use the AWS SDK/CLI instead"
+    }
