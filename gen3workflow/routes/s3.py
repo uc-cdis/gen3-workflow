@@ -214,7 +214,9 @@ async def s3_endpoint(path: str, request: Request):
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
     s3_api_url = f"https://{user_bucket}.s3.amazonaws.com/{api_endpoint}"
-    logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
+    logger.debug(
+        f"Outgoing S3 request: '{request.method} {s3_api_url} and {headers['authorization']=}'"
+    )
     response = await request.app.async_client.request(
         method=request.method,
         url=s3_api_url,
