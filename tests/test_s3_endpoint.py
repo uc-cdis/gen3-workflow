@@ -15,8 +15,8 @@ def s3_client(client):
     session = boto3.session.Session()
     return session.client(
         service_name="s3",
-        aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
+        aws_access_key_id="bearer 123",
+        aws_secret_access_key="N/A",
         endpoint_url=f"{client}/s3",
         # no retries; only try each call once:
         config=Config(retries={"max_attempts": 0}),
