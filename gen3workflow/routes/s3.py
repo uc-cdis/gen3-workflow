@@ -31,6 +31,7 @@ def get_access_token(headers: Headers) -> str:
         str: the user's access token or "" if not found
     """
     auth_header = headers.get("authorization")
+    logger.info(f"The headers in this request are {headers=}")
     if not auth_header:
         return ""
     try:
