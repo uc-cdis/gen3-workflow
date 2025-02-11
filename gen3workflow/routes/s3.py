@@ -20,9 +20,20 @@ router = APIRouter(prefix="/s3")
 
 def get_access_token(headers: Headers) -> str:
     """
-    Extract the user's access token, which should have been provided as the key ID, from the
-    Authorization header in the following expected format:
-    `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/<region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
+    Extract the user's access token from the request headers.
+    The expected format depends on the request source:
+        1. **Nextflow Workflow Requests**:
+        - The access token is provided as the key ID in the `Authorization` header.
+        - Expected format:
+            ```
+            AWS4-HMAC-SHA256 Credential=<key ID>/<date>/<region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>
+            ```
+        2. **Standard HTTP Requests**:
+        - The access token is sent as a Bearer token in the `Authorization` header.
+        - Expected format:
+            ```
+            Authorization: Bearer <token>
+            ```
 
     Args:
         headers (Headers): request headers
@@ -31,11 +42,18 @@ def get_access_token(headers: Headers) -> str:
         str: the user's access token or "" if not found
     """
     auth_header = headers.get("authorization")
-    logger.info(f"The headers in this request are {headers=}")
+    logger.debug(f"The authorization header in S3 request {auth_header=}")
     if not auth_header:
         return ""
     try:
-        return auth_header.split("Credential=")[1].split("/")[0]
+        if "Credential=" in auth_header:
+            # Extract key ID from AWS-style authorization header
+            return auth_header.split("Credential=")[1].split("/")[0]
+
+        if auth_header.lower().startswith("bearer "):
+            # Extract token from Bearer authorization header
+            return auth_header.split(" ")[1]
+        logger.warning("Authorization header format not recognized.")
     except Exception as e:
         logger.error(
             f"Unexpected format; unable to extract access token from authorization header: {e}"
@@ -76,7 +94,6 @@ async def s3_endpoint(path: str, request: Request):
     auth.bearer_token = HTTPAuthorizationCredentials(
         scheme="bearer", credentials=get_access_token(request.headers)
     )
-    logger.info(f"The bearer token received from request is {auth.bearer_token}")
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
