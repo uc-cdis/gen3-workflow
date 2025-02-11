@@ -188,8 +188,8 @@ paths:
       - GA4GH TES
   /s3/{path}:
     delete:
-      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
-        4 algorithm) with the
+      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
+        Version 4 algorithm) with the
 
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
@@ -219,8 +219,8 @@ paths:
       tags:
       - S3
     get:
-      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
-        4 algorithm) with the
+      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
+        Version 4 algorithm) with the
 
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
@@ -250,8 +250,8 @@ paths:
       tags:
       - S3
     head:
-      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
-        4 algorithm) with the
+      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
+        Version 4 algorithm) with the
 
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
@@ -281,8 +281,8 @@ paths:
       tags:
       - S3
     options:
-      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
-        4 algorithm) with the
+      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
+        Version 4 algorithm) with the
 
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
@@ -312,8 +312,8 @@ paths:
       tags:
       - S3
     patch:
-      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
-        4 algorithm) with the
+      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
+        Version 4 algorithm) with the
 
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
@@ -343,8 +343,8 @@ paths:
       tags:
       - S3
     post:
-      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
-        4 algorithm) with the
+      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
+        Version 4 algorithm) with the
 
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
@@ -374,8 +374,8 @@ paths:
       tags:
       - S3
     put:
-      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
-        4 algorithm) with the
+      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
+        Version 4 algorithm) with the
 
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
@@ -405,8 +405,8 @@ paths:
       tags:
       - S3
     trace:
-      description: 'Receive incoming S3 requests, re-sign them (AWS Signature Version
-        4 algorithm) with the
+      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
+        Version 4 algorithm) with the
 
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to

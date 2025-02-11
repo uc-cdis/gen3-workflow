@@ -8,7 +8,11 @@ from botocore.credentials import Credentials
 import hmac
 from starlette.datastructures import Headers
 from starlette.responses import Response
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
+from starlette.status import (
+    HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
+    HTTP_403_FORBIDDEN,
+)
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
@@ -45,6 +49,10 @@ def get_access_token(headers: Headers) -> str:
     logger.debug(f"The authorization header in S3 request {auth_header=}")
     if not auth_header:
         return ""
+    if auth_header.lower().startswith("bearer"):
+        err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint. Please use the AWS SDK/CLI instead"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     try:
         if "Credential=" in auth_header:
             # Extract key ID from AWS-style authorization header
@@ -84,7 +92,7 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
 )
 async def s3_endpoint(path: str, request: Request):
     """
-    Receive incoming S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
+    Receive incoming signed S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
     AWS S3.
     """
