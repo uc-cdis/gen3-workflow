@@ -75,7 +75,7 @@ async def s3_endpoint(path: str, request: Request):
     auth.bearer_token = HTTPAuthorizationCredentials(
         scheme="bearer", credentials=get_access_token(request.headers)
     )
-    logger.info("The bearer token received from request is {auth.bearer_token}")
+    logger.info(f"The bearer token received from request is {auth.bearer_token}")
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
