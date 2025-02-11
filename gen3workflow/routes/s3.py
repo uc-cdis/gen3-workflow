@@ -158,7 +158,7 @@ async def s3_endpoint(path: str, request: Request):
         credentials = session.get_credentials()
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
-
+    logger.debug(f"Printing out {credentials.access_key=}")
     # if this is a PUT request, we need the KMS key ID to use for encryption
     if config["KMS_ENCRYPTION_ENABLED"] and request.method == "PUT":
         _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
@@ -214,9 +214,7 @@ async def s3_endpoint(path: str, request: Request):
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
     s3_api_url = f"https://{user_bucket}.s3.amazonaws.com/{api_endpoint}"
-    logger.debug(
-        f"Outgoing S3 request: '{request.method} {s3_api_url} and {headers['authorization']=}'"
-    )
+    logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url} and {headers=}'")
     response = await request.app.async_client.request(
         method=request.method,
         url=s3_api_url,
