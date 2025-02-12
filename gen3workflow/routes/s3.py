@@ -98,15 +98,20 @@ async def s3_endpoint(path: str, request: Request):
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
-    # Example 1:
+    # Examples of use cases we need to handle:
     # - path = my-bucket//
-    # - request_path = //
-    # - api_endpoint = /
-    # Example 2:
+    #   request_path = //
+    #   api_endpoint = /
+    # - path = my-bucket
+    #   request_path = /
+    #   api_endpoint =
     # - path = my-bucket/pre/fix/
-    # - request_path = /pre/fix/
-    # - api_endpoint = pre/fix/
-    request_path = path.split(user_bucket)[1]
+    #   request_path = /pre/fix/
+    #   api_endpoint = pre/fix/
+    # - path = my-bucket/pre/fix/file.txt
+    #   request_path = /pre/fix/file.txt
+    #   api_endpoint = pre/fix/file.txt
+    request_path = path.split(user_bucket)[1] or "/"
     api_endpoint = "/".join(request_path.split("/")[1:])
 
     body = await request.body()
