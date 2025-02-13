@@ -83,5 +83,5 @@ async def test_s3_endpoint_with_bearer_token(client):
     )
     assert res.status_code == 401, res.text
     assert res.json() == {
-        "detail": "Bearer tokens in the authorization header are not supported by this endpoint. Please use the AWS SDK/CLI instead"
+        "detail": "Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use the AWS SDK or CLI"
     }

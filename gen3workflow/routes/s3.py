@@ -38,7 +38,7 @@ def get_access_token(headers: Headers) -> str:
     if not auth_header:
         return ""
     if auth_header.lower().startswith("bearer"):
-        err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint. Please use the AWS SDK/CLI instead"
+        err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use the AWS SDK or CLI"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     try:
@@ -75,7 +75,7 @@ async def s3_endpoint(path: str, request: Request):
     """
     Receive incoming signed S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
-    AWS S3.
+    AWS S3. The recommended way to use this endpoint is to use the AWS SDK or CLI.
     """
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
