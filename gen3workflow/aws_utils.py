@@ -189,3 +189,38 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     )
 
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
+
+
+def delete_user_bucket(user_id: str):
+    """
+    Deletes all objects from a user's S3 bucket before deleting the bucket itself.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+
+    Raises:
+        Exception: If there is an error during the deletion process.
+    """
+    user_bucket_name = get_safe_name_from_hostname(user_id)
+
+    try:
+        object_list = s3_client.list_objects_v2(Bucket=user_bucket_name)
+
+        if "Contents" in object_list:
+            logger.info(
+                f"Deleting all contents from '{user_bucket_name}' for user '{user_id}' before deleting the bucket"
+            )
+            keys = [{"Key": obj.get("Key")} for obj in object_list["Contents"]]
+            s3_client.delete_objects(Bucket=user_bucket_name, Delete={"Objects": keys})
+
+        logger.info(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
+        s3_client.delete_bucket(Bucket=user_bucket_name)
+        logger.info(
+            f"Bucket '{user_bucket_name}' for user '{user_id}' deleted succesfully"
+        )
+
+    except Exception as e:
+        logger.error(
+            f"Failed to delete bucket '{user_bucket_name}' for user '{user_id}': {e}"
+        )
+        raise
