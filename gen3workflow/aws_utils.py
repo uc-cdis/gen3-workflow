@@ -191,7 +191,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
 
 
-def delete_user_bucket(user_id: str):
+def delete_user_bucket(user_id: str) -> str | None:
     """
     Deletes all objects from a user's S3 bucket before deleting the bucket itself.
 
@@ -215,12 +215,17 @@ def delete_user_bucket(user_id: str):
 
         logger.info(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
         s3_client.delete_bucket(Bucket=user_bucket_name)
-        logger.info(
-            f"Bucket '{user_bucket_name}' for user '{user_id}' deleted succesfully"
-        )
+        return user_bucket_name
 
-    except Exception as e:
-        logger.error(
-            f"Failed to delete bucket '{user_bucket_name}' for user '{user_id}': {e}"
-        )
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code == "NoSuchBucket":
+            logger.warning(
+                f"Bucket '{user_bucket_name}' not found for user '{user_id}'."
+            )
+            return None
+        else:
+            logger.error(
+                f"Failed to delete bucket '{user_bucket_name}' for user '{user_id}': {e}"
+            )
         raise
