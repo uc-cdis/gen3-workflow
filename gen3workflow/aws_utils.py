@@ -191,7 +191,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
 
 
-def delete_user_bucket(user_id: str) -> str | None:
+def delete_user_bucket(user_id: str) -> Union[str, None]:
     """
     Deletes all objects from a user's S3 bucket before deleting the bucket itself.
 
