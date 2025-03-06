@@ -459,3 +459,14 @@ paths:
       summary: Get Storage Info
       tags:
       - Storage
+  /storage/user-bucket:
+    delete:
+      operationId: delete_user_bucket
+      responses:
+        '204':
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Delete User Bucket
+      tags:
+      - Storage

@@ -169,3 +169,40 @@ async def test_bucket_enforces_encryption(
     #     ServerSideEncryption="aws:kms",
     #     SSEKMSKeyId=authorized_kms_key_arn,
     # )
+
+
+@pytest.mark.asyncio
+async def test_delete_user_bucket(client, access_token_patcher, mock_aws_services):
+    """
+    The user should be able to delete their own bucket.
+    """
+
+    # Get users bucket name using through user ID
+    expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+
+    # Create the bucket if it doesn't exist
+    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    assert res.status_code == 200, res.text
+    storage_info = res.json()
+    assert storage_info == {
+        "bucket": expected_bucket_name,
+        "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
+        "region": config["USER_BUCKETS_REGION"],
+    }
+
+    # Verify the bucket exists
+    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+    assert bucket_exists, "Bucket does not exist"
+
+    # Delete the bucket
+    res = await client.delete(
+        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+    )
+    assert res.status_code == 204, res.text
+
+    # Verify the bucket is deleted
+    with pytest.raises(ClientError) as e:
+        aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+    assert (
+        e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+    ), f"Bucket still exists: {e.value}"
