@@ -3,6 +3,7 @@ from botocore.exceptions import ClientError
 import json
 from moto import mock_aws
 import pytest
+from unittest.mock import patch, MagicMock
 
 from conftest import TEST_USER_ID
 from gen3workflow import aws_utils
@@ -29,6 +30,14 @@ def mock_aws_services():
         yield
 
 
+# Return a mock list of objects in the bucket with the given size
+def get_dummy_object_list(bucket_name, size):
+    def mock_list_object_v2(Bucket=bucket_name):
+        return {"Contents": [{"Key": f"file{i}"} for i in range(size)]}
+
+    return mock_list_object_v2
+
+
 def test_get_safe_name_from_hostname(reset_config_hostname):
     user_id = "asdfgh"
 
@@ -53,6 +62,14 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
 async def test_storage_info(client, access_token_patcher, mock_aws_services):
     # check that the user's storage information is as expected
     expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+
+    # Bucket must not exist before this test
+    with pytest.raises(ClientError) as e:
+        aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+        assert (
+            e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+        ), f"Bucket exists: {e.value}"
+
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
     assert res.status_code == 200, res.text
     storage_info = res.json()
@@ -61,6 +78,10 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
         "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
         "region": config["USER_BUCKETS_REGION"],
     }
+
+    # check that the bucket was created after the call to `/storage/info`
+    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+    assert bucket_exists, "Bucket does not exist"
 
     # check that the bucket is setup with KMS encryption
     kms_key = aws_utils.kms_client.describe_key(KeyId=f"alias/{expected_bucket_name}")
@@ -177,21 +198,12 @@ async def test_delete_user_bucket(client, access_token_patcher, mock_aws_service
     The user should be able to delete their own bucket.
     """
 
-    # Get users bucket name using through user ID
-    expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
-
     # Create the bucket if it doesn't exist
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
-    assert res.status_code == 200, res.text
-    storage_info = res.json()
-    assert storage_info == {
-        "bucket": expected_bucket_name,
-        "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
-        "region": config["USER_BUCKETS_REGION"],
-    }
+    bucket_name = res.json().get("bucket")
 
     # Verify the bucket exists
-    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=bucket_name)
     assert bucket_exists, "Bucket does not exist"
 
     # Delete the bucket
@@ -202,7 +214,121 @@ async def test_delete_user_bucket(client, access_token_patcher, mock_aws_service
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
-        aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+        aws_utils.s3_client.head_bucket(Bucket=bucket_name)
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket still exists: {e.value}"
+
+
+# delete bucket that doesn't exist
+@pytest.mark.asyncio
+async def test_delete_user_bucket_which_does_not_exist(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Attempt to delete a bucket that does not exist
+    """
+
+    # Create the bucket if it doesn't exist
+    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    bucket_name = res.json().get("bucket")
+
+    # Verify the bucket exists
+    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    assert bucket_exists, "Bucket does not exist"
+
+    # Delete the bucket
+    res = await client.delete(
+        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+    )
+    assert res.status_code == 204, res.text
+
+    # Verify the bucket is deleted
+    with pytest.raises(ClientError) as e:
+        aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    assert (
+        e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+    ), f"Bucket still exists: {e.value}"
+
+    # Attempt to Delete the bucket again, must receive a 404, since bucket not found.
+    res = await client.delete(
+        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+    )
+    assert res.status_code == 404, res.text
+
+
+@pytest.mark.asyncio
+async def test_delete_user_bucket_with_files(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Attempt to delete a bucket that is not empty.
+    Endpoint must be able to delete all the files and then delete the bucket.
+    """
+
+    # Create the bucket if it doesn't exist
+    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    bucket_name = res.json().get("bucket")
+
+    # Since we are unable to user put_object API due to a probable bug in moto,
+    # we will monkeypatch the list_objects_v2 API to get a list of objects to the bucket
+    # Add 1500 objects to the bucket, to ensure batching is working correctly
+    with patch.object(
+        aws_utils.s3_client, "list_objects_v2", get_dummy_object_list(bucket_name, 1500)
+    ):
+        # Delete the bucket
+        res = await client.delete(
+            "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        )
+        assert res.status_code == 204, res.text
+
+        # Verify the bucket is deleted
+        with pytest.raises(ClientError) as e:
+            aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+        assert (
+            e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+        ), f"Bucket still exists: {e.value}"
+
+        # Attempt to Delete the bucket again, must receive a 404, since bucket not found.
+        res = await client.delete(
+            "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        )
+        assert res.status_code == 404, res.text
+
+
+@pytest.mark.asyncio
+async def test_delete_user_bucket_no_token(client, mock_aws_services):
+    """
+    Attempt to delete a bucket when the user is not logged in.  Must receive a 401 error.
+    """
+    mock_delete_bucket = MagicMock()
+    # Delete the bucket
+    with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
+        res = await client.delete("/storage/user-bucket")
+        assert res.status_code == 401, res.text
+        assert res.json() == {"detail": "Must provide an access token"}
+        mock_delete_bucket.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "client",
+    [pytest.param({"authorized": False, "tes_resp_code": 200}, id="unauthorized")],
+    indirect=True,
+)
+async def test_delete_user_bucket_unauthorized(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Attempt to delete a bucket when the user is logged in but does not have the appropriate authorization.
+    Must receive a 403 error.
+    """
+    mock_delete_bucket = MagicMock()
+    # Delete the bucket
+    with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
+        res = await client.delete(
+            "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        )
+        assert res.status_code == 403, res.text
+        assert res.json() == {"detail": "Permission denied"}
+        mock_delete_bucket.assert_not_called()
