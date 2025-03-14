@@ -211,7 +211,7 @@ def delete_all_bucket_objects(user_id, user_bucket_name):
         # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.delete_objects
         limit = 1000
         for offset in range(0, len(keys), limit):
-            response = s3_client(
+            response = s3_client.delete_objects(
                 Bucket=user_bucket_name,
                 Delete={"Objects": keys[offset : offset + limit]},
             )
