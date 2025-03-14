@@ -199,33 +199,27 @@ def delete_all_bucket_objects(user_id, user_bucket_name):
         user_id (str): The user's unique Gen3 ID.
         user_bucket_name (str): The name of the S3 bucket.
     """
-    try:
-        object_list = s3_client.list_objects_v2(Bucket=user_bucket_name)
+    object_list = s3_client.list_objects_v2(Bucket=user_bucket_name)
 
-        if "Contents" in object_list:
-            logger.info(
-                f"Deleting all contents from '{user_bucket_name}' for user '{user_id}' before deleting the bucket"
-            )
-            keys = [{"Key": obj.get("Key")} for obj in object_list["Contents"]]
-
-            # According to the docs, up to 1000 objects can be deleted in a single request:
-            # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.delete_objects
-            limit = 1000
-            for offset in range(0, len(keys), limit):
-                response = s3_client.delete_objects(
-                    Bucket=user_bucket_name,
-                    Delete={"Objects": keys[offset : offset + limit]},
-                )
-                if response.get("Errors"):
-                    logger.error(
-                        f"Failed to delete objects from bucket '{user_bucket_name}' for user '{user_id}': {response}"
-                    )
-                    raise Exception(response)
-    except ClientError as e:
-        logger.error(
-            f"Failed to delete objects from bucket '{user_bucket_name}' for user '{user_id}': {e}"
+    if "Contents" in object_list:
+        logger.info(
+            f"Deleting all contents from '{user_bucket_name}' for user '{user_id}' before deleting the bucket"
         )
-        raise
+        keys = [{"Key": obj.get("Key")} for obj in object_list["Contents"]]
+
+        # According to the docs, up to 1000 objects can be deleted in a single request:
+        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.delete_objects
+        limit = 1000
+        for offset in range(0, len(keys), limit):
+            response = s3_client(
+                Bucket=user_bucket_name,
+                Delete={"Objects": keys[offset : offset + limit]},
+            )
+            if response.get("Errors"):
+                logger.error(
+                    f"Failed to delete objects from bucket '{user_bucket_name}' for user '{user_id}': {response}"
+                )
+                raise Exception(response)
 
 
 def delete_user_bucket(user_id: str) -> Union[str, None]:
@@ -250,10 +244,9 @@ def delete_user_bucket(user_id: str) -> Union[str, None]:
             )
             return None
 
+    logger.info(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
     try:
         delete_all_bucket_objects(user_id, user_bucket_name)
-
-        logger.info(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
         s3_client.delete_bucket(Bucket=user_bucket_name)
         return user_bucket_name
 

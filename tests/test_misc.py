@@ -66,9 +66,9 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
     # Bucket must not exist before this test
     with pytest.raises(ClientError) as e:
         aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
-        assert (
-            e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
-        ), f"Bucket exists: {e.value}"
+    assert (
+        e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+    ), f"Bucket exists: {e.value}"
 
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
     assert res.status_code == 200, res.text
@@ -200,38 +200,7 @@ async def test_delete_user_bucket(client, access_token_patcher, mock_aws_service
 
     # Create the bucket if it doesn't exist
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
-    bucket_name = res.json().get("bucket")
-
-    # Verify the bucket exists
-    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=bucket_name)
-    assert bucket_exists, "Bucket does not exist"
-
-    # Delete the bucket
-    res = await client.delete(
-        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
-    )
-    assert res.status_code == 204, res.text
-
-    # Verify the bucket is deleted
-    with pytest.raises(ClientError) as e:
-        aws_utils.s3_client.head_bucket(Bucket=bucket_name)
-    assert (
-        e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
-    ), f"Bucket still exists: {e.value}"
-
-
-# delete bucket that doesn't exist
-@pytest.mark.asyncio
-async def test_delete_user_bucket_which_does_not_exist(
-    client, access_token_patcher, mock_aws_services
-):
-    """
-    Attempt to delete a bucket that does not exist
-    """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
-    bucket_name = res.json().get("bucket")
+    bucket_name = res.json()["bucket"]
 
     # Verify the bucket exists
     bucket_exists = aws_utils.s3_client.head_bucket(Bucket=bucket_name)
@@ -268,9 +237,9 @@ async def test_delete_user_bucket_with_files(
 
     # Create the bucket if it doesn't exist
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
-    bucket_name = res.json().get("bucket")
+    bucket_name = res.json()["bucket"]
 
-    # Since we are unable to user put_object API due to a probable bug in moto,
+    # Since we are unable to use put_object API due to a probable bug in moto,
     # we will monkeypatch the list_objects_v2 API to get a list of objects to the bucket
     # Add 1500 objects to the bucket, to ensure batching is working correctly
     with patch.object(
@@ -288,12 +257,6 @@ async def test_delete_user_bucket_with_files(
         assert (
             e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
         ), f"Bucket still exists: {e.value}"
-
-        # Attempt to Delete the bucket again, must receive a 404, since bucket not found.
-        res = await client.delete(
-            "/storage/user-bucket", headers={"Authorization": "bearer 123"}
-        )
-        assert res.status_code == 404, res.text
 
 
 @pytest.mark.asyncio
