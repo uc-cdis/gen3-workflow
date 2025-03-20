@@ -13,7 +13,7 @@ Contents:
   - Users are automatically granted access to `/users/<user ID>/gen3-workflow/tasks` so they can view their own tasks.
   - Admin access (the ability to see _all_ users’ tasks instead of just your own) can be granted to a user by granting them access to the parent resource `/services/workflow/gen3-workflow/tasks`.
   - This supports sharing tasks with others; for example, "user1" may share "taskA" with "user2" if the system grants "user2" access to `/users/user1/gen3-workflow/tasks/taskA`.
-- To delete their own S3 bucket along with all its objects, a user needs `delete` access to the resource `/services/workflow/user-bucket` on the `gen3-workflow` service -- a special privilege not intended for common users.
+- To delete their own S3 bucket along with all its objects, a user needs `delete` access to the resource `/services/workflow/user-bucket` on the `gen3-workflow` service -- a special privilege useful for automated testing but not intended for the average user.
 
 #### Authorization configuration example
 
@@ -47,11 +47,11 @@ authz:
     resource_paths:
     - /services/workflow/gen3-workflow/tasks
   - id: workflow_storage_deleter
-    description: Allows delete access to users own S3 bucket
+    description: Allows delete access to the user's own S3 bucket
     role_ids:
     - workflow_storage_deleter
     resource_paths:
-    - '/services/workflow/gen3-workflow'
+    - /services/workflow/gen3-workflow
 
   roles:
   - id: gen3_workflow_reader
