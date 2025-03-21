@@ -8,6 +8,7 @@ from gen3authz.client.arborist.async_client import ArboristClient
 
 from gen3workflow import logger
 from gen3workflow.config import config
+from gen3workflow.metrics import Metrics
 from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import router as s3_router
 from gen3workflow.routes.storage import router as storage_router
@@ -53,6 +54,16 @@ def get_app(httpx_client=None) -> FastAPI:
             authz_provider="gen3-workflow",
             logger=get_logger("gen3workflow.gen3authz", log_level=log_level),
         )
+
+    logger.info(
+        f"Setting up Metrics with ENABLE_PROMETHEUS_METRICS flag set to {config['ENABLE_PROMETHEUS_METRICS']}"
+    )
+    app.metrics = Metrics(
+        enabled=config["ENABLE_PROMETHEUS_METRICS"],
+        prometheus_dir=config["PROMETHEUS_MULTIPROC_DIR"],
+    )
+    if app.metrics.enabled:
+        app.include_router("/metrics", app.metrics.get_asgi_app())
 
     return app
 
