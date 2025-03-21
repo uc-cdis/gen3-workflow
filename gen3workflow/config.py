@@ -39,7 +39,7 @@ class Gen3WorkflowConfig(Config):
     def validate_top_level_configs(self) -> None:
         schema = {
             "type": "object",
-            "additionalProperties": False,
+            "additionalProperties": True,
             "properties": {
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
