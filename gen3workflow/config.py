@@ -39,7 +39,7 @@ class Gen3WorkflowConfig(Config):
     def validate_top_level_configs(self) -> None:
         schema = {
             "type": "object",
-            "additionalProperties": True,
+            "additionalProperties": False,
             "properties": {
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
@@ -61,11 +61,8 @@ class Gen3WorkflowConfig(Config):
                 "DB_CONNECTION_STRING": {"type": "string"},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
-                "ENABLE_PROMETHEUS_METRICS": {"type": "boolean", "default": False},
-                "PROMETHEUS_MULTIPROC_DIR": {
-                    "type": "string",
-                    "default": "/var/tmp/prometheus_metrics",
-                },
+                "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
+                "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
             },
         }
         validate(instance=self, schema=schema)
