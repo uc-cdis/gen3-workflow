@@ -30,14 +30,6 @@ def mock_aws_services():
         yield
 
 
-# Return a mock list of objects in the bucket with the given size
-def get_dummy_object_list(bucket_name, size):
-    def mock_list_object_v2(Bucket=bucket_name):
-        return {"Contents": [{"Key": f"file{i}"} for i in range(size)]}
-
-    return mock_list_object_v2
-
-
 def test_get_safe_name_from_hostname(reset_config_hostname):
     user_id = "asdfgh"
 
@@ -239,24 +231,32 @@ async def test_delete_user_bucket_with_files(
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
     bucket_name = res.json()["bucket"]
 
-    # Since we are unable to use put_object API due to a probable bug in moto,
-    # we will monkeypatch the list_objects_v2 API to get a list of objects to the bucket
-    # Add 1500 objects to the bucket, to ensure batching is working correctly
-    with patch.object(
-        aws_utils.s3_client, "list_objects_v2", get_dummy_object_list(bucket_name, 1500)
-    ):
-        # Delete the bucket
-        res = await client.delete(
-            "/storage/user-bucket", headers={"Authorization": "bearer 123"}
-        )
-        assert res.status_code == 204, res.text
+    # Remove the bucket policy that enforces KMS encryption
+    aws_utils.s3_client.delete_bucket_policy(Bucket=bucket_name)
 
-        # Verify the bucket is deleted
-        with pytest.raises(ClientError) as e:
-            aws_utils.s3_client.head_bucket(Bucket=bucket_name)
-        assert (
-            e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
-        ), f"Bucket still exists: {e.value}"
+    # Upload more than 1000 objects to ensure batching is working correctly
+    object_count = 1200
+    for i in range(object_count):
+        aws_utils.s3_client.put_object(
+            Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
+        )
+
+    # Unit test to vberify all the objects in the bucket are fetched even when bucket has more than 1000 objects
+    object_list = aws_utils.get_all_bucket_objects(bucket_name)
+    assert len(object_list) == object_count
+
+    # Delete the bucket
+    res = await client.delete(
+        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+    )
+    assert res.status_code == 204, res.text
+
+    # Verify the bucket is deleted
+    with pytest.raises(ClientError) as e:
+        aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    assert (
+        e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+    ), f"Bucket still exists: {e.value}"
 
 
 @pytest.mark.asyncio
