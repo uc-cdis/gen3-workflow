@@ -189,3 +189,99 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     )
 
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
+
+
+def get_all_bucket_objects(user_bucket_name):
+    """
+    Get all objects from the specified S3 bucket.
+    """
+    response = s3_client.list_objects_v2(Bucket=user_bucket_name)
+    object_list = response.get("Contents", [])
+
+    # list_objects_v2 can utmost return 1000 objects in a single response
+    # if there are more objects, the response will have a key "IsTruncated" set to True
+    # and a key "NextContinuationToken" which can be used to get the next set of objects
+
+    # TODO:
+    # Currently, all objects are loaded into memory, which can be problematic for large datasets.
+    # To optimize, convert this function into a generator that accepts a `batch_size` parameter (capped at 1,000)
+    # and yields objects in batches.
+    while response.get("IsTruncated"):
+        response = s3_client.list_objects_v2(
+            Bucket=user_bucket_name,
+            ContinuationToken=response.get("NextContinuationToken"),
+        )
+        object_list += response.get("Contents", [])
+
+    return object_list
+
+
+def delete_all_bucket_objects(user_id, user_bucket_name):
+    """
+    Deletes all objects from the specified S3 bucket.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID.
+        user_bucket_name (str): The name of the S3 bucket.
+    """
+    object_list = get_all_bucket_objects(user_bucket_name)
+
+    if not object_list:
+        return
+
+    logger.debug(
+        f"Deleting all contents from '{user_bucket_name}' for user '{user_id}' before deleting the bucket"
+    )
+    keys = [{"Key": obj.get("Key")} for obj in object_list]
+
+    # According to the docs, up to 1000 objects can be deleted in a single request:
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.delete_objects
+
+    # TODO: When `get_all_bucket_objects` is converted to a generator,
+    # we can remove this batching logic and retrieve objects in batches of 1,000 for deletion.
+    limit = 1000
+    for offset in range(0, len(keys), limit):
+        response = s3_client.delete_objects(
+            Bucket=user_bucket_name,
+            Delete={"Objects": keys[offset : offset + limit]},
+        )
+        if response.get("Errors"):
+            logger.error(
+                f"Failed to delete objects from bucket '{user_bucket_name}' for user '{user_id}': {response}"
+            )
+            raise Exception(response)
+
+
+def delete_user_bucket(user_id: str) -> Union[str, None]:
+    """
+    Deletes all objects from a user's S3 bucket before deleting the bucket itself.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+
+    Raises:
+        Exception: If there is an error during the deletion process.
+    """
+    user_bucket_name = get_safe_name_from_hostname(user_id)
+
+    try:
+        s3_client.head_bucket(Bucket=user_bucket_name)
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code == "404":
+            logger.warning(
+                f"Bucket '{user_bucket_name}' not found for user '{user_id}'."
+            )
+            return None
+
+    logger.info(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
+    try:
+        delete_all_bucket_objects(user_id, user_bucket_name)
+        s3_client.delete_bucket(Bucket=user_bucket_name)
+        return user_bucket_name
+
+    except Exception as e:
+        logger.error(
+            f"Failed to delete bucket '{user_bucket_name}' for user '{user_id}': {e}"
+        )
+        raise

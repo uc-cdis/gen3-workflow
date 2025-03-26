@@ -3,6 +3,7 @@ from botocore.exceptions import ClientError
 import json
 from moto import mock_aws
 import pytest
+from unittest.mock import patch, MagicMock
 
 from conftest import TEST_USER_ID
 from gen3workflow import aws_utils
@@ -53,6 +54,14 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
 async def test_storage_info(client, access_token_patcher, mock_aws_services):
     # check that the user's storage information is as expected
     expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+
+    # Bucket must not exist before this test
+    with pytest.raises(ClientError) as e:
+        aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+    assert (
+        e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+    ), f"Bucket exists: {e.value}"
+
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
     assert res.status_code == 200, res.text
     storage_info = res.json()
@@ -61,6 +70,10 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
         "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
         "region": config["USER_BUCKETS_REGION"],
     }
+
+    # check that the bucket was created after the call to `/storage/info`
+    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+    assert bucket_exists, "Bucket does not exist"
 
     # check that the bucket is setup with KMS encryption
     kms_key = aws_utils.kms_client.describe_key(KeyId=f"alias/{expected_bucket_name}")
@@ -169,3 +182,118 @@ async def test_bucket_enforces_encryption(
     #     ServerSideEncryption="aws:kms",
     #     SSEKMSKeyId=authorized_kms_key_arn,
     # )
+
+
+@pytest.mark.asyncio
+async def test_delete_user_bucket(client, access_token_patcher, mock_aws_services):
+    """
+    The user should be able to delete their own bucket.
+    """
+
+    # Create the bucket if it doesn't exist
+    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    bucket_name = res.json()["bucket"]
+
+    # Verify the bucket exists
+    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    assert bucket_exists, "Bucket does not exist"
+
+    # Delete the bucket
+    res = await client.delete(
+        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+    )
+    assert res.status_code == 204, res.text
+
+    # Verify the bucket is deleted
+    with pytest.raises(ClientError) as e:
+        aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    assert (
+        e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+    ), f"Bucket still exists: {e.value}"
+
+    # Attempt to Delete the bucket again, must receive a 404, since bucket not found.
+    res = await client.delete(
+        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+    )
+    assert res.status_code == 404, res.text
+
+
+@pytest.mark.asyncio
+async def test_delete_user_bucket_with_files(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Attempt to delete a bucket that is not empty.
+    Endpoint must be able to delete all the files and then delete the bucket.
+    """
+
+    # Create the bucket if it doesn't exist
+    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    bucket_name = res.json()["bucket"]
+
+    # Remove the bucket policy enforcing KMS encryption
+    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
+    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
+    aws_utils.s3_client.delete_bucket_policy(Bucket=bucket_name)
+
+    # Upload more than 1000 objects to ensure batching is working correctly
+    object_count = 1200
+    for i in range(object_count):
+        aws_utils.s3_client.put_object(
+            Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
+        )
+
+    # Verify all the objects in the bucket are fetched even when bucket has more than 1000 objects
+    object_list = aws_utils.get_all_bucket_objects(bucket_name)
+    assert len(object_list) == object_count
+
+    # Delete the bucket
+    res = await client.delete(
+        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+    )
+    assert res.status_code == 204, res.text
+
+    # Verify the bucket is deleted
+    with pytest.raises(ClientError) as e:
+        aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    assert (
+        e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+    ), f"Bucket still exists: {e.value}"
+
+
+@pytest.mark.asyncio
+async def test_delete_user_bucket_no_token(client, mock_aws_services):
+    """
+    Attempt to delete a bucket when the user is not logged in.  Must receive a 401 error.
+    """
+    mock_delete_bucket = MagicMock()
+    # Delete the bucket
+    with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
+        res = await client.delete("/storage/user-bucket")
+        assert res.status_code == 401, res.text
+        assert res.json() == {"detail": "Must provide an access token"}
+        mock_delete_bucket.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "client",
+    [pytest.param({"authorized": False, "tes_resp_code": 200}, id="unauthorized")],
+    indirect=True,
+)
+async def test_delete_user_bucket_unauthorized(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Attempt to delete a bucket when the user is logged in but does not have the appropriate authorization.
+    Must receive a 403 error.
+    """
+    mock_delete_bucket = MagicMock()
+    # Delete the bucket
+    with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
+        res = await client.delete(
+            "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        )
+        assert res.status_code == 403, res.text
+        assert res.json() == {"detail": "Permission denied"}
+        mock_delete_bucket.assert_not_called()
