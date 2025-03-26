@@ -266,7 +266,7 @@ def delete_user_bucket(user_id: str) -> Union[str, None]:
             )
             return None
 
-    logger.info(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
+    logger.debug(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
     try:
         delete_all_bucket_objects(user_id, user_bucket_name)
         s3_client.delete_bucket(Bucket=user_bucket_name)

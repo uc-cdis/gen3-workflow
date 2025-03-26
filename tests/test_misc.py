@@ -231,7 +231,9 @@ async def test_delete_user_bucket_with_files(
     res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
     bucket_name = res.json()["bucket"]
 
-    # Remove the bucket policy that enforces KMS encryption
+    # Remove the bucket policy enforcing KMS encryption
+    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
+    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
     aws_utils.s3_client.delete_bucket_policy(Bucket=bucket_name)
 
     # Upload more than 1000 objects to ensure batching is working correctly
@@ -241,7 +243,7 @@ async def test_delete_user_bucket_with_files(
             Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
         )
 
-    # Unit test to vberify all the objects in the bucket are fetched even when bucket has more than 1000 objects
+    # Verify all the objects in the bucket are fetched even when bucket has more than 1000 objects
     object_list = aws_utils.get_all_bucket_objects(bucket_name)
     assert len(object_list) == object_count
 
