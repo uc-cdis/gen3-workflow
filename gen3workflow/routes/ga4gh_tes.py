@@ -32,11 +32,7 @@ async def get_request_body(request: Request):
 
 @router.get("/service-info", status_code=HTTP_200_OK)
 async def service_info(request: Request, auth=Depends(Auth)) -> dict:
-    try:
-        token_claims = await auth.get_token_claims()
-    except Exception:
-        token_claims = {}
-    user_id = token_claims.get("sub")
+    user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES service info")
 
     url = f"{config['TES_SERVER_URL']}/service-info"
@@ -164,11 +160,7 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 
 @router.get("/tasks", status_code=HTTP_200_OK)
 async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
-    try:
-        token_claims = await auth.get_token_claims()
-    except Exception:
-        token_claims = {}
-    user_id = token_claims.get("sub")
+    user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' listing TES tasks")
 
     supported_params = {
@@ -231,11 +223,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 
 @router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
 async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
-    try:
-        token_claims = await auth.get_token_claims()
-    except Exception:
-        token_claims = {}
-    user_id = token_claims.get("sub")
+    user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES task '{task_id}'")
 
     supported_params = {"view"}
@@ -268,11 +256,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
 async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
-    try:
-        token_claims = await auth.get_token_claims()
-    except Exception:
-        token_claims = {}
-    user_id = token_claims.get("sub")
+    user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' canceling TES task '{task_id}'")
 
     # check if this user has access to delete this task

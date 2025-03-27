@@ -61,6 +61,12 @@ class Gen3WorkflowConfig(Config):
                 "DB_CONNECTION_STRING": {"type": "string"},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
+                "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
+                "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
+                "ENDPOINTS_WITH_METRICS": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
         }
         validate(instance=self, schema=schema)
