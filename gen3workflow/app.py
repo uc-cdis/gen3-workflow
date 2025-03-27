@@ -66,7 +66,7 @@ def get_app(httpx_client=None) -> FastAPI:
         prometheus_dir=config["PROMETHEUS_MULTIPROC_DIR"],
     )
     if app.metrics.enabled:
-        app.include_router("/metrics", app.metrics.get_asgi_app())
+        app.mount("/metrics", app.metrics.get_asgi_app())
 
     @app.middleware("http")
     async def middleware_log_response_and_api_metric(
