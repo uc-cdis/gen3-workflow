@@ -10,3 +10,12 @@ class Metrics(BaseMetrics):
         super().__init__(
             prometheus_dir=config["PROMETHEUS_MULTIPROC_DIR"], enabled=enabled
         )
+
+    def add_create_task_api_interaction(
+        self,
+        **kwargs: Dict[str, Any],
+    ) -> None:
+        """
+        Add a metric for create_task API interactions
+        """
+        self.increment_counter(name="create_task_api_interaction", labels=kwargs)

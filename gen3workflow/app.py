@@ -1,11 +1,13 @@
 from fastapi import FastAPI
+from fastapi.security import HTTPAuthorizationCredentials
 import httpx
 from importlib.metadata import version
 import os
+import time
 
 from cdislogging import get_logger
 from gen3authz.client.arborist.async_client import ArboristClient
-
+from fastapi import Request, HTTPException
 from gen3workflow import logger
 from gen3workflow.config import config
 from gen3workflow.metrics import Metrics
@@ -13,6 +15,7 @@ from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import router as s3_router
 from gen3workflow.routes.storage import router as storage_router
 from gen3workflow.routes.system import router as system_router
+from gen3workflow.auth import Auth
 
 
 def get_app(httpx_client=None) -> FastAPI:
@@ -64,6 +67,39 @@ def get_app(httpx_client=None) -> FastAPI:
     )
     if app.metrics.enabled:
         app.include_router("/metrics", app.metrics.get_asgi_app())
+
+    @app.middleware("http")
+    async def middleware_log_response_and_api_metric(
+        request: Request, call_next
+    ) -> None:
+        """
+        This FastAPI middleware effectively allows pre and post logic to a request.
+
+        We are using this to log the response consistently across defined endpoints (including execution time).
+
+        Args:
+            request (Request): the incoming HTTP request
+            call_next (Callable): function to call (this is handled by FastAPI's middleware support)
+        """
+        start_time = time.perf_counter()
+        response = await call_next(request)
+        response_time_seconds = time.perf_counter() - start_time
+
+        path = request.url.path
+        method = request.method
+        if path not in config["ENDPOINTS_WITH_METRICS"]:
+            return response
+
+        # TODO: Add user_id to this metric
+        metrics = app.metrics
+        metrics.add_create_task_api_interaction(
+            method=method,
+            path=path,
+            response_time_seconds=response_time_seconds,
+            status_code=response.status_code,
+        )
+
+        return response
 
     return app
 

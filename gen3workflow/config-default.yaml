@@ -61,3 +61,4 @@ TASK_IMAGE_WHITELIST: []
 
 ENABLE_PROMETHEUS_METRICS: false
 PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
+ENDPOINTS_WITH_METRICS: [ /ga4gh/tes/v1/tasks ]

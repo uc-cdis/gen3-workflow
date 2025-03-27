@@ -63,6 +63,10 @@ class Gen3WorkflowConfig(Config):
                 "TES_SERVER_URL": {"type": "string"},
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
                 "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
+                "ENDPOINTS_WITH_METRICS": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
         }
         validate(instance=self, schema=schema)
