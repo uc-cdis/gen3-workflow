@@ -65,6 +65,9 @@ def get_app(httpx_client=None) -> FastAPI:
         enabled=config["ENABLE_PROMETHEUS_METRICS"],
         prometheus_dir=config["PROMETHEUS_MULTIPROC_DIR"],
     )
+    logger.debug(
+        f"Setting up Metrics with app.metrics.enabled flag set to {app.metrics.enabled=}"
+    )
     if app.metrics.enabled:
         app.mount("/metrics", app.metrics.get_asgi_app())
 
