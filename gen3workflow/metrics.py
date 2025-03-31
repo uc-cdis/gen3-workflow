@@ -18,4 +18,4 @@ class Metrics(BaseMetrics):
         """
         Add a metric for create_task API interactions
         """
-        self.increment_counter(name="create_task_api_interaction", labels=kwargs)
+        self.increment_counter(name="gen3_workflow_tasks_created", labels=kwargs)
