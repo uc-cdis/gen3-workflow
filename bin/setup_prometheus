@@ -25,8 +25,8 @@ if [[ "$SETUP_DIR" == "true" ]]; then
     chmod 755 "$DIR"
 fi
 
-if id -u nginx &>/dev/null; then
-    chown "$(id -u nginx)":"$(id -g nginx)" "$DIR"
+if id -u gen3 &>/dev/null; then
+    chown "$(id -u gen3)":"$(id -g gen3)" "$DIR"
 fi
 
 export PROMETHEUS_MULTIPROC_DIR="$DIR"
