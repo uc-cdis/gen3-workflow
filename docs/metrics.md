@@ -1,6 +1,6 @@
 ## Metrics
 
-Metrics can be exposed at a `/metrics` endpoint compatible with Prometheus scraping and visualize in Prometheus or
+Metrics can be exposed at a `/metrics` endpoint compatible with Prometheus scraping and visualized in Prometheus or
 Graphana, etc.
 
 The metrics are defined in `gen3workflow/metrics.py` as follows:
