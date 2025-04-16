@@ -91,15 +91,20 @@ def get_app(httpx_client=None) -> FastAPI:
         if path not in config["ENDPOINTS_WITH_METRICS"]:
             return response
 
-        # TODO: Add user_id to this metric
-        metrics = app.metrics
-        metrics.add_create_task_api_interaction(
-            method=method,
-            path=path,
-            response_time_seconds=response_time_seconds,
-            status_code=response.status_code,
-        )
-
+        try:
+            # TODO: Add user_id to this metric
+            metrics = app.metrics
+            metrics.add_create_task_api_interaction(
+                method=method,
+                path=path,
+                response_time_seconds=response_time_seconds,
+                status_code=response.status_code,
+            )
+        except Exception as e:
+            logger.warning(
+                f"Metrics were not logged for the request with {method=}, {path=}, {response.status_code=}, {response_time_seconds=}. Failed due to {e}",
+                exc_info=True,
+            )
         return response
 
     return app
