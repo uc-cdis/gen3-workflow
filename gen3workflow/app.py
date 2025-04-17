@@ -58,9 +58,6 @@ def get_app(httpx_client=None) -> FastAPI:
             logger=get_logger("gen3workflow.gen3authz", log_level=log_level),
         )
 
-    logger.info(
-        f"Setting up Metrics with ENABLE_PROMETHEUS_METRICS flag set to {config['ENABLE_PROMETHEUS_METRICS']}"
-    )
     app.metrics = Metrics(
         enabled=config["ENABLE_PROMETHEUS_METRICS"],
         prometheus_dir=config["PROMETHEUS_MULTIPROC_DIR"],
@@ -88,23 +85,21 @@ def get_app(httpx_client=None) -> FastAPI:
 
         path = request.url.path
         method = request.method
-        if path not in config["ENDPOINTS_WITH_METRICS"]:
+
+        # NOTE: If adding more endpoints to metrics, try making it configurable using a list of paths and methods in config.
+        # For now, we are only interested in the "/ga4gh/tes/v1/tasks" endpoint for metrics.
+        if method != "POST" or path != "/ga4gh/tes/v1/tasks":
             return response
 
-        try:
-            # TODO: Add user_id to this metric
-            metrics = app.metrics
-            metrics.add_create_task_api_interaction(
-                method=method,
-                path=path,
-                response_time_seconds=response_time_seconds,
-                status_code=response.status_code,
-            )
-        except Exception as e:
-            logger.warning(
-                f"Metrics were not logged for the request with {method=}, {path=}, {response.status_code=}, {response_time_seconds=}. Failed due to {e}",
-                exc_info=True,
-            )
+        # TODO: Add user_id to this metric, currently we don't have access to fetch the user_id at the middleware level.
+        metrics = app.metrics
+        metrics.add_create_task_api_interaction(
+            method=method,
+            path=path,
+            response_time_seconds=response_time_seconds,
+            status_code=response.status_code,
+        )
+
         return response
 
     return app

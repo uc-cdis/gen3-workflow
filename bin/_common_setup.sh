@@ -7,14 +7,15 @@ set -e
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -f "/src/gen3-workflow-config.yaml" ]; then
-  echo "Loading environment variables from ${CURRENT_DIR}/.env"
   PROMETHEUS_MULTIPROC_DIR=$(grep 'PROMETHEUS_MULTIPROC_DIR:' /src/gen3-workflow-config.yaml | awk -F': ' '{print $2}' | tr -d '"')
 else
   PROMETHEUS_MULTIPROC_DIR=""
 fi
 # Source the environment variables from the metrics setup script
-source "${CURRENT_DIR}/setup_prometheus" $PROMETHEUS_MULTIPROC_DIR
+source "${CURRENT_DIR}/setup_prometheus.sh" $PROMETHEUS_MULTIPROC_DIR
 
 echo "installing dependencies with 'poetry install -vv'..."
 poetry install -vv
 poetry env info
+
+#TODO: if we need a DB later, run `source "${CURRENT_DIR}/_setup_db.sh`
