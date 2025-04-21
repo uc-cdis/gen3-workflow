@@ -17,5 +17,3 @@ source "${CURRENT_DIR}/setup_prometheus.sh" $PROMETHEUS_MULTIPROC_DIR
 echo "installing dependencies with 'poetry install -vv'..."
 poetry install -vv
 poetry env info
-
-#TODO: if we need a DB later, run `source "${CURRENT_DIR}/_setup_db.sh`
