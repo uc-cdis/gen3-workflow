@@ -113,6 +113,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     if "tags" not in body:
         body["tags"] = {}
+    body["tags"]["USER_ID"] = user_id  # used by the funnel plugin to identify the user
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
     url = f"{config['TES_SERVER_URL']}/tasks"
