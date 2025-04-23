@@ -42,7 +42,7 @@ async def service_info(request: Request, auth=Depends(Auth)) -> dict:
     url = f"{config['TES_SERVER_URL']}/service-info"
     res = await request.app.async_client.get(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     return res.json()
 
@@ -119,7 +119,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await request.app.async_client.post(url, json=body)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'POST {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     try:
@@ -193,7 +193,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await request.app.async_client.get(url, params=query_params)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     listed_tasks = res.json()
 
@@ -251,7 +251,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}"
     res = await request.app.async_client.get(url, params=query_params)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     # check if this user has access to see this task
@@ -280,7 +280,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
     res = await request.app.async_client.get(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     body = res.json()
     authz_path = body.get("tags", {}).get("AUTHZ")
@@ -295,7 +295,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
     res = await request.app.async_client.post(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'POST {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     return res.json()
