@@ -175,6 +175,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         LifecycleConfiguration={
             "Rules": [
                 {
+                    "ID": f"ExpireAllAfter{expiration_days}Days",
                     "Expiration": {"Days": expiration_days},
                     "Status": "Enabled",
                     # apply to all objects:

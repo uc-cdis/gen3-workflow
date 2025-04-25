@@ -35,6 +35,7 @@ def get_access_token(headers: Headers) -> str:
         str: the user's access token or "" if not found
     """
     auth_header = headers.get("authorization")
+    logger.info(f"DEBUG: auth_header = {auth_header}")
     if not auth_header:
         return ""
     if auth_header.lower().startswith("bearer"):
@@ -80,6 +81,7 @@ async def s3_endpoint(path: str, request: Request):
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
     auth = Auth(api_request=request)
+    logger.info(f"DEBUG: token = {get_access_token(request.headers)}")
     auth.bearer_token = HTTPAuthorizationCredentials(
         scheme="bearer", credentials=get_access_token(request.headers)
     )

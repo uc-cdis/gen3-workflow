@@ -130,7 +130,7 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
     assert lifecycle_config.get("Rules") == [
         {
             "Expiration": {"Days": config["S3_OBJECTS_EXPIRATION_DAYS"]},
-            "ID": "None",
+            "ID": f"ExpireAllAfter{config['S3_OBJECTS_EXPIRATION_DAYS']}Days",
             "Filter": {"Prefix": ""},
             "Status": "Enabled",
         }
