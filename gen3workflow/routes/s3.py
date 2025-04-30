@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import hashlib
+import traceback
 from typing import Tuple
 import urllib.parse
 
@@ -42,6 +43,7 @@ def get_access_token(headers: Headers) -> Tuple[str, str]:
         (str, str): the user's access token or "" if not found, and the user's ID if the token is
         a client_credentials token
     """
+    # TODO unit tests for this function
     auth_header = headers.get("authorization")
     if not auth_header:
         return "", ""
@@ -51,13 +53,15 @@ def get_access_token(headers: Headers) -> Tuple[str, str]:
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     try:
         if "Credential=" in auth_header:  # format 1 (see docstring)
-            access_key_id = auth_header.split("Credential=")[1].split("/")[0]
+            access_token = auth_header.split("Credential=")[1].split("/")[0]
+            user_id = None
         else:  # format 2 (see docstring)
             access_key_id = auth_header.split("AWS ")[1]
             access_key_id = ":".join(access_key_id.split(":")[:-1])
-        access_token, user_id = access_key_id.split(";userId=")
+            access_token, user_id = access_key_id.split(";userId=")
         return access_token, user_id
     except Exception as e:
+        traceback.print_exc()
         logger.error(
             f"Unexpected format; unable to extract access token from authorization header: {e}"
         )
@@ -257,11 +261,17 @@ async def s3_endpoint(path: str, request: Request):
             logger.error(f"Error from AWS: {response.status_code} {response.text}")
 
     # return the response from AWS S3.
-    # mask the details of 403 errors from the end user: authentication is done internally by this
+    # - mask the details of 403 errors from the end user: authentication is done internally by this
     # function, so 403 errors are internal service errors
-    resp_contents = response.content if response.status_code != 403 else None
+    # - return all the headers from the AWS response, except `x-amz-bucket-region` which for some
+    # reason causes this error for tasks ran through Nextflow: `The AWS Access Key Id you provided
+    # does not exist in our records`
     return Response(
-        content=resp_contents,
+        content=(
+            response.content if response.status_code != HTTP_403_FORBIDDEN else None
+        ),
         status_code=response.status_code,
-        headers=response.headers,
+        headers={
+            k: v for k, v in response.headers.items() if k != "x-amz-bucket-region"
+        },
     )
