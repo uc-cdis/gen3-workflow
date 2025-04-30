@@ -1,4 +1,5 @@
 import hashlib
+from typing import Tuple
 import urllib.parse
 
 import boto3
@@ -24,7 +25,7 @@ root_router = APIRouter()
 s3_router = APIRouter(prefix="/s3")
 
 
-def get_access_token(headers: Headers) -> str:
+def get_access_token(headers: Headers) -> Tuple[str, str]:
     """
     Extract the user's access token, which should have been provided as the key ID, from the
     Authorization header in the following expected format:
@@ -34,23 +35,29 @@ def get_access_token(headers: Headers) -> str:
         headers (Headers): request headers
 
     Returns:
-        str: the user's access token or "" if not found
+        (str, str): the user's access token or "" if not found, and the user's ID if the token is
+        a client_credentials token
     """
     auth_header = headers.get("authorization")
-    # logger.info(f"DEBUG: auth_header = {auth_header}")
+    logger.info(f"DEBUG: auth_header = {auth_header}")
     if not auth_header:
-        return ""
+        return "", ""
     if auth_header.lower().startswith("bearer"):
         err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use the AWS SDK or CLI"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     try:
-        return auth_header.split("Credential=")[1].split("/")[0]
+        access_key_id = auth_header.split("Credential=")[1].split("/")[0]
+        logger.info(f"DEBUG: access_key_id = {access_key_id}")
+        access_token, user_id = access_key_id.split(";userId=")
+        logger.info(f"DEBUG: access_token = {access_token}")
+        logger.info(f"DEBUG: user_id = {user_id}")
+        return access_token, user_id
     except Exception as e:
         logger.error(
             f"Unexpected format; unable to extract access token from authorization header: {e}"
         )
-        return ""
+        return "", ""
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -84,7 +91,7 @@ async def s3_endpoint(path: str, request: Request):
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
     AWS S3. The recommended way to use this endpoint is to use the AWS SDK or CLI.
 
-    The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3 clients like Minio do
+    The S3 endpoint is exposed at `/s3` as well as at the root `/` because S3 clients like Minio do
     not support S3 endpoints with a path.
     """
 
@@ -96,15 +103,18 @@ async def s3_endpoint(path: str, request: Request):
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
     auth = Auth(api_request=request)
-    # logger.info(f"DEBUG: token = {get_access_token(request.headers)}")
-    auth.bearer_token = HTTPAuthorizationCredentials(
-        scheme="bearer", credentials=get_access_token(request.headers)
-    )
-    await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
+    access_token, user_id = get_access_token(request.headers)
+    if user_id:
+        pass  # TODO assert it's a client token not linked to a user, and check authz
+    else:
+        auth.bearer_token = HTTPAuthorizationCredentials(
+            scheme="bearer", credentials=access_token
+        )
+        await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
+        token_claims = await auth.get_token_claims()
+        user_id = token_claims.get("sub")
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
-    token_claims = await auth.get_token_claims()
-    user_id = token_claims.get("sub")
     logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]

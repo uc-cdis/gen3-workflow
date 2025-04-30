@@ -83,7 +83,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
-    import json; logger.info(f"DEBUG: request body = {json.dumps(body)}")  # TODO remove
+    logger.info(f"DEBUG: request body = {json.dumps(body)}")  # TODO remove
 
     # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
     token_claims = await auth.get_token_claims()
@@ -114,6 +114,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     if "tags" not in body:
         body["tags"] = {}
+    # TODO unit test: user can't set USER_ID tag manually
     body["tags"]["USER_ID"] = user_id  # used by the funnel plugin to identify the user
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
