@@ -99,8 +99,8 @@ async def s3_endpoint(path: str, request: Request):
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
     AWS S3. The recommended way to use this endpoint is to use the AWS SDK or CLI.
 
-    The S3 endpoint is exposed at `/s3` as well as at the root `/` because S3 clients like Minio do
-    not support S3 endpoints with a path.
+    The S3 endpoint is exposed at `/s3` as well as at the root `/` to support S3 clients that do
+    not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
     # because this endpoint is exposed at root, if the path is empty, assume the user is not trying

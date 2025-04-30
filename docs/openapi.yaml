@@ -184,10 +184,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint
       parameters:
       - in: path
@@ -222,10 +222,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint
       parameters:
       - in: path
@@ -260,10 +260,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint
       parameters:
       - in: path
@@ -298,10 +298,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint
       parameters:
       - in: path
@@ -336,10 +336,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint
       parameters:
       - in: path
@@ -374,10 +374,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint
       parameters:
       - in: path
@@ -412,10 +412,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint
       parameters:
       - in: path
@@ -450,10 +450,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint
       parameters:
       - in: path
@@ -516,10 +516,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint_2
       parameters:
       - in: path
@@ -554,10 +554,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint_2
       parameters:
       - in: path
@@ -592,10 +592,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint_2
       parameters:
       - in: path
@@ -630,10 +630,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint_2
       parameters:
       - in: path
@@ -668,10 +668,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint_2
       parameters:
       - in: path
@@ -706,10 +706,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint_2
       parameters:
       - in: path
@@ -744,10 +744,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint_2
       parameters:
       - in: path
@@ -782,10 +782,10 @@ paths:
         CLI.
 
 
-        The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3
-        clients like Minio do
+        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
+        S3 clients that do
 
-        not support S3 endpoints with a path.'
+        not support S3 endpoints with a path, such as the Minio-go S3 client.'
       operationId: s3_endpoint_2
       parameters:
       - in: path
