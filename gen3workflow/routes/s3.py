@@ -17,9 +17,11 @@ from starlette.status import (
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
+from gen3workflow.routes.system import get_status
 
 
-router = APIRouter(prefix="/s3")
+root_router = APIRouter()
+s3_router = APIRouter(prefix="/s3")
 
 
 def get_access_token(headers: Headers) -> str:
@@ -68,7 +70,11 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
-@router.api_route(
+@root_router.api_route(
+    "/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "TRACE", "HEAD"],
+)
+@s3_router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "TRACE", "HEAD"],
 )
@@ -77,7 +83,16 @@ async def s3_endpoint(path: str, request: Request):
     Receive incoming signed S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
     AWS S3. The recommended way to use this endpoint is to use the AWS SDK or CLI.
+
+    The S3 endpoint is exposed at `/s3` as well as it the root `/` because S3 clients like Minio do
+    not support S3 endpoints with a path.
     """
+
+    # because this endpoint is exposed at root, if the path is empty, assume the user is not trying
+    # to reach the S3 endpoint and redirect to the status endpoint instead
+    if request.method == "GET" and not path:
+        return await get_status(request)
+
     # extract the user's access token from the request headers, and ensure the user has access
     # to run workflows
     auth = Auth(api_request=request)

@@ -14,7 +14,6 @@ def get_version(request: Request) -> dict:
     return dict(version=request.app.version)
 
 
-@router.get("/")
 @router.get("/_status")
 async def get_status(request: Request) -> dict:
     tes_status_url = f"{config['TES_SERVER_URL']}/service-info"

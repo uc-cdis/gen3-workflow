@@ -83,7 +83,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
-    logger.info(f"DEBUG: request body = {body}")
+    import json; logger.info(f"DEBUG: request body = {json.dumps(body)}")  # TODO remove
 
     # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
     token_claims = await auth.get_token_claims()
