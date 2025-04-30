@@ -23,49 +23,62 @@ from gen3workflow.config import config
 from gen3workflow.routes.system import get_status
 
 
-root_router = APIRouter()
+s3_root_router = APIRouter()
 s3_router = APIRouter(prefix="/s3")
 
 
-def get_access_token(headers: Headers) -> Tuple[str, str]:
+async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     """
-    Extract the user's access token and (in the case of a client token) the user's ID, which
-    should have been provided as the key ID, from the Authorization header in one of the two
-    following expected formats:
+    Extract the user's access token and (in some cases) the user's ID, which should have been
+    provided as the access key ID, from the Authorization header in one of the two following
+    expected formats:
     1. Key ID set by the python boto3 AWS client: `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/
-    <region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
+       <region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
     2. Key ID set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<>`
+    Return the user's ID extracted from the key ID or from the decoded token. Also set the provided
+    `auth` instance's `bearer_token` to the extracted access token.
 
     Args:
+        auth (Auth): Gen3Workflow auth instance
         headers (Headers): request headers
 
     Returns:
-        (str, str): the user's access token or "" if not found, and the user's ID if the token is
-        a client_credentials token
+        str: the user's ID
     """
     # TODO unit tests for this function
     auth_header = headers.get("authorization")
     if not auth_header:
-        return "", ""
+        return ""
     if auth_header.lower().startswith("bearer"):
         err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use the AWS SDK or CLI"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
     try:
         if "Credential=" in auth_header:  # format 1 (see docstring)
-            access_token = auth_header.split("Credential=")[1].split("/")[0]
-            user_id = None
+            access_key_id = auth_header.split("Credential=")[1].split("/")[0]
         else:  # format 2 (see docstring)
             access_key_id = auth_header.split("AWS ")[1]
             access_key_id = ":".join(access_key_id.split(":")[:-1])
-            access_token, user_id = access_key_id.split(";userId=")
-        return access_token, user_id
     except Exception as e:
         traceback.print_exc()
         logger.error(
             f"Unexpected format; unable to extract access token from authorization header: {e}"
         )
-        return "", ""
+        return ""
+
+    if ";userId=" in access_key_id:
+        access_token, user_id = access_key_id.split(";userId=")
+        # TODO assert it's a client token not linked to a user
+    else:
+        access_token = access_key_id
+        auth.bearer_token = HTTPAuthorizationCredentials(
+            scheme="bearer", credentials=access_token
+        )
+        token_claims = await auth.get_token_claims()
+        user_id = token_claims.get("sub")
+
+    return user_id
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -85,7 +98,7 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
-@root_router.api_route(
+@s3_root_router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "TRACE", "HEAD"],
 )
@@ -103,24 +116,17 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    # because this endpoint is exposed at root, if the path is empty, assume the user is not trying
-    # to reach the S3 endpoint and redirect to the status endpoint instead
+    # because this endpoint is exposed at root, if the GET path is empty, assume the user is not
+    # trying to reach the S3 endpoint and redirect to the status endpoint instead
     if request.method == "GET" and not path:
         return await get_status(request)
 
-    # extract the user's access token from the request headers, and ensure the user has access
-    # to run workflows
+    # extract the caller's access token from the request headers, and ensure the caller (user, or
+    # client acting on behalf of the user) has access to run workflows
     auth = Auth(api_request=request)
-    access_token, user_id = get_access_token(request.headers)
-    if user_id:
-        pass  # TODO assert it's a client token not linked to a user, and check authz
-    else:
-        auth.bearer_token = HTTPAuthorizationCredentials(
-            scheme="bearer", credentials=access_token
-        )
-        await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
-        token_claims = await auth.get_token_claims()
-        user_id = token_claims.get("sub")
+    user_id = await set_access_token_and_get_user_id(auth, request.headers)
+    # TODO client token unit tests, including authz
+    await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
     logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
