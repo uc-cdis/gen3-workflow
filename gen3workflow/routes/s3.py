@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import hashlib
 from typing import Tuple
 import urllib.parse
@@ -42,7 +43,6 @@ def get_access_token(headers: Headers) -> Tuple[str, str]:
         a client_credentials token
     """
     auth_header = headers.get("authorization")
-    logger.info(f"DEBUG: auth_header = {auth_header}")
     if not auth_header:
         return "", ""
     if auth_header.lower().startswith("bearer"):
@@ -55,10 +55,7 @@ def get_access_token(headers: Headers) -> Tuple[str, str]:
         else:  # format 2 (see docstring)
             access_key_id = auth_header.split("AWS ")[1]
             access_key_id = ":".join(access_key_id.split(":")[:-1])
-        logger.info(f"DEBUG: access_key_id = {access_key_id}")
         access_token, user_id = access_key_id.split(";userId=")
-        logger.info(f"DEBUG: access_token = {access_token}")
-        logger.info(f"DEBUG: user_id = {user_id}")
         return access_token, user_id
     except Exception as e:
         logger.error(
@@ -148,12 +145,19 @@ async def s3_endpoint(path: str, request: Request):
     request_path = path.split(user_bucket)[1] or "/"
     api_endpoint = "/".join(request_path.split("/")[1:])
 
-    body = await request.body()
-    body_hash = hashlib.sha256(body).hexdigest()
-    timestamp = request.headers["x-amz-date"]
-    date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
+    body = await request.body()
+    body_hash = hashlib.sha256(body).hexdigest()
+    timestamp = request.headers.get("x-amz-date")
+    if not timestamp and request.headers.get("date"):
+        # assume RFC 1123 format, convert to ISO 8601 basic YYYYMMDD'T'HHMMSS'Z' format
+        dt = datetime.strptime(request.headers["date"], "%a, %d %b %Y %H:%M:%S %Z")
+        timestamp = dt.strftime("%Y%m%dT%H%M%SZ")
+    if not timestamp:
+        # no `x-amz-date` or `date` header, just generate it ourselves
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
     # generate the request headers.
     # overwrite the original `x-amz-content-sha256` header value with the body hash. When this
@@ -161,6 +165,7 @@ async def s3_endpoint(path: str, request: Request):
     # over multiple chunks), we still replace it with the body hash (because I couldn't get the
     # signing to work for "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" - I believe it requires using the signature from the previous chunk).
     # NOTE: This may cause issues when large files are _actually_ uploaded over multiple chunks.
+    # TODO test with an input file >5go
     headers = {
         "host": f"{user_bucket}.s3.amazonaws.com",
         "x-amz-content-sha256": body_hash,
@@ -255,10 +260,8 @@ async def s3_endpoint(path: str, request: Request):
     # mask the details of 403 errors from the end user: authentication is done internally by this
     # function, so 403 errors are internal service errors
     resp_contents = response.content if response.status_code != 403 else None
-    if "Content-Type" in response.headers:
-        return Response(
-            content=resp_contents,
-            status_code=response.status_code,
-            media_type=response.headers["Content-Type"],
-        )
-    return Response(content=resp_contents, status_code=response.status_code)
+    return Response(
+        content=resp_contents,
+        status_code=response.status_code,
+        headers=response.headers,
+    )
