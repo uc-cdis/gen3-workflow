@@ -27,9 +27,12 @@ s3_router = APIRouter(prefix="/s3")
 
 def get_access_token(headers: Headers) -> Tuple[str, str]:
     """
-    Extract the user's access token, which should have been provided as the key ID, from the
-    Authorization header in the following expected format:
-    `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/<region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
+    Extract the user's access token and (in the case of a client token) the user's ID, which
+    should have been provided as the key ID, from the Authorization header in one of the two
+    following expected formats:
+    1. Key ID set by the python boto3 AWS client: `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/
+    <region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
+    2. Key ID set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<>`
 
     Args:
         headers (Headers): request headers
@@ -47,7 +50,11 @@ def get_access_token(headers: Headers) -> Tuple[str, str]:
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     try:
-        access_key_id = auth_header.split("Credential=")[1].split("/")[0]
+        if "Credential=" in auth_header:  # format 1 (see docstring)
+            access_key_id = auth_header.split("Credential=")[1].split("/")[0]
+        else:  # format 2 (see docstring)
+            access_key_id = auth_header.split("AWS ")[1]
+            access_key_id = ":".join(access_key_id.split(":")[:-1])
         logger.info(f"DEBUG: access_key_id = {access_key_id}")
         access_token, user_id = access_key_id.split(";userId=")
         logger.info(f"DEBUG: access_token = {access_token}")
