@@ -91,7 +91,6 @@ def get_app(httpx_client=None) -> FastAPI:
         if method != "POST" or path != "/ga4gh/tes/v1/tasks":
             return response
 
-        # TODO: Add user_id to this metric, currently we don't have access to fetch the user_id at the middleware level.
         metrics = app.metrics
         metrics.add_create_task_api_interaction(
             method=method,
