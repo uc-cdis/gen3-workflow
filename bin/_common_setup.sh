@@ -6,6 +6,8 @@ set -e
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# For multi-worker Gunicorn setups; requires PROMETHEUS_MULTIPROC_DIR set before startup,
+# usually from the config file mounted via cloud-automation.
 if [ -f "/src/gen3-workflow-config.yaml" ]; then
   PROMETHEUS_MULTIPROC_DIR=$(grep 'PROMETHEUS_MULTIPROC_DIR:' /src/gen3-workflow-config.yaml | awk -F': ' '{print $2}' | tr -d '"')
 else
