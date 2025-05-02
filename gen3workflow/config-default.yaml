@@ -53,3 +53,11 @@ TASK_IMAGE_WHITELIST: []
   # - public.ecr.aws/random/approved/public:*
   # - 9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/{username}:abc
   # - quay.io/nextflow/bash:*
+
+
+#############
+#  METRICS  #
+#############
+
+ENABLE_PROMETHEUS_METRICS: false
+PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
