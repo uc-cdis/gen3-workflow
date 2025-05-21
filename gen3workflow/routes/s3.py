@@ -72,6 +72,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         # TODO assert it's a client token not linked to a user
     else:
         access_token = access_key_id
+        # TODO i think the line below should be done for client tokens too
         auth.bearer_token = HTTPAuthorizationCredentials(
             scheme="bearer", credentials=access_token
         )
@@ -133,7 +134,7 @@ async def s3_endpoint(path: str, request: Request):
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
-        err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"
+        err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
@@ -258,8 +259,8 @@ async def s3_endpoint(path: str, request: Request):
         data=body,
     )
 
-    if response.status_code != 200:
-        logger.debug(f"Received a non-200 status code from AWS: {response.status_code}")
+    if response.status_code >= 300:
+        logger.debug(f"Received a failure status code from AWS: {response.status_code}")
         # no need to log 404 errors except in debug mode: they are are expected when running
         # workflows (e.g. for Nextflow workflows, error output files may not be present when there
         # were no errors)

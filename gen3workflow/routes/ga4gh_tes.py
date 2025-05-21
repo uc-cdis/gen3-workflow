@@ -114,6 +114,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     if "tags" not in body:
         body["tags"] = {}
     # TODO unit test: user can't set USER_ID tag manually
+    # TODO raise an error if it's set, and explain it's an internal tag. Same for AUTHZ tag
     body["tags"]["USER_ID"] = user_id  # used by the funnel plugin to identify the user
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
