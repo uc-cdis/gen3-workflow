@@ -129,7 +129,7 @@ async def test_create_task(client, access_token_patcher):
             method="POST",
             path="/tasks",
             query_params={},
-            body=f'{{"name":"test-task","tags":{{"USER_ID":"{TEST_USER_ID}","AUTHZ":"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
+            body=f'{{"name":"test-task","tags":{{"AUTHZ":"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
             status_code=client.tes_resp_code,
         )
 
@@ -169,7 +169,7 @@ async def test_create_task_new_user(client, access_token_patcher):
         method="POST",
         path="/tasks",
         query_params={},
-        body=f'{{"name":"test-task","tags":{{"USER_ID":"{NEW_TEST_USER_ID}","AUTHZ":"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
+        body=f'{{"name":"test-task","tags":{{"AUTHZ":"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
         status_code=200,
     )
 
@@ -350,8 +350,7 @@ async def test_create_task_with_whitelist_images(
         result_body = {
             "executors": req_body["executors"],
             "tags": {
-                "USER_ID": f"{TEST_USER_ID}",
-                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
             },
         }
         mock_tes_server_request.assert_called_once_with(

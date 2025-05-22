@@ -120,7 +120,9 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await request.app.async_client.post(
-        url, json=body, headers={"Authorization": f"bearer {auth.bearer_token}"}
+        url,
+        json=body,
+        headers={"Authorization": f"bearer {auth.bearer_token.credentials}"},
     )
     if res.status_code != HTTP_200_OK:
         logger.error(f"TES server error at 'POST {url}': {res.status_code} {res.text}")
