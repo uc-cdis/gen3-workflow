@@ -25,8 +25,9 @@ httpx = "<1"
 jsonschema = "<5"
 sqlalchemy = { extras = ["asyncio"], version = "<3" }
 uvicorn = "<1"
+cdispyutils = "^2.4.0"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 freezegun = "<2"
 moto = "<6"
 pytest = "<9"

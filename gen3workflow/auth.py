@@ -1,3 +1,4 @@
+from typing import Union
 from authutils.token.fastapi import access_token
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -64,6 +65,13 @@ class Auth:
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
         return token_claims
+
+    async def get_user_id(self) -> Union[str, None]:
+        try:
+            token_claims = await self.get_token_claims()
+        except Exception:
+            return None
+        return token_claims.get("sub")
 
     async def authorize(
         self,

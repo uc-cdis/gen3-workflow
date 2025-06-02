@@ -47,6 +47,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 title: Response Get Status  Status Get
                 type: object
           description: Successful Response
@@ -61,6 +62,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 title: Response Get Version  Version Get
                 type: object
           description: Successful Response
@@ -75,6 +77,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 title: Response Service Info Ga4Gh Tes V1 Service Info Get
                 type: object
           description: Successful Response
@@ -91,6 +94,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 title: Response List Tasks Ga4Gh Tes V1 Tasks Get
                 type: object
           description: Successful Response
@@ -106,6 +110,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 title: Response Create Task Ga4Gh Tes V1 Tasks Post
                 type: object
           description: Successful Response
@@ -129,6 +134,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 title: Response Get Task Ga4Gh Tes V1 Tasks  Task Id  Get
                 type: object
           description: Successful Response
@@ -158,6 +164,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 title: Response Cancel Task Ga4Gh Tes V1 Tasks  Task Id  Cancel Post
                 type: object
           description: Successful Response
@@ -485,6 +492,7 @@ paths:
           content:
             application/json:
               schema:
+                additionalProperties: true
                 title: Response Get Storage Info Storage Info Get
                 type: object
           description: Successful Response
