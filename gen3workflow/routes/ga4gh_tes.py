@@ -74,11 +74,13 @@ def get_non_allowed_images(images: set, username: str) -> set:
     return non_allowed_images
 
 
+# TODO add test for endpoint with trailing slash
 @router.post("/tasks", status_code=HTTP_200_OK)
 async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
+    logger.debug(f"Incoming task creation request body: {body}")
 
     # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
     token_claims = await auth.get_token_claims()
