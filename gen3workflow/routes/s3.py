@@ -66,7 +66,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
             f"Unexpected format; unable to extract access token from authorization header: {e}"
         )
         return ""
-
+    logger.info(f"Extracted access key ID: {access_key_id}")
     if ";userId=" in access_key_id:
         access_token, user_id = access_key_id.split(";userId=")
         # TODO assert it's a client token not linked to a user, and validate token
