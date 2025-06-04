@@ -111,9 +111,18 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         body["tags"] = {}
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
+    # Task submission status
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await request.app.async_client.post(url, json=body)
     if res.status_code != HTTP_200_OK:
+        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        raise HTTPException(res.status_code, res.text)
+
+    # Task status
+    poll_tes_task = getattr(request.app, "poll_tes_task", None)
+    if poll_tes_task:
+        await poll_tes_task(res.json().get("id"))
+
         logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
