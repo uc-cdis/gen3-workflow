@@ -94,6 +94,7 @@ class Auth:
         if not authorized:
             token_claims = await self.get_token_claims() if token else {}
             user_id = token_claims.get("sub")
+            # TODO handle client tokens here
             logger.error(
                 f"Authorization error for user '{user_id}': token must have '{method}' access on {resources} for service 'gen3-workflow'."
             )

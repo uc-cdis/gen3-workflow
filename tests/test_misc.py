@@ -236,8 +236,9 @@ async def test_delete_user_bucket_with_files(
     # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
     aws_utils.s3_client.delete_bucket_policy(Bucket=bucket_name)
 
-    # Upload more than 1000 objects to ensure batching is working correctly
-    object_count = 1200
+    # Upload more than 1000 objects to ensure batching is working correctly. Not too many so the
+    # test doesn't take too long to run.
+    object_count = 1050
     for i in range(object_count):
         aws_utils.s3_client.put_object(
             Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"

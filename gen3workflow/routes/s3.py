@@ -67,18 +67,29 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         )
         return ""
 
-    if ";userId=" in access_key_id:
-        access_token, user_id = access_key_id.split(";userId=")
-        # TODO assert it's a client token not linked to a user, and validate token
-        # TODO assert there's a user ID if we get a client token
-    else:
+    # TODO client token unit tests, including authz
+    is_user_token = ";userId=" not in access_key_id
+    if is_user_token:
         access_token = access_key_id
-        # TODO i think the line below should be done for client tokens too
-        auth.bearer_token = HTTPAuthorizationCredentials(
-            scheme="bearer", credentials=access_token
-        )
-        token_claims = await auth.get_token_claims()
-        user_id = token_claims.get("sub")
+    else:  # client token
+        access_token, user_id = access_key_id.split(";userId=")
+
+    # set the token so we can perform authn/authz checks on it
+    auth.bearer_token = HTTPAuthorizationCredentials(
+        scheme="bearer", credentials=access_token
+    )
+
+    # ensure token validity
+    token_claims = await auth.get_token_claims()
+    sub = token_claims.get("sub")
+    if is_user_token:
+        user_id = sub
+    else:
+        client_id = token_claims.get("azp")
+        assert (
+            client_id and not sub
+        ), f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
+    assert user_id, f"No user ID. Debug: {is_user_token=} {token_claims=}"
 
     return user_id
 
@@ -127,8 +138,6 @@ async def s3_endpoint(path: str, request: Request):
     # client acting on behalf of the user) has access to run workflows
     auth = Auth(api_request=request)
     user_id = await set_access_token_and_get_user_id(auth, request.headers)
-    # TODO client token unit tests, including authz
-    # TODO why does the authz call work for client token that hasn't been added to the auth??
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
