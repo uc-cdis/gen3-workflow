@@ -69,6 +69,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     logger.info(f"Extracted access key ID: {access_key_id}")
     if ";userId=" in access_key_id:
         access_token, user_id = access_key_id.split(";userId=")
+        return "client"
         # TODO assert it's a client token not linked to a user, and validate token
         # TODO assert there's a user ID if we get a client token
     else:
@@ -130,6 +131,10 @@ async def s3_endpoint(path: str, request: Request):
     # TODO client token unit tests, including authz
     # TODO why does the authz call work for client token that hasn't been added to the auth??
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
+    if user_id == "client":
+        logger.error("done")
+        raise HTTPException(HTTP_403_FORBIDDEN, "done")
+    
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
     logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
