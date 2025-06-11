@@ -69,18 +69,21 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     logger.info(f"Extracted access key ID: {access_key_id}")
     if ";userId=" in access_key_id:
         access_token, user_id = access_key_id.split(";userId=")
+        auth.bearer_token = HTTPAuthorizationCredentials(
+            scheme="bearer", credentials=access_token
+        )
         user_id = "client"
         # TODO assert it's a client token not linked to a user, and validate token
         # TODO assert there's a user ID if we get a client token
     else:
         access_token = access_key_id
         # TODO i think the line below should be done for client tokens too
+        auth.bearer_token = HTTPAuthorizationCredentials(
+            scheme="bearer", credentials=access_token
+        )
         token_claims = await auth.get_token_claims()
         user_id = token_claims.get("sub")
 
-    auth.bearer_token = HTTPAuthorizationCredentials(
-        scheme="bearer", credentials=access_token
-    )
     return user_id
 
 
