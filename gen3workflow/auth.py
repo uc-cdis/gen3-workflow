@@ -98,9 +98,6 @@ class Auth:
                 f"Authorization error for user '{user_id}': token must have '{method}' access on {resources} for service 'gen3-workflow'."
             )
             logger.error(f"The Failed {token=}")
-            import traceback
-
-            logger.info(traceback.extract_stack())
             if throw:
                 raise HTTPException(
                     HTTP_403_FORBIDDEN,
