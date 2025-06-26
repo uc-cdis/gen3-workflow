@@ -166,7 +166,9 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     if config["KMS_ENCRYPTION_ENABLED"]:
         setup_kms_encryption_on_bucket(user_bucket_name)
     else:
-        logger.warning(f"Skipping KMS encryption setup on bucket '{user_bucket_name}'")
+        logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
+        s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
+        s3_client.delete_bucket_policy(Bucket=user_bucket_name)
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
@@ -204,9 +206,11 @@ def get_all_bucket_objects(user_bucket_name):
     # and a key "NextContinuationToken" which can be used to get the next set of objects
 
     # TODO:
-    # Currently, all objects are loaded into memory, which can be problematic for large datasets.
-    # To optimize, convert this function into a generator that accepts a `batch_size` parameter (capped at 1,000)
-    # and yields objects in batches.
+    # Currently, all objects are loaded into memory, which can be problematic for large buckets.
+    # To optimize, convert this function into a generator that accepts a `batch_size` parameter
+    # (capped at 1,000) and yields objects in batches.
+    # This is fine for now because this code is only called during integration tests, with a small
+    # number of files in the bucket.
     while response.get("IsTruncated"):
         response = s3_client.list_objects_v2(
             Bucket=user_bucket_name,
