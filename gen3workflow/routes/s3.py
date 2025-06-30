@@ -67,7 +67,6 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         )
         return ""
 
-    # TODO client token unit tests, including authz
     is_user_token = ";userId=" not in access_key_id
     if is_user_token:
         access_token = access_key_id
@@ -86,10 +85,17 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         user_id = sub
     else:
         client_id = token_claims.get("azp")
-        assert (
-            client_id and not sub
-        ), f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
-    assert user_id, f"No user ID. Debug: {is_user_token=} {token_claims=}"
+        if not client_id or sub:
+            # OIDC tokens linked to both a user and a client could be supported, but we would need
+            # to decide which of `sub` (from token_claims) and `user_id` (from access_key_id) to
+            # use as the user ID.
+            err_msg = f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+    if not user_id:
+        err_msg = f"No user ID. Debug: {is_user_token=} {token_claims=}"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     return user_id
 

@@ -119,14 +119,22 @@ def access_token_patcher(request):
     support client tokens.
     """
     user_id = TEST_USER_ID
+    client_id = None
     if hasattr(request, "param"):
         user_id = request.param.get("user_id", user_id)
+        client_id = request.param.get("client_id")
 
     async def get_access_token(*args, **kwargs):
-        return {
-            "sub": user_id,
-            "context": {"user": {"name": f"test-username-{user_id}"}},
-        }
+        claims = {}
+        if client_id:
+            claims["azp"] = client_id
+        # if there's a client ID, assume we're testing a token issued from the client_credentials
+        # flow (not linked to a user), not a token issued from the OIDC flow (linked to a client
+        # AND a user; not currently supported)
+        elif user_id:
+            claims["sub"] = user_id
+            claims["context"] = {"user": {"name": f"test-username-{user_id}"}}
+        return claims
 
     access_token_mock = MagicMock()
     access_token_mock.return_value = get_access_token
@@ -301,12 +309,22 @@ async def client(request):
     Requests made by the tests to the app use a real HTTPX client.
     Requests made by the app to external services (such as the TES server and Arborist) use
     a mocked client.
+
+    - Set request param "tes_resp_code" (int, default 200) to change the status code returned
+      by the TES server.
+    - Set request param "authorized" (bool, default True) to change the response returned by
+      Arborist for access requests.
+    - Set request param "get_url" (bool, default False) to True for tests that need to hit the
+      app URL directly (use case: configure a boto3 client with the app URL), otherwise an httpx
+      client is used.
     """
     tes_resp_code = 200
     authorized = True
+    get_url = False
     if hasattr(request, "param"):
         tes_resp_code = request.param.get("tes_resp_code", 200)
         authorized = request.param.get("authorized", True)
+        get_url = request.param.get("get_url", get_url)
 
     async def handle_request(request: Request):
         url = str(request.url)
@@ -356,10 +374,6 @@ async def client(request):
     app.arborist_client.client_cls = lambda: httpx.AsyncClient(
         transport=httpx.MockTransport(handle_request)
     )
-
-    get_url = False
-    if hasattr(request, "param"):
-        get_url = request.param.get("get_url", get_url)
 
     if get_url:  # for tests that need to hit the app URL directly
         host = "0.0.0.0"
