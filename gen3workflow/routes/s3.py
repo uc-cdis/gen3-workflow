@@ -23,7 +23,7 @@ from gen3workflow.config import config
 from gen3workflow.routes.system import get_status
 
 
-s3_root_router = APIRouter()
+s3_root_router = APIRouter(include_in_schema=False)
 s3_router = APIRouter(prefix="/s3")
 
 

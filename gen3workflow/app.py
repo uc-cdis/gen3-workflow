@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 import httpx
 from importlib.metadata import version
 import os
@@ -18,6 +19,37 @@ from gen3workflow.routes.system import router as system_router
 
 
 def get_app(httpx_client=None) -> FastAPI:
+    existing_route_ids = set()
+
+    def generate_unique_route_id(route: APIRoute):
+        """
+        The default operation ID format is `<function name>_<full route>_<method>`.
+        A bug is causing the operation IDs for routes with multiple methods to not be
+        generated properly (the method in the ID doesn't match the actual operation method).
+        The OpenAPI docs generated currently have the error `Operations must have unique
+        operationIds` for any route that has multiple methods. There isn't currently a way
+        to generate an operation ID per method.
+        See https://github.com/fastapi/fastapi/issues/13175 and
+        https://github.com/fastapi/fastapi/pull/10694
+
+        This function simplifies the operation IDs to just `<function name>`.
+        It also adds a digit to operation IDs when there is more than 1 route with the same name.
+        For example, the code below would result in 2 operation IDs `get_status` and `get_status_2`.
+        @router.get("/status")
+        @router.get("/_status")
+        async def get_status():
+            [...]
+        """
+        if not route.include_in_schema:
+            return route.name
+        route_operation_id = route.name
+        i = 2
+        while route_operation_id in existing_route_ids:
+            route_operation_id = f"{route.name}_{i}"
+            i += 1
+        existing_route_ids.add(route_operation_id)
+        return route_operation_id
+
     logger.info("Initializing app")
     config.validate()
 
@@ -29,6 +61,7 @@ def get_app(httpx_client=None) -> FastAPI:
         version=version("gen3workflow"),
         debug=config["APP_DEBUG"],
         root_path=config["DOCS_URL_PREFIX"],
+        generate_unique_id_function=generate_unique_route_id,
     )
     app.async_client = httpx_client or httpx.AsyncClient()
     app.include_router(ga4gh_tes_router, tags=["GA4GH TES"])

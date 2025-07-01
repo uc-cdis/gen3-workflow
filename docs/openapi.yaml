@@ -48,7 +48,7 @@ paths:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Get Status  Status Get
+                title: Response Get Status
                 type: object
           description: Successful Response
       summary: Get Status
@@ -63,7 +63,7 @@ paths:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Get Version  Version Get
+                title: Response Get Version
                 type: object
           description: Successful Response
       summary: Get Version
@@ -78,7 +78,7 @@ paths:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Service Info Ga4Gh Tes V1 Service Info Get
+                title: Response Service Info
                 type: object
           description: Successful Response
       security:
@@ -95,7 +95,7 @@ paths:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response List Tasks Ga4Gh Tes V1 Tasks Get
+                title: Response List Tasks
                 type: object
           description: Successful Response
       security:
@@ -111,7 +111,7 @@ paths:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Create Task Ga4Gh Tes V1 Tasks Post
+                title: Response Create Task
                 type: object
           description: Successful Response
       security:
@@ -135,7 +135,7 @@ paths:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Get Task Ga4Gh Tes V1 Tasks  Task Id  Get
+                title: Response Get Task
                 type: object
           description: Successful Response
         '422':
@@ -165,7 +165,7 @@ paths:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Cancel Task Ga4Gh Tes V1 Tasks  Task Id  Cancel Post
+                title: Response Cancel Task
                 type: object
           description: Successful Response
         '422':
@@ -493,7 +493,7 @@ paths:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Get Storage Info Storage Info Get
+                title: Response Get Storage Info
                 type: object
           description: Successful Response
       security:
@@ -512,308 +512,3 @@ paths:
       summary: Delete User Bucket
       tags:
       - Storage
-  /{path}:
-    delete:
-      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
-        Version 4 algorithm) with the
-
-        appropriate credentials to access the current user''s AWS S3 bucket, and forward
-        them to
-
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
-
-
-        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
-        S3 clients that do
-
-        not support S3 endpoints with a path, such as the Minio-go S3 client.'
-      operationId: s3_endpoint_2
-      parameters:
-      - in: path
-        name: path
-        required: true
-        schema:
-          title: Path
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: S3 Endpoint
-      tags:
-      - S3
-    get:
-      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
-        Version 4 algorithm) with the
-
-        appropriate credentials to access the current user''s AWS S3 bucket, and forward
-        them to
-
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
-
-
-        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
-        S3 clients that do
-
-        not support S3 endpoints with a path, such as the Minio-go S3 client.'
-      operationId: s3_endpoint_2
-      parameters:
-      - in: path
-        name: path
-        required: true
-        schema:
-          title: Path
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: S3 Endpoint
-      tags:
-      - S3
-    head:
-      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
-        Version 4 algorithm) with the
-
-        appropriate credentials to access the current user''s AWS S3 bucket, and forward
-        them to
-
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
-
-
-        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
-        S3 clients that do
-
-        not support S3 endpoints with a path, such as the Minio-go S3 client.'
-      operationId: s3_endpoint_2
-      parameters:
-      - in: path
-        name: path
-        required: true
-        schema:
-          title: Path
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: S3 Endpoint
-      tags:
-      - S3
-    options:
-      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
-        Version 4 algorithm) with the
-
-        appropriate credentials to access the current user''s AWS S3 bucket, and forward
-        them to
-
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
-
-
-        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
-        S3 clients that do
-
-        not support S3 endpoints with a path, such as the Minio-go S3 client.'
-      operationId: s3_endpoint_2
-      parameters:
-      - in: path
-        name: path
-        required: true
-        schema:
-          title: Path
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: S3 Endpoint
-      tags:
-      - S3
-    patch:
-      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
-        Version 4 algorithm) with the
-
-        appropriate credentials to access the current user''s AWS S3 bucket, and forward
-        them to
-
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
-
-
-        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
-        S3 clients that do
-
-        not support S3 endpoints with a path, such as the Minio-go S3 client.'
-      operationId: s3_endpoint_2
-      parameters:
-      - in: path
-        name: path
-        required: true
-        schema:
-          title: Path
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: S3 Endpoint
-      tags:
-      - S3
-    post:
-      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
-        Version 4 algorithm) with the
-
-        appropriate credentials to access the current user''s AWS S3 bucket, and forward
-        them to
-
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
-
-
-        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
-        S3 clients that do
-
-        not support S3 endpoints with a path, such as the Minio-go S3 client.'
-      operationId: s3_endpoint_2
-      parameters:
-      - in: path
-        name: path
-        required: true
-        schema:
-          title: Path
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: S3 Endpoint
-      tags:
-      - S3
-    put:
-      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
-        Version 4 algorithm) with the
-
-        appropriate credentials to access the current user''s AWS S3 bucket, and forward
-        them to
-
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
-
-
-        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
-        S3 clients that do
-
-        not support S3 endpoints with a path, such as the Minio-go S3 client.'
-      operationId: s3_endpoint_2
-      parameters:
-      - in: path
-        name: path
-        required: true
-        schema:
-          title: Path
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: S3 Endpoint
-      tags:
-      - S3
-    trace:
-      description: 'Receive incoming signed S3 requests, re-sign them (AWS Signature
-        Version 4 algorithm) with the
-
-        appropriate credentials to access the current user''s AWS S3 bucket, and forward
-        them to
-
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
-
-
-        The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
-        S3 clients that do
-
-        not support S3 endpoints with a path, such as the Minio-go S3 client.'
-      operationId: s3_endpoint_2
-      parameters:
-      - in: path
-        name: path
-        required: true
-        schema:
-          title: Path
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: S3 Endpoint
-      tags:
-      - S3
