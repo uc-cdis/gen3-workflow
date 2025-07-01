@@ -3,7 +3,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 import pytest
 
-from conftest import MOCKED_S3_RESPONSE_DICT, TEST_USER_ID
+from conftest import MOCKED_S3_RESPONSE_DICT, TEST_USER_ID, TEST_USER_TOKEN
 from gen3workflow.config import config
 
 
@@ -20,11 +20,17 @@ s3_client_and_token_test_cases = [
     ({"endpoint": ""}, {}),
     # last 2 test cases: client key ID and client token
     (
-        {"endpoint": "s3", "aws_access_key_id": f"123;userId={TEST_USER_ID}"},
+        {
+            "endpoint": "s3",
+            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
+        },
         {"user_id": "", "client_id": "test-azp"},
     ),
     (
-        {"endpoint": "", "aws_access_key_id": f"123;userId={TEST_USER_ID}"},
+        {
+            "endpoint": "",
+            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
+        },
         {"user_id": "", "client_id": "test-azp"},
     ),
 ]
@@ -38,12 +44,17 @@ s3_client_and_token_test_cases = [
 )
 def s3_client(client, request):
     """
-    Return an S3 client configured to talk to the gen3-workflow `/s3` endpoint (the root endpoint
-    should also point to the `/s3` endpoint logic).
+    Return an S3 client configured to talk to the gen3-workflow S3 endpoint.
+
+    - Set request param "endpoint" (str, default "s3") to change the endpoint used by boto3 calls.
+      Specifically, most tests should run on both `/s3` and `/` because the root endpoint should
+      also point to the `/s3` endpoint logic.
+    - Set request param "aws_access_key_id" (str, default `TEST_USER_TOKEN`) to change the key ID
+      used in boto3 calls. Specifically, some tests should use the key ID format
+      `<token>;userId=<user ID>` to test the client token flow.
     """
     endpoint = request.param.get("endpoint", "s3")
-    # TODO "123" constant var
-    aws_access_key_id = request.param.get("aws_access_key_id", "123")  # TODO comment
+    aws_access_key_id = request.param.get("aws_access_key_id", TEST_USER_TOKEN)
     session = boto3.session.Session()
     return session.client(
         service_name="s3",
@@ -85,7 +96,10 @@ def test_s3_endpoint(s3_client, access_token_patcher):
             {"user_id": "", "client_id": "test-azp"},  # client token
         ),
         (
-            {"aws_access_key_id": f"123;userId={TEST_USER_ID}"},  # client key ID
+            {
+                # client key ID
+                "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"
+            },
             {},  # user token (default)
         ),
     ],
@@ -121,7 +135,10 @@ def test_s3_endpoint_no_token(s3_client):
             {"user_id": TEST_USER_ID, "client_id": "test-azp"},
         ),
         (
-            {"aws_access_key_id": f"123;userId={TEST_USER_ID}"},  # client key ID
+            {
+                # client key ID
+                "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"
+            },
             {"user_id": TEST_USER_ID, "client_id": "test-azp"},
         ),
     ],
@@ -188,7 +205,7 @@ async def test_s3_endpoint_with_bearer_token(client, path):
     """
     res = await client.get(
         f"{path}/gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
-        headers={"Authorization": "bearer 123"},
+        headers={"Authorization": f"bearer test-token"},
     )
     assert res.status_code == 401, res.text
     assert res.json() == {

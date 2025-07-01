@@ -10,7 +10,12 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
-from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+from starlette.status import (
+    HTTP_200_OK,
+    HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
+    HTTP_403_FORBIDDEN,
+)
 
 from gen3workflow import logger
 from gen3workflow.auth import Auth
@@ -111,9 +116,11 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     if "tags" not in body:
         body["tags"] = {}
-    # TODO unit test: user can't set USER_ID tag manually
-    # TODO raise an error if it's set, and explain it's an internal tag. Same for AUTHZ tag
-    # body["tags"]["USER_ID"] = user_id  # used by the funnel plugin to identify the user
+    task_tags = set(t.lower() for t in body["tags"])
+    if "authz" in task_tags:
+        err_msg = "Tag 'AUTHZ' cannot be used. It is a reserved tag."
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
     url = f"{config['TES_SERVER_URL']}/tasks"

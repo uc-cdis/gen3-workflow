@@ -35,6 +35,7 @@ from tests.migrations.migration_utils import MigrationRunner
 
 TEST_USER_ID = "64"
 NEW_TEST_USER_ID = "784"  # a new user that does not already exist in arborist
+TEST_USER_TOKEN = "23985xyz"
 
 # a "ListBucketResult" S3 response from AWS, and the corresponding response as parsed by boto3
 MOCKED_S3_RESPONSE_XML = f"""<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Name><Prefix>test-folder/test-file1.txt</Prefix><Marker></Marker><MaxKeys>250</MaxKeys><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>test-folder/test-file1.txt</Key><LastModified>2024-12-09T22:32:20.000Z</LastModified><ETag>&quot;something&quot;</ETag><Size>211</Size><Owner><ID>something</ID><DisplayName>something</DisplayName></Owner><StorageClass>STANDARD</StorageClass></Contents></ListBucketResult>"""

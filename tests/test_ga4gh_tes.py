@@ -7,6 +7,7 @@ from conftest import (
     mock_tes_server_request,
     TEST_USER_ID,
     NEW_TEST_USER_ID,
+    TEST_USER_TOKEN,
 )
 
 
@@ -53,7 +54,7 @@ async def test_get_task(client, access_token_patcher, view):
     url = f"/ga4gh/tes/v1/tasks/123?unsupported_param=value"
     if view:
         url += f"&view={view}"
-    res = await client.get(url, headers={"Authorization": "bearer 123"})
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
     # the call to the TES server always has `view=FULL` so we get the AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
@@ -95,7 +96,7 @@ async def test_get_task(client, access_token_patcher, view):
         mock_arborist_request.assert_called_with(
             method="POST",
             path=f"/auth/request",
-            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks/123","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"123"}}}}',
+            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks/123","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )
 
@@ -113,7 +114,7 @@ async def test_create_task(client, access_token_patcher):
     res = await client.post(
         "/ga4gh/tes/v1/tasks",
         json={"name": "test-task"},
-        headers={"Authorization": "bearer 123"},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     if not client.authorized:
         assert res.status_code == 403, res.text
@@ -137,14 +138,14 @@ async def test_create_task(client, access_token_patcher):
     mock_arborist_request.assert_any_call(
         method="POST",
         path=f"/auth/request",
-        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks","action":{{"service":"gen3-workflow","method":"create"}}}}],"user":{{"token":"123"}}}}',
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks","action":{{"service":"gen3-workflow","method":"create"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
         authorized=client.authorized,
     )
     if client.authorized and client.tes_resp_code != 500:
         mock_arborist_request.assert_any_call(
             method="POST",
             path=f"/auth/request",
-            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"123"}}}}',
+            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )
 
@@ -161,7 +162,7 @@ async def test_create_task_new_user(client, access_token_patcher):
     res = await client.post(
         "/ga4gh/tes/v1/tasks",
         json={"name": "test-task"},
-        headers={"Authorization": "bearer 123"},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     assert res.status_code == 200, res.text
     assert res.json() == {"id": "123"}
@@ -215,6 +216,22 @@ async def test_create_task_without_token(client):
     assert res.status_code == 401, res.text
     assert res.json() == {"detail": "Must provide an access token"}
     mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_authz_tag(client, access_token_patcher):
+    """
+    Users cannot specify the value of the "authz" tag themselves when creating a task, since it
+    is used internally for authorization checks.
+    """
+    res = await client.post(
+        "/ga4gh/tes/v1/tasks",
+        json={"name": "test-task", "tags": {"authz": "custom-authz-value"}},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 400, res.text
+    mock_tes_server_request.assert_not_called()
+    assert res.json() == {"detail": "Tag 'AUTHZ' cannot be used. It is a reserved tag."}
 
 
 @pytest.mark.asyncio
@@ -340,7 +357,7 @@ async def test_create_task_with_whitelist_images(
     res = await client.post(
         "/ga4gh/tes/v1/tasks",
         json=req_body,
-        headers={"Authorization": f"bearer 123"},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
 
     assert status_code == res.status_code, res.text
@@ -375,7 +392,7 @@ async def test_list_tasks(client, access_token_patcher, view):
     url = f"/ga4gh/tes/v1/tasks?state=COMPLETE&unsupported_param=value"
     if view:
         url += f"&view={view}"
-    res = await client.get(url, headers={"Authorization": "bearer 123"})
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
     # the call to the TES server always has `view=FULL` so we get the AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
@@ -445,7 +462,7 @@ async def test_delete_task(client, access_token_patcher):
     res = await client.post(
         "/ga4gh/tes/v1/tasks/123:cancel",
         json={"unsupported_body": "value"},
-        headers={"Authorization": "bearer 123"},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
 
     # there is always a 1st call with view=FULL to get the AUTHZ tag
@@ -481,6 +498,6 @@ async def test_delete_task(client, access_token_patcher):
         mock_arborist_request.assert_called_with(
             method="POST",
             path=f"/auth/request",
-            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"123"}}}}',
+            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )

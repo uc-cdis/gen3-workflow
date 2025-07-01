@@ -5,7 +5,7 @@ from moto import mock_aws
 import pytest
 from unittest.mock import patch, MagicMock
 
-from conftest import TEST_USER_ID
+from conftest import TEST_USER_ID, TEST_USER_TOKEN
 from gen3workflow import aws_utils
 from gen3workflow.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
@@ -62,7 +62,9 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket exists: {e.value}"
 
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    res = await client.get(
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
     assert res.status_code == 200, res.text
     storage_info = res.json()
     assert storage_info == {
@@ -146,7 +148,9 @@ async def test_bucket_enforces_encryption(
     encryption, or not using the right KMS key). It should succeed when using KMS encryption and
     the right key.
     """
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    res = await client.get(
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
     assert res.status_code == 200, res.text
     storage_info = res.json()
 
@@ -191,7 +195,9 @@ async def test_delete_user_bucket(client, access_token_patcher, mock_aws_service
     """
 
     # Create the bucket if it doesn't exist
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    res = await client.get(
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
     bucket_name = res.json()["bucket"]
 
     # Verify the bucket exists
@@ -200,7 +206,7 @@ async def test_delete_user_bucket(client, access_token_patcher, mock_aws_service
 
     # Delete the bucket
     res = await client.delete(
-        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        "/storage/user-bucket", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     assert res.status_code == 204, res.text
 
@@ -213,7 +219,7 @@ async def test_delete_user_bucket(client, access_token_patcher, mock_aws_service
 
     # Attempt to Delete the bucket again, must receive a 404, since bucket not found.
     res = await client.delete(
-        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        "/storage/user-bucket", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     assert res.status_code == 404, res.text
 
@@ -228,7 +234,9 @@ async def test_delete_user_bucket_with_files(
     """
 
     # Create the bucket if it doesn't exist
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    res = await client.get(
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
     bucket_name = res.json()["bucket"]
 
     # Remove the bucket policy enforcing KMS encryption
@@ -250,7 +258,7 @@ async def test_delete_user_bucket_with_files(
 
     # Delete the bucket
     res = await client.delete(
-        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        "/storage/user-bucket", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     assert res.status_code == 204, res.text
 
@@ -293,7 +301,8 @@ async def test_delete_user_bucket_unauthorized(
     # Delete the bucket
     with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
         res = await client.delete(
-            "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+            "/storage/user-bucket",
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
         )
         assert res.status_code == 403, res.text
         assert res.json() == {"detail": "Permission denied"}
