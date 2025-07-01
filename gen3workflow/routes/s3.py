@@ -30,13 +30,19 @@ s3_router = APIRouter(prefix="/s3")
 async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
-    provided as the access key ID, from the Authorization header in one of the two following
-    expected formats:
-    1. Key ID set by the python boto3 AWS client: `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/
-       <region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
-    2. Key ID set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<>`
+    provided as the access key ID, from the Authorization header.
     Return the user's ID extracted from the key ID or from the decoded token. Also set the provided
     `auth` instance's `bearer_token` to the extracted access token.
+
+    The Authorization header should be in one of the two following expected formats:
+    1. Set by the python boto3 AWS client: `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/
+       <region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
+    2. Set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<>`
+
+    The key ID should be in one of the two following expected formats:
+    1. Request made by a user: `<user's access token>`
+    2. Request made by a client on behalf of a user:
+       `<client's `client_credentials` access token>;userId=<user ID>`
 
     Args:
         auth (Auth): Gen3Workflow auth instance
@@ -45,7 +51,6 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     Returns:
         str: the user's ID
     """
-    # TODO unit tests for this function
     auth_header = headers.get("authorization")
     if not auth_header:
         return ""
