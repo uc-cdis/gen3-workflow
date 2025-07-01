@@ -25,7 +25,7 @@ def overwrite_openapi_operation_ids(app) -> None:
     """
     existing_routes = set()
     for route in app.routes:
-        if not isinstance(route, APIRoute):
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
             continue
         route.operation_id = route.name
         i = 2

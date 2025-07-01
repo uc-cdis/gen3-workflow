@@ -36,6 +36,7 @@ async def get_request_body(request: Request):
 
 
 @router.get("/service-info", status_code=HTTP_200_OK)
+@router.get("/service-info/", status_code=HTTP_200_OK, include_in_schema=False)
 async def service_info(request: Request, auth=Depends(Auth)) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES service info")
@@ -79,8 +80,8 @@ def get_non_allowed_images(images: set, username: str) -> set:
     return non_allowed_images
 
 
-# TODO add test for endpoint with trailing slash
 @router.post("/tasks", status_code=HTTP_200_OK)
+@router.post("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
 async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
@@ -175,6 +176,7 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 
 
 @router.get("/tasks", status_code=HTTP_200_OK)
+@router.get("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
 async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' listing TES tasks")
@@ -238,6 +240,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 
 
 @router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
+@router.get("/tasks/{task_id}/", status_code=HTTP_200_OK, include_in_schema=False)
 async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES task '{task_id}'")
@@ -271,6 +274,9 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
+@router.post(
+    "/tasks/{task_id}/:cancel", status_code=HTTP_200_OK, include_in_schema=False
+)
 async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' canceling TES task '{task_id}'")

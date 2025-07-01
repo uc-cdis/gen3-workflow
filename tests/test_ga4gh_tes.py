@@ -30,12 +30,12 @@ client_parameters = [
     ],
     indirect=True,
 )
-async def test_service_info_endpoint(client):
+async def test_service_info_endpoint(client, trailing_slash):
     """
     Calls to `GET /ga4gh/tes/v1/service-info` should be forwarded to the TES server.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
-    res = await client.get("/ga4gh/tes/v1/service-info")
+    res = await client.get(f"/ga4gh/tes/v1/service-info{'/' if trailing_slash else ''}")
     assert res.status_code == client.tes_resp_code, res.text
     if client.tes_resp_code == 500:
         assert res.json() == {"detail": "TES server error"}
@@ -44,14 +44,14 @@ async def test_service_info_endpoint(client):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
-async def test_get_task(client, access_token_patcher, view):
+async def test_get_task(client, access_token_patcher, view, trailing_slash):
     """
     Calls to `GET /ga4gh/tes/v1/tasks/<task ID>` should be forwarded to the TES server, and any
     unsupported query params should be filtered out. If the user is not authorized, we should get
     a 403 error.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
-    url = f"/ga4gh/tes/v1/tasks/123?unsupported_param=value"
+    url = f"/ga4gh/tes/v1/tasks/123{'/' if trailing_slash else ''}?unsupported_param=value"
     if view:
         url += f"&view={view}"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
@@ -103,7 +103,7 @@ async def test_get_task(client, access_token_patcher, view):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
-async def test_create_task(client, access_token_patcher):
+async def test_create_task(client, access_token_patcher, trailing_slash):
     """
     Calls to `POST /ga4gh/tes/v1/tasks` should be forwarded to the TES server, along with the
     request body. A tag containing the user ID should be added.
@@ -112,7 +112,7 @@ async def test_create_task(client, access_token_patcher):
     be made.
     """
     res = await client.post(
-        "/ga4gh/tes/v1/tasks",
+        f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}",
         json={"name": "test-task"},
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
@@ -382,14 +382,14 @@ async def test_create_task_with_whitelist_images(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
-async def test_list_tasks(client, access_token_patcher, view):
+async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
     unsupported query params should be filtered out. Tasks the user does not have access
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
-    url = f"/ga4gh/tes/v1/tasks?state=COMPLETE&unsupported_param=value"
+    url = f"/ga4gh/tes/v1/tasks?state=COMPLETE&unsupported_param=value{'/' if trailing_slash else ''}"
     if view:
         url += f"&view={view}"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
@@ -453,14 +453,14 @@ async def test_list_tasks(client, access_token_patcher, view):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
-async def test_delete_task(client, access_token_patcher):
+async def test_delete_task(client, access_token_patcher, trailing_slash):
     """
     Calls to `POST /ga4gh/tes/v1/tasks/<task ID>:cancel` should be forwarded to the TES server,
     with no request body.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
     res = await client.post(
-        "/ga4gh/tes/v1/tasks/123:cancel",
+        f"/ga4gh/tes/v1/tasks/123{'/' if trailing_slash else ''}:cancel",
         json={"unsupported_body": "value"},
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )

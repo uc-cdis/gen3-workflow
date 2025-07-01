@@ -9,6 +9,7 @@ router = APIRouter(prefix="/storage")
 
 
 @router.get("/info", status_code=HTTP_200_OK)
+@router.get("/info/", status_code=HTTP_200_OK, include_in_schema=False)
 async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
@@ -22,6 +23,9 @@ async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
 
 
 @router.delete("/user-bucket", status_code=HTTP_204_NO_CONTENT)
+@router.delete(
+    "/user-bucket/", status_code=HTTP_204_NO_CONTENT, include_in_schema=False
+)
 async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     await auth.authorize("delete", ["/services/workflow/gen3-workflow/user-bucket"])
 

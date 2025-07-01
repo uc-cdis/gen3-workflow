@@ -390,3 +390,10 @@ async def client(request):
             real_httpx_client.tes_resp_code = tes_resp_code
             real_httpx_client.authorized = authorized
             yield real_httpx_client
+
+
+@pytest_asyncio.fixture(
+    params=[False, True], ids=["without trailing slash", "with trailing slash"]
+)
+def trailing_slash(request):
+    return request.param

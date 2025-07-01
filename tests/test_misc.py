@@ -51,7 +51,9 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
 
 
 @pytest.mark.asyncio
-async def test_storage_info(client, access_token_patcher, mock_aws_services):
+async def test_storage_info(
+    client, access_token_patcher, mock_aws_services, trailing_slash
+):
     # check that the user's storage information is as expected
     expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 
@@ -63,7 +65,8 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
     ), f"Bucket exists: {e.value}"
 
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        f"/storage/info{'/' if trailing_slash else ''}",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     assert res.status_code == 200, res.text
     storage_info = res.json()
@@ -189,14 +192,17 @@ async def test_bucket_enforces_encryption(
 
 
 @pytest.mark.asyncio
-async def test_delete_user_bucket(client, access_token_patcher, mock_aws_services):
+async def test_delete_user_bucket(
+    client, access_token_patcher, mock_aws_services, trailing_slash
+):
     """
     The user should be able to delete their own bucket.
     """
 
     # Create the bucket if it doesn't exist
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        f"/storage/info{'/' if trailing_slash else ''}",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     bucket_name = res.json()["bucket"]
 

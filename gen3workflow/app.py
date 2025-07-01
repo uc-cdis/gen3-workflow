@@ -1,13 +1,13 @@
 from fastapi import FastAPI
-from fastapi.security import HTTPAuthorizationCredentials
 import httpx
 from importlib.metadata import version
 import os
 import time
 
 from cdislogging import get_logger
+from fastapi import Request
 from gen3authz.client.arborist.async_client import ArboristClient
-from fastapi import Request, HTTPException
+
 from gen3workflow import logger
 from gen3workflow.config import config
 from gen3workflow.metrics import Metrics
@@ -15,7 +15,6 @@ from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import s3_root_router, s3_router
 from gen3workflow.routes.storage import router as storage_router
 from gen3workflow.routes.system import router as system_router
-from gen3workflow.auth import Auth
 
 
 def get_app(httpx_client=None) -> FastAPI:
