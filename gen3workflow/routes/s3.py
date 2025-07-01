@@ -85,16 +85,20 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         user_id = sub
     else:
         client_id = token_claims.get("azp")
-        if not client_id or sub:
+        if not client_id:
+            err_msg = f"No client ID in token"
+            logger.error(f"{err_msg}. Debug: {token_claims=}")
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        if sub:
             # OIDC tokens linked to both a user and a client could be supported, but we would need
             # to decide which of `sub` (from token_claims) and `user_id` (from access_key_id) to
-            # use as the user ID.
+            # use as the user ID. See `test_s3_endpoint_unsupported_oidc_token`.
             err_msg = f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
             logger.error(err_msg)
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     if not user_id:
-        err_msg = f"No user ID. Debug: {is_user_token=} {token_claims=}"
-        logger.error(err_msg)
+        err_msg = f"No user ID in token"
+        logger.error(f"{err_msg}. Debug: {is_user_token=} {token_claims=}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     return user_id

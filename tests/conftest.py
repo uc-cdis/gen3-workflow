@@ -128,10 +128,7 @@ def access_token_patcher(request):
         claims = {}
         if client_id:
             claims["azp"] = client_id
-        # if there's a client ID, assume we're testing a token issued from the client_credentials
-        # flow (not linked to a user), not a token issued from the OIDC flow (linked to a client
-        # AND a user; not currently supported)
-        elif user_id:
+        if user_id:
             claims["sub"] = user_id
             claims["context"] = {"user": {"name": f"test-username-{user_id}"}}
         return claims

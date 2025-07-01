@@ -21,11 +21,11 @@ s3_client_and_token_test_cases = [
     # last 2 test cases: client key ID and client token
     (
         {"endpoint": "s3", "aws_access_key_id": f"123;userId={TEST_USER_ID}"},
-        {"client_id": "test-azp"},
+        {"user_id": "", "client_id": "test-azp"},
     ),
     (
         {"endpoint": "", "aws_access_key_id": f"123;userId={TEST_USER_ID}"},
-        {"client_id": "test-azp"},
+        {"user_id": "", "client_id": "test-azp"},
     ),
 ]
 
@@ -82,7 +82,7 @@ def test_s3_endpoint(s3_client, access_token_patcher):
     [
         (
             {},  # user key ID (default)
-            {"client_id": "test-azp"},  # client token
+            {"user_id": "", "client_id": "test-azp"},  # client token
         ),
         (
             {"aws_access_key_id": f"123;userId={TEST_USER_ID}"},  # client key ID
@@ -109,6 +109,33 @@ def test_s3_endpoint_no_token(s3_client):
     error.
     """
     with pytest.raises(ClientError, match="Unauthorized"):
+        s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+
+
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize(
+    "s3_client, access_token_patcher",
+    [
+        (
+            {},  # user key ID (default)
+            {"user_id": TEST_USER_ID, "client_id": "test-azp"},
+        ),
+        (
+            {"aws_access_key_id": f"123;userId={TEST_USER_ID}"},  # client key ID
+            {"user_id": TEST_USER_ID, "client_id": "test-azp"},
+        ),
+    ],
+    ids=["supported user+client token", "unsupported user+client token"],
+    indirect=True,
+)
+def test_s3_endpoint_unsupported_oidc_token(s3_client, access_token_patcher, request):
+    """
+    Hitting the `/s3` endpoint with a Gen3 access token issued from the OIDC flow (token linked to a client AND to a user) is supported in the case of a user key ID. In the case of a client key ID, it should result in a 401 Unauthorized error.
+    """
+    if "unsupported" in request.node.callspec.id:
+        with pytest.raises(ClientError, match="Unauthorized"):
+            s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    else:
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
 
 
