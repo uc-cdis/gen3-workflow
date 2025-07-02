@@ -97,16 +97,15 @@ def test_s3_endpoint(s3_client, access_token_patcher):
 @pytest.mark.parametrize(
     "s3_client, access_token_patcher",
     [
+        # user key ID (default) and client token
         (
-            {},  # user key ID (default)
-            {"user_id": "", "client_id": TEST_CLIENT_ID},  # client token
+            {},
+            {"user_id": "", "client_id": TEST_CLIENT_ID},
         ),
+        # client key ID and user token (default)
         (
-            {
-                # client key ID
-                "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"
-            },
-            {},  # user token (default)
+            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
+            {},
         ),
     ],
     ids=["client aws_access_key_id-user token", "user aws_access_key_id-client token"],
@@ -136,15 +135,14 @@ def test_s3_endpoint_no_token(s3_client):
 @pytest.mark.parametrize(
     "s3_client, access_token_patcher",
     [
+        # user key ID (default) and user+client token
         (
-            {},  # user key ID (default)
+            {},
             {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
         ),
+        # client key ID and user+client token
         (
-            {
-                # client key ID
-                "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"
-            },
+            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
             {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
         ),
     ],
@@ -215,7 +213,7 @@ async def test_s3_endpoint_with_bearer_token(client, path):
     )
     assert res.status_code == 401, res.text
     assert res.json() == {
-        "detail": "Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use the AWS SDK or CLI"
+        "detail": "Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI"
     }
 
 
@@ -231,13 +229,13 @@ async def test_s3_endpoint_with_bearer_token(client, path):
     ids=["with token sub", "without token sub"],
 )
 @pytest.mark.parametrize(
-    "include_userId", [True, False], ids=["with userId", "without userId"]
+    "key_includes_userId", [True, False], ids=["key format A", "key format B"]
 )
 @pytest.mark.parametrize(
     "auth_header_format", [1, 2], ids=["auth format 1", "auth format 2"]
 )
 async def test_set_access_token_and_get_user_id(
-    auth_header_format, include_userId, token_claims_sub, token_claims_azp
+    auth_header_format, key_includes_userId, token_claims_sub, token_claims_azp
 ):
     """
     Test `set_access_token_and_get_user_id` behavior with various combinations of access token and
@@ -246,7 +244,7 @@ async def test_set_access_token_and_get_user_id(
     Testing:
     - Authorization header ID format 1 and 2, as documented in the
       `set_access_token_and_get_user_id` docstring
-    - Key ID with or without `userId`, as documented in the `set_access_token_and_get_user_id`
+    - Key ID format A and B, as documented in the `set_access_token_and_get_user_id`
       docstring
     - Access token claims with or without the `sub` field (user ID)
     - Access token claims with or without the `azp` field (client ID)
@@ -261,7 +259,7 @@ async def test_set_access_token_and_get_user_id(
     auth.get_token_claims.return_value = token_claims
 
     aws_access_key_id = TEST_USER_TOKEN
-    if include_userId:
+    if key_includes_userId:
         aws_access_key_id += f";userId={TEST_USER_ID}"
 
     if auth_header_format == 1:
@@ -270,19 +268,19 @@ async def test_set_access_token_and_get_user_id(
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
     # no user ID in the token claims or in the key ID: error
-    if not include_userId and not token_claims_sub:
-        with pytest.raises(HTTPException, match="No user ID in token"):
+    if not key_includes_userId and not token_claims_sub:
+        with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # user ID in the key ID, which implies a client flow, but no client ID in the token
     # claims: error
-    elif include_userId and not token_claims_azp:
-        with pytest.raises(HTTPException, match="No client ID in token"):
+    elif key_includes_userId and not token_claims_azp:
+        with pytest.raises(HTTPException, match="401: No client ID in token"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # user ID in the key ID, which implies a client flow, AND user ID in the token claims: error.
     # similar test case as `test_s3_endpoint_unsupported_oidc_token`
-    elif include_userId and token_claims_sub:
+    elif key_includes_userId and token_claims_sub:
         with pytest.raises(
-            HTTPException, match="Expected a client token not linked to a user"
+            HTTPException, match="401: Expected a client token not linked to a user"
         ):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
@@ -295,19 +293,26 @@ async def test_set_access_token_and_get_user_id(
 
 
 @pytest.mark.asyncio
-async def test_set_access_token_and_get_user_id_anon_and_bearer():
+async def test_set_access_token_and_get_user_id_invalid_auth():
     """
-    Test `set_access_token_and_get_user_id` behavior when no authorization header is provided or
-    when a bearer token is used.
+    Test `set_access_token_and_get_user_id` behavior when no authorization header is provided,
+    when a bearer token is used, or when the authorization header format is invalid.
     """
-    # anonymous call (no authorization header): success
-    user_id = await set_access_token_and_get_user_id(None, {})
-    assert user_id == ""
+    # anonymous call (no authorization header): error
+    with pytest.raises(HTTPException, match="401: Not authenticated"):
+        await set_access_token_and_get_user_id(None, {})
 
     # unsupported bearer token: error.
     # similar test case as `test_s3_endpoint_with_bearer_token`
     with pytest.raises(
         HTTPException,
-        match="Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use the AWS SDK or CLI",
+        match="401: Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI",
     ):
         await set_access_token_and_get_user_id(None, {"authorization": "bearer token"})
+
+    # auth header does not match format 1 or 2: error
+    with pytest.raises(
+        HTTPException,
+        match="401: Unexpected format; unable to extract access token from authorization header",
+    ):
+        await set_access_token_and_get_user_id(None, {"authorization": "blah"})

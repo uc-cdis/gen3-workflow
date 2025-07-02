@@ -21,7 +21,7 @@ from gen3workflow.routes.system import router as system_router
 def get_app(httpx_client=None) -> FastAPI:
     existing_route_ids = set()
 
-    def generate_unique_route_id(route: APIRoute):
+    def generate_unique_route_id(route: APIRoute) -> str:
         """
         The default operation ID format is `<function name>_<full route>_<method>`.
         A bug is causing the operation IDs for routes with multiple methods to not be
@@ -42,13 +42,13 @@ def get_app(httpx_client=None) -> FastAPI:
         """
         if not route.include_in_schema:
             return route.name
-        route_operation_id = route.name
+        route_id = route.name
         i = 2
-        while route_operation_id in existing_route_ids:
-            route_operation_id = f"{route.name}_{i}"
+        while route_id in existing_route_ids:
+            route_id = f"{route.name}_{i}"
             i += 1
-        existing_route_ids.add(route_operation_id)
-        return route_operation_id
+        existing_route_ids.add(route_id)
+        return route_id
 
     logger.info("Initializing app")
     config.validate()

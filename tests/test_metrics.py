@@ -1,7 +1,5 @@
 import pytest
 from unittest.mock import patch
-from gen3workflow.app import app
-from gen3workflow.config import config
 
 
 @pytest.mark.asyncio

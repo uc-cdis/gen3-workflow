@@ -25,7 +25,7 @@ from gen3workflow.config import config
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
 
-async def get_request_body(request: Request):
+async def get_request_body(request: Request) -> dict:
     # read body as bytes, then decode it as string if necessary
     body_bytes = await request.body()
     try:

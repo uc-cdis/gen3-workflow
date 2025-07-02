@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 import hashlib
 import traceback
-from typing import Tuple
 import urllib.parse
 
 import boto3
@@ -31,17 +30,17 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
     provided as the access key ID, from the Authorization header.
-    Return the user's ID extracted from the key ID or from the decoded token. Also set the provided
-    `auth` instance's `bearer_token` to the extracted access token.
+    Return the user's ID extracted from the key ID or from the decoded token.
+    Also set the provided `auth` instance's `bearer_token` to the extracted access token.
 
     The Authorization header should be in one of the two following expected formats:
     1. Set by the python boto3 AWS client: `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/
-       <region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
-    2. Set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<>`
+       <region>/<service>/aws4_request, SignedHeaders=<...>, Signature=<...>`
+    2. Set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<...>`
 
     The key ID should be in one of the two following expected formats:
-    1. Request made by a user: `<user's access token>`
-    2. Request made by a client on behalf of a user:
+    A. Request made by a user: `<user's access token>`
+    B. Request made by a client on behalf of a user:
        `<client's `client_credentials` access token>;userId=<user ID>`
 
     Args:
@@ -53,12 +52,15 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     """
     auth_header = headers.get("authorization")
     if not auth_header:
-        return ""
+        err_msg = "Not authenticated"
+        logger.error(f"{err_msg}")
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     if auth_header.lower().startswith("bearer"):
-        err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use the AWS SDK or CLI"
+        err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
+    # extract the key ID from the authorization header
     try:
         if "Credential=" in auth_header:  # format 1 (see docstring)
             access_key_id = auth_header.split("Credential=")[1].split("/")[0]
@@ -66,16 +68,15 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
             access_key_id = auth_header.split("AWS ")[1]
             access_key_id = ":".join(access_key_id.split(":")[:-1])
     except Exception as e:
-        traceback.print_exc()
-        logger.error(
-            f"Unexpected format; unable to extract access token from authorization header: {e}"
-        )
-        return ""
+        err_msg = "Unexpected format; unable to extract access token from authorization header"
+        logger.error(f"{err_msg}: {e}")
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
+    # extract the access token from the key ID
     is_user_token = ";userId=" not in access_key_id
-    if is_user_token:
+    if is_user_token:  # format A (see docstring)
         access_token = access_key_id
-    else:  # client token
+    else:  # format B (see docstring)
         access_token, user_id = access_key_id.split(";userId=")
 
     # set the token so we can perform authn/authz checks on it
@@ -91,18 +92,24 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     else:
         client_id = token_claims.get("azp")
         if not client_id:
+            # Format B (see docstring) should only be used by clients acting on behalf of a user.
+            # It is not a valid format if the token is not linked to a client.
             err_msg = f"No client ID in token"
             logger.error(f"{err_msg}. Debug: {token_claims=}")
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
         if sub:
-            # OIDC tokens linked to both a user and a client could be supported, but we would need
-            # to decide which of `sub` (from token_claims) and `user_id` (from access_key_id) to
-            # use as the user ID. See `test_s3_endpoint_unsupported_oidc_token`.
+            # OIDC tokens linked to both a user and a client are supported in the case of a user
+            # key ID. In the case of a client key ID, they are not:
+            # - We would need to decide which of `sub` (from token_claims) and `user_id` (from
+            # access_key_id) to use as the user ID.
+            # - There is no use case for it. Format B was implemented specifically for use cases
+            # where there is no user ID in the token (`client_credentials` flow where the client
+            # acts on behalf of a specific user).
             err_msg = f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
             logger.error(err_msg)
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     if not user_id:
-        err_msg = f"No user ID in token"
+        err_msg = f"No user ID in token or key ID"
         logger.error(f"{err_msg}. Debug: {is_user_token=} {token_claims=}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
@@ -138,7 +145,7 @@ async def s3_endpoint(path: str, request: Request):
     """
     Receive incoming signed S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
-    AWS S3. The recommended way to use this endpoint is to use the AWS SDK or CLI.
+    AWS S3. The recommended way to use this endpoint is to use an AWS library, SDK or CLI.
 
     The S3 endpoint is exposed at `/s3` as well as at the root `/` to support S3 clients that do
     not support S3 endpoints with a path, such as the Minio-go S3 client.

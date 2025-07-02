@@ -38,7 +38,7 @@ def get_safe_name_from_hostname(user_id: Union[str, None]) -> str:
     return safe_name
 
 
-def get_existing_kms_key_for_bucket(bucket_name):
+def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
     """
     Return the alias and ARN of the KMS key used for this bucket. If the key doesn't exist yet,
     only return the expected key alias.
@@ -48,7 +48,7 @@ def get_existing_kms_key_for_bucket(bucket_name):
         user_id (str): The user's unique Gen3 ID
 
     Returns:
-        Tuple (str, str or None): KMS key alias, and KMS key ARN if the key exists, None otherwise
+        Tuple (str, str): KMS key alias, and KMS key ARN if the key exists, None otherwise
     """
     kms_key_alias = f"alias/{bucket_name}"
     try:
@@ -56,11 +56,11 @@ def get_existing_kms_key_for_bucket(bucket_name):
         return kms_key_alias, output["KeyMetadata"]["Arn"]
     except ClientError as e:
         if e.response["Error"]["Code"] == "NotFoundException":
-            return kms_key_alias, None
+            return kms_key_alias, ""
         raise
 
 
-def setup_kms_encryption_on_bucket(bucket_name):
+def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     # set up KMS encryption on the bucket.
     # the only way to check if the KMS key has already been created is to use an alias
     kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
@@ -194,7 +194,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
 
 
-def get_all_bucket_objects(user_bucket_name):
+def get_all_bucket_objects(user_bucket_name: str) -> list:
     """
     Get all objects from the specified S3 bucket.
     """
@@ -221,7 +221,7 @@ def get_all_bucket_objects(user_bucket_name):
     return object_list
 
 
-def delete_all_bucket_objects(user_id, user_bucket_name):
+def delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
     """
     Deletes all objects from the specified S3 bucket.
 
