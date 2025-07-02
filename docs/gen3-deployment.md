@@ -1,6 +1,6 @@
 # Deployment to a Gen3 instance
 
-Gen3Workflow (with Funnel as the TES server) can be deployed to a cloud-automation Gen3 instance by using the following steps.
+Gen3Workflow (with [Funnel](https://ohsu-comp-bio.github.io/funnel) as the TES server) can be deployed to a cloud-automation Gen3 instance by using the following steps.
 
 1. Add the services to the manifest. The Funnel version can be "latest", or a specific Helm chart tag (`helm search repo ohsu --versions`).
 ```
