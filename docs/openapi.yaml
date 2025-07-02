@@ -187,8 +187,8 @@ paths:
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
 
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
+        AWS S3. The recommended way to use this endpoint is to use an AWS library,
+        SDK or CLI.
 
 
         The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
@@ -225,8 +225,8 @@ paths:
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
 
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
+        AWS S3. The recommended way to use this endpoint is to use an AWS library,
+        SDK or CLI.
 
 
         The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
@@ -263,8 +263,8 @@ paths:
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
 
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
+        AWS S3. The recommended way to use this endpoint is to use an AWS library,
+        SDK or CLI.
 
 
         The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
@@ -301,8 +301,8 @@ paths:
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
 
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
+        AWS S3. The recommended way to use this endpoint is to use an AWS library,
+        SDK or CLI.
 
 
         The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
@@ -339,8 +339,8 @@ paths:
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
 
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
+        AWS S3. The recommended way to use this endpoint is to use an AWS library,
+        SDK or CLI.
 
 
         The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
@@ -377,8 +377,8 @@ paths:
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
 
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
+        AWS S3. The recommended way to use this endpoint is to use an AWS library,
+        SDK or CLI.
 
 
         The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
@@ -415,8 +415,8 @@ paths:
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
 
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
+        AWS S3. The recommended way to use this endpoint is to use an AWS library,
+        SDK or CLI.
 
 
         The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
@@ -453,8 +453,8 @@ paths:
         appropriate credentials to access the current user''s AWS S3 bucket, and forward
         them to
 
-        AWS S3. The recommended way to use this endpoint is to use the AWS SDK or
-        CLI.
+        AWS S3. The recommended way to use this endpoint is to use an AWS library,
+        SDK or CLI.
 
 
         The S3 endpoint is exposed at `/s3` as well as at the root `/` to support
