@@ -48,7 +48,7 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         user_id (str): The user's unique Gen3 ID
 
     Returns:
-        Tuple (str, str): KMS key alias, and KMS key ARN if the key exists, None otherwise
+        Tuple (str, str): KMS key alias, and KMS key ARN if the key exists, empty string otherwise
     """
     kms_key_alias = f"alias/{bucket_name}"
     try:

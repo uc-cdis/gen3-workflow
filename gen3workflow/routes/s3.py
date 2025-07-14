@@ -99,12 +99,13 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
         if sub:
             # OIDC tokens linked to both a user and a client are supported in the case of a user
-            # key ID. In the case of a client key ID, they are not:
-            # - We would need to decide which of `sub` (from token_claims) and `user_id` (from
-            # access_key_id) to use as the user ID.
-            # - There is no use case for it. Format B was implemented specifically for use cases
-            # where there is no user ID in the token (`client_credentials` flow where the client
-            # acts on behalf of a specific user).
+            # key ID (format A). In the case of a client key ID (format B), they are not:
+            # - Ambiguity: we would need to decide which of `sub` (from token_claims) and `user_id`
+            #   (from access_key_id) should be trusted as the user ID.
+            # - There is no use case for it: format B was specifically designed for use cases where
+            #   the token comes from a `client_credentials` flow and does not include a user ID
+            #   (`sub`). In this flow, the client must declare the user they are acting on behalf of
+            #   via the `;userId=` suffix in the key ID.
             err_msg = f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
             logger.error(err_msg)
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
@@ -209,7 +210,7 @@ async def s3_endpoint(path: str, request: Request):
     # over multiple chunks), we still replace it with the body hash (because I couldn't get the
     # signing to work for "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" - I believe it requires using the signature from the previous chunk).
     # NOTE: This may cause issues when large files are _actually_ uploaded over multiple chunks.
-    # TODO test with an input file >5go
+    # TODO test with an input file >5gb
     headers = {
         "host": f"{user_bucket}.s3.amazonaws.com",
         "x-amz-content-sha256": body_hash,
