@@ -33,9 +33,9 @@ from gen3workflow.app import get_app
 from tests.migrations.migration_utils import MigrationRunner
 
 
-TEST_USER_ID = "64"
-NEW_TEST_USER_ID = "784"  # a new user that does not already exist in arborist
-TEST_USER_TOKEN = "23985xyz"
+TEST_USER_ID = "user-64"
+NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
+TEST_USER_TOKEN = "user-token-23985xyz"
 
 # a "ListBucketResult" S3 response from AWS, and the corresponding response as parsed by boto3
 MOCKED_S3_RESPONSE_XML = f"""<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Name><Prefix>test-folder/test-file1.txt</Prefix><Marker></Marker><MaxKeys>250</MaxKeys><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>test-folder/test-file1.txt</Key><LastModified>2024-12-09T22:32:20.000Z</LastModified><ETag>&quot;something&quot;</ETag><Size>211</Size><Owner><ID>something</ID><DisplayName>something</DisplayName></Owner><StorageClass>STANDARD</StorageClass></Contents></ListBucketResult>"""
@@ -44,7 +44,7 @@ MOCKED_S3_RESPONSE_DICT = {
         "HTTPStatusCode": 200,
         "HTTPHeaders": {
             "server": "uvicorn",
-            "content-length": "569",
+            "content-length": "574",
             "content-type": "application/xml",
         },
         "RetryAttempts": 0,
@@ -121,8 +121,9 @@ def access_token_patcher(request):
     """
     user_id = TEST_USER_ID
     client_id = None
-    if hasattr(request, "param"):
-        user_id = request.param.get("user_id", user_id)
+    if hasattr(request, "param") and "user_id" in request.param:
+        user_id = request.param.get("user_id")
+    if hasattr(request, "param") and "client_id" in request.param:
         client_id = request.param.get("client_id")
 
     async def get_access_token(*args, **kwargs):

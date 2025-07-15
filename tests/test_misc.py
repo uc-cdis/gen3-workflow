@@ -108,7 +108,7 @@ async def test_storage_info(
                 "Effect": "Deny",
                 "Principal": "*",
                 "Action": "s3:PutObject",
-                "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
+                "Resource": f"arn:aws:s3:::gen3wf-localhost-{TEST_USER_ID}/*",
                 "Condition": {
                     "StringNotEquals": {"s3:x-amz-server-side-encryption": "aws:kms"}
                 },
@@ -118,7 +118,7 @@ async def test_storage_info(
                 "Effect": "Deny",
                 "Principal": "*",
                 "Action": "s3:PutObject",
-                "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
+                "Resource": f"arn:aws:s3:::gen3wf-localhost-{TEST_USER_ID}/*",
                 "Condition": {
                     "StringNotEquals": {
                         "s3:x-amz-server-side-encryption-aws-kms-key-id": kms_key_arn
@@ -201,8 +201,7 @@ async def test_delete_user_bucket(
 
     # Create the bucket if it doesn't exist
     res = await client.get(
-        f"/storage/info{'/' if trailing_slash else ''}",
-        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     bucket_name = res.json()["bucket"]
 
@@ -212,7 +211,8 @@ async def test_delete_user_bucket(
 
     # Delete the bucket
     res = await client.delete(
-        "/storage/user-bucket", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        f"/storage/user-bucket{'/' if trailing_slash else ''}",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     assert res.status_code == 204, res.text
 

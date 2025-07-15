@@ -65,8 +65,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         if "Credential=" in auth_header:  # format 1 (see docstring)
             access_key_id = auth_header.split("Credential=")[1].split("/")[0]
         else:  # format 2 (see docstring)
-            access_key_id = auth_header.split("AWS ")[1]
-            access_key_id = ":".join(access_key_id.split(":")[:-1])
+            access_key_id = auth_header.split("AWS ")[1].split(":")[0]
     except Exception as e:
         err_msg = "Unexpected format; unable to extract access token from authorization header"
         logger.error(f"{err_msg}: {e}")

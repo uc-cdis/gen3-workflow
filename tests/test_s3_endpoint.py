@@ -10,7 +10,7 @@ from gen3workflow.config import config
 from gen3workflow.routes.s3 import set_access_token_and_get_user_id
 
 
-TEST_CLIENT_ID = "test-azp"
+TEST_CLIENT_ID = "client-azp"
 
 
 # reusable parametrization of the `s3_client` and `access_token_patcher` fixtures
@@ -21,23 +21,26 @@ s3_client_and_token_test_ids = [
     "root path-client creds",
 ]
 s3_client_and_token_test_cases = [
-    # first 2 test cases: user key ID (default) and user token (default)
-    ({"endpoint": "s3"}, {}),
-    ({"endpoint": ""}, {}),
+    # first 2 test cases: user key ID and user token
+    (
+        {"endpoint": "s3", "aws_access_key_id": TEST_USER_TOKEN},
+        {"user_id": TEST_USER_ID},
+    ),
+    ({"endpoint": "", "aws_access_key_id": TEST_USER_TOKEN}, {"user_id": TEST_USER_ID}),
     # last 2 test cases: client key ID and client token
     (
         {
             "endpoint": "s3",
             "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
         },
-        {"user_id": "", "client_id": TEST_CLIENT_ID},
+        {"user_id": None, "client_id": TEST_CLIENT_ID},
     ),
     (
         {
             "endpoint": "",
             "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
         },
-        {"user_id": "", "client_id": TEST_CLIENT_ID},
+        {"user_id": None, "client_id": TEST_CLIENT_ID},
     ),
 ]
 
@@ -97,15 +100,15 @@ def test_s3_endpoint(s3_client, access_token_patcher):
 @pytest.mark.parametrize(
     "s3_client, access_token_patcher",
     [
-        # user key ID (default) and client token
+        # user key ID and client token
         (
-            {},
-            {"user_id": "", "client_id": TEST_CLIENT_ID},
+            {"aws_access_key_id": TEST_USER_TOKEN},
+            {"user_id": None, "client_id": TEST_CLIENT_ID},
         ),
-        # client key ID and user token (default)
+        # client key ID and user token
         (
             {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {},
+            {"user_id": TEST_USER_ID},
         ),
     ],
     ids=["client aws_access_key_id-user token", "user aws_access_key_id-client token"],
@@ -135,9 +138,9 @@ def test_s3_endpoint_no_token(s3_client):
 @pytest.mark.parametrize(
     "s3_client, access_token_patcher",
     [
-        # user key ID (default) and user+client token
+        # user key ID and user+client token
         (
-            {},
+            {"aws_access_key_id": TEST_USER_TOKEN},
             {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
         ),
         # client key ID and user+client token
