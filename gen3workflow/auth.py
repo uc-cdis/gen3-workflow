@@ -94,8 +94,9 @@ class Auth:
         if not authorized:
             token_claims = await self.get_token_claims() if token else {}
             user_id = token_claims.get("sub")
+            client_id = token_claims.get("azp")
             logger.error(
-                f"Authorization error for user '{user_id}': token must have '{method}' access on {resources} for service 'gen3-workflow'."
+                f"Authorization error for user '{user_id}' / client '{client_id}': token must have '{method}' access on {resources} for service 'gen3-workflow'."
             )
             if throw:
                 raise HTTPException(
@@ -105,7 +106,9 @@ class Auth:
 
         return authorized
 
-    async def grant_user_access_to_their_own_tasks(self, username, user_id) -> None:
+    async def grant_user_access_to_their_own_tasks(
+        self, username: str, user_id: str
+    ) -> None:
         """
         Ensure the specified user exists in Arborist and has a policy granting them access to their
         own Gen3Workflow tasks ("read" and "delete" access to resource "/users/<user ID>/gen3-workflow/tasks" for service "gen3-workflow").

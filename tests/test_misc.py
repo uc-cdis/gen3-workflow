@@ -5,7 +5,7 @@ from moto import mock_aws
 import pytest
 from unittest.mock import patch, MagicMock
 
-from conftest import TEST_USER_ID
+from conftest import TEST_USER_ID, TEST_USER_TOKEN
 from gen3workflow import aws_utils
 from gen3workflow.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
@@ -51,7 +51,9 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
 
 
 @pytest.mark.asyncio
-async def test_storage_info(client, access_token_patcher, mock_aws_services):
+async def test_storage_info(
+    client, access_token_patcher, mock_aws_services, trailing_slash
+):
     # check that the user's storage information is as expected
     expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 
@@ -62,7 +64,10 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket exists: {e.value}"
 
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    res = await client.get(
+        f"/storage/info{'/' if trailing_slash else ''}",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
     assert res.status_code == 200, res.text
     storage_info = res.json()
     assert storage_info == {
@@ -103,7 +108,7 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
                 "Effect": "Deny",
                 "Principal": "*",
                 "Action": "s3:PutObject",
-                "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
+                "Resource": f"arn:aws:s3:::gen3wf-localhost-{TEST_USER_ID}/*",
                 "Condition": {
                     "StringNotEquals": {"s3:x-amz-server-side-encryption": "aws:kms"}
                 },
@@ -113,7 +118,7 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
                 "Effect": "Deny",
                 "Principal": "*",
                 "Action": "s3:PutObject",
-                "Resource": "arn:aws:s3:::gen3wf-localhost-64/*",
+                "Resource": f"arn:aws:s3:::gen3wf-localhost-{TEST_USER_ID}/*",
                 "Condition": {
                     "StringNotEquals": {
                         "s3:x-amz-server-side-encryption-aws-kms-key-id": kms_key_arn
@@ -130,7 +135,7 @@ async def test_storage_info(client, access_token_patcher, mock_aws_services):
     assert lifecycle_config.get("Rules") == [
         {
             "Expiration": {"Days": config["S3_OBJECTS_EXPIRATION_DAYS"]},
-            "ID": "None",
+            "ID": f"ExpireAllAfter{config['S3_OBJECTS_EXPIRATION_DAYS']}Days",
             "Filter": {"Prefix": ""},
             "Status": "Enabled",
         }
@@ -146,7 +151,9 @@ async def test_bucket_enforces_encryption(
     encryption, or not using the right KMS key). It should succeed when using KMS encryption and
     the right key.
     """
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    res = await client.get(
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
     assert res.status_code == 200, res.text
     storage_info = res.json()
 
@@ -185,13 +192,17 @@ async def test_bucket_enforces_encryption(
 
 
 @pytest.mark.asyncio
-async def test_delete_user_bucket(client, access_token_patcher, mock_aws_services):
+async def test_delete_user_bucket(
+    client, access_token_patcher, mock_aws_services, trailing_slash
+):
     """
     The user should be able to delete their own bucket.
     """
 
     # Create the bucket if it doesn't exist
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    res = await client.get(
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
     bucket_name = res.json()["bucket"]
 
     # Verify the bucket exists
@@ -200,7 +211,8 @@ async def test_delete_user_bucket(client, access_token_patcher, mock_aws_service
 
     # Delete the bucket
     res = await client.delete(
-        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        f"/storage/user-bucket{'/' if trailing_slash else ''}",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     assert res.status_code == 204, res.text
 
@@ -213,7 +225,7 @@ async def test_delete_user_bucket(client, access_token_patcher, mock_aws_service
 
     # Attempt to Delete the bucket again, must receive a 404, since bucket not found.
     res = await client.delete(
-        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        "/storage/user-bucket", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     assert res.status_code == 404, res.text
 
@@ -228,7 +240,9 @@ async def test_delete_user_bucket_with_files(
     """
 
     # Create the bucket if it doesn't exist
-    res = await client.get("/storage/info", headers={"Authorization": "bearer 123"})
+    res = await client.get(
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
     bucket_name = res.json()["bucket"]
 
     # Remove the bucket policy enforcing KMS encryption
@@ -236,8 +250,9 @@ async def test_delete_user_bucket_with_files(
     # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
     aws_utils.s3_client.delete_bucket_policy(Bucket=bucket_name)
 
-    # Upload more than 1000 objects to ensure batching is working correctly
-    object_count = 1200
+    # Upload more than 1000 objects to ensure batching is working correctly. Not too many so the
+    # test doesn't take too long to run.
+    object_count = 1050
     for i in range(object_count):
         aws_utils.s3_client.put_object(
             Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
@@ -249,7 +264,7 @@ async def test_delete_user_bucket_with_files(
 
     # Delete the bucket
     res = await client.delete(
-        "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+        "/storage/user-bucket", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     assert res.status_code == 204, res.text
 
@@ -292,7 +307,8 @@ async def test_delete_user_bucket_unauthorized(
     # Delete the bucket
     with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
         res = await client.delete(
-            "/storage/user-bucket", headers={"Authorization": "bearer 123"}
+            "/storage/user-bucket",
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
         )
         assert res.status_code == 403, res.text
         assert res.json() == {"detail": "Permission denied"}

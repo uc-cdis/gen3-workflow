@@ -33,8 +33,9 @@ from gen3workflow.app import get_app
 from tests.migrations.migration_utils import MigrationRunner
 
 
-TEST_USER_ID = "64"
-NEW_TEST_USER_ID = "784"  # a new user that does not already exist in arborist
+TEST_USER_ID = "user-64"
+NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
+TEST_USER_TOKEN = "user-token-23985xyz"
 
 # a "ListBucketResult" S3 response from AWS, and the corresponding response as parsed by boto3
 MOCKED_S3_RESPONSE_XML = f"""<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Name><Prefix>test-folder/test-file1.txt</Prefix><Marker></Marker><MaxKeys>250</MaxKeys><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>test-folder/test-file1.txt</Key><LastModified>2024-12-09T22:32:20.000Z</LastModified><ETag>&quot;something&quot;</ETag><Size>211</Size><Owner><ID>something</ID><DisplayName>something</DisplayName></Owner><StorageClass>STANDARD</StorageClass></Contents></ListBucketResult>"""
@@ -43,7 +44,7 @@ MOCKED_S3_RESPONSE_DICT = {
         "HTTPStatusCode": 200,
         "HTTPHeaders": {
             "server": "uvicorn",
-            "content-length": "569",
+            "content-length": "574",
             "content-type": "application/xml",
         },
         "RetryAttempts": 0,
@@ -119,14 +120,20 @@ def access_token_patcher(request):
     support client tokens.
     """
     user_id = TEST_USER_ID
-    if hasattr(request, "param"):
-        user_id = request.param.get("user_id", user_id)
+    client_id = None
+    if hasattr(request, "param") and "user_id" in request.param:
+        user_id = request.param.get("user_id")
+    if hasattr(request, "param") and "client_id" in request.param:
+        client_id = request.param.get("client_id")
 
     async def get_access_token(*args, **kwargs):
-        return {
-            "sub": user_id,
-            "context": {"user": {"name": f"test-username-{user_id}"}},
-        }
+        claims = {}
+        if client_id:
+            claims["azp"] = client_id
+        if user_id:
+            claims["sub"] = user_id
+            claims["context"] = {"user": {"name": f"test-username-{user_id}"}}
+        return claims
 
     access_token_mock = MagicMock()
     access_token_mock.return_value = get_access_token
@@ -301,12 +308,22 @@ async def client(request):
     Requests made by the tests to the app use a real HTTPX client.
     Requests made by the app to external services (such as the TES server and Arborist) use
     a mocked client.
+
+    - Set request param "tes_resp_code" (int, default 200) to change the status code returned
+      by the TES server.
+    - Set request param "authorized" (bool, default True) to change the response returned by
+      Arborist for access requests.
+    - Set request param "get_url" (bool, default False) to True for tests that need to hit the
+      app URL directly (use case: configure a boto3 client with the app URL), otherwise an httpx
+      client is used.
     """
     tes_resp_code = 200
     authorized = True
+    get_url = False
     if hasattr(request, "param"):
         tes_resp_code = request.param.get("tes_resp_code", 200)
         authorized = request.param.get("authorized", True)
+        get_url = request.param.get("get_url", get_url)
 
     async def handle_request(request: Request):
         url = str(request.url)
@@ -357,10 +374,6 @@ async def client(request):
         transport=httpx.MockTransport(handle_request)
     )
 
-    get_url = False
-    if hasattr(request, "param"):
-        get_url = request.param.get("get_url", get_url)
-
     if get_url:  # for tests that need to hit the app URL directly
         host = "0.0.0.0"
         port = 8080
@@ -378,3 +391,10 @@ async def client(request):
             real_httpx_client.tes_resp_code = tes_resp_code
             real_httpx_client.authorized = authorized
             yield real_httpx_client
+
+
+@pytest_asyncio.fixture(
+    params=[False, True], ids=["without trailing slash", "with trailing slash"]
+)
+def trailing_slash(request):
+    return request.param

@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 import hashlib
+import traceback
 import urllib.parse
 
 import boto3
@@ -17,37 +19,101 @@ from starlette.status import (
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
+from gen3workflow.routes.system import get_status
 
 
-router = APIRouter(prefix="/s3")
+s3_root_router = APIRouter(include_in_schema=False)
+s3_router = APIRouter(prefix="/s3")
 
 
-def get_access_token(headers: Headers) -> str:
+async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     """
-    Extract the user's access token, which should have been provided as the key ID, from the
-    Authorization header in the following expected format:
-    `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/<region>/<service>/aws4_request, SignedHeaders=<>, Signature=<>`
+    Extract the user's access token and (in some cases) the user's ID, which should have been
+    provided as the access key ID, from the Authorization header.
+    Return the user's ID extracted from the key ID or from the decoded token.
+    Also set the provided `auth` instance's `bearer_token` to the extracted access token.
+
+    The Authorization header should be in one of the two following expected formats:
+    1. Set by the python boto3 AWS client: `AWS4-HMAC-SHA256 Credential=<key ID>/<date>/
+       <region>/<service>/aws4_request, SignedHeaders=<...>, Signature=<...>`
+    2. Set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<...>`
+
+    The key ID should be in one of the two following expected formats:
+    A. Request made by a user: `<user's access token>`
+    B. Request made by a client on behalf of a user:
+       `<client's `client_credentials` access token>;userId=<user ID>`
 
     Args:
+        auth (Auth): Gen3Workflow auth instance
         headers (Headers): request headers
 
     Returns:
-        str: the user's access token or "" if not found
+        str: the user's ID
     """
     auth_header = headers.get("authorization")
     if not auth_header:
-        return ""
+        err_msg = "Not authenticated"
+        logger.error(f"{err_msg}")
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     if auth_header.lower().startswith("bearer"):
-        err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use the AWS SDK or CLI"
+        err_msg = f"Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    # extract the key ID from the authorization header
     try:
-        return auth_header.split("Credential=")[1].split("/")[0]
+        if "Credential=" in auth_header:  # format 1 (see docstring)
+            access_key_id = auth_header.split("Credential=")[1].split("/")[0]
+        else:  # format 2 (see docstring)
+            access_key_id = auth_header.split("AWS ")[1].split(":")[0]
     except Exception as e:
-        logger.error(
-            f"Unexpected format; unable to extract access token from authorization header: {e}"
-        )
-        return ""
+        err_msg = "Unexpected format; unable to extract access token from authorization header"
+        logger.error(f"{err_msg}: {e}")
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    # extract the access token from the key ID
+    is_user_token = ";userId=" not in access_key_id
+    if is_user_token:  # format A (see docstring)
+        access_token = access_key_id
+    else:  # format B (see docstring)
+        access_token, user_id = access_key_id.split(";userId=")
+
+    # set the token so we can perform authn/authz checks on it
+    auth.bearer_token = HTTPAuthorizationCredentials(
+        scheme="bearer", credentials=access_token
+    )
+
+    # ensure token validity
+    token_claims = await auth.get_token_claims()
+    sub = token_claims.get("sub")
+    if is_user_token:
+        user_id = sub
+    else:
+        client_id = token_claims.get("azp")
+        if not client_id:
+            # Format B (see docstring) should only be used by clients acting on behalf of a user.
+            # It is not a valid format if the token is not linked to a client.
+            err_msg = f"No client ID in token"
+            logger.error(f"{err_msg}. Debug: {token_claims=}")
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        if sub:
+            # OIDC tokens linked to both a user and a client are supported in the case of a user
+            # key ID (format A). In the case of a client key ID (format B), they are not:
+            # - Ambiguity: we would need to decide which of `sub` (from token_claims) and `user_id`
+            #   (from access_key_id) should be trusted as the user ID.
+            # - There is no use case for it: format B was specifically designed for use cases where
+            #   the token comes from a `client_credentials` flow and does not include a user ID
+            #   (`sub`). In this flow, the client must declare the user they are acting on behalf of
+            #   via the `;userId=` suffix in the key ID.
+            err_msg = f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+    if not user_id:
+        err_msg = f"No user ID in token or key ID"
+        logger.error(f"{err_msg}. Debug: {is_user_token=} {token_claims=}")
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    return user_id
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -67,7 +133,11 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
-@router.api_route(
+@s3_root_router.api_route(
+    "/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "TRACE", "HEAD"],
+)
+@s3_router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "TRACE", "HEAD"],
 )
@@ -75,24 +145,29 @@ async def s3_endpoint(path: str, request: Request):
     """
     Receive incoming signed S3 requests, re-sign them (AWS Signature Version 4 algorithm) with the
     appropriate credentials to access the current user's AWS S3 bucket, and forward them to
-    AWS S3. The recommended way to use this endpoint is to use the AWS SDK or CLI.
+    AWS S3. The recommended way to use this endpoint is to use an AWS library, SDK or CLI.
+
+    The S3 endpoint is exposed at `/s3` as well as at the root `/` to support S3 clients that do
+    not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
-    # extract the user's access token from the request headers, and ensure the user has access
-    # to run workflows
+
+    # because this endpoint is exposed at root, if the GET path is empty, assume the user is not
+    # trying to reach the S3 endpoint and redirect to the status endpoint instead
+    if request.method == "GET" and not path:
+        return await get_status(request)
+
+    # extract the caller's access token from the request headers, and ensure the caller (user, or
+    # client acting on behalf of the user) has access to run workflows
     auth = Auth(api_request=request)
-    auth.bearer_token = HTTPAuthorizationCredentials(
-        scheme="bearer", credentials=get_access_token(request.headers)
-    )
+    user_id = await set_access_token_and_get_user_id(auth, request.headers)
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
-    token_claims = await auth.get_token_claims()
-    user_id = token_claims.get("sub")
     logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
-        err_msg = f"'{path}' not allowed. You can make calls to your personal bucket, '{user_bucket}'"
+        err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
@@ -114,12 +189,19 @@ async def s3_endpoint(path: str, request: Request):
     request_path = path.split(user_bucket)[1] or "/"
     api_endpoint = "/".join(request_path.split("/")[1:])
 
-    body = await request.body()
-    body_hash = hashlib.sha256(body).hexdigest()
-    timestamp = request.headers["x-amz-date"]
-    date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
+    body = await request.body()
+    body_hash = hashlib.sha256(body).hexdigest()
+    timestamp = request.headers.get("x-amz-date")
+    if not timestamp and request.headers.get("date"):
+        # assume RFC 1123 format, convert to ISO 8601 basic YYYYMMDD'T'HHMMSS'Z' format
+        dt = datetime.strptime(request.headers["date"], "%a, %d %b %Y %H:%M:%S %Z")
+        timestamp = dt.strftime("%Y%m%dT%H%M%SZ")
+    if not timestamp:
+        # no `x-amz-date` or `date` header, just generate it ourselves
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
     # generate the request headers.
     # overwrite the original `x-amz-content-sha256` header value with the body hash. When this
@@ -127,6 +209,7 @@ async def s3_endpoint(path: str, request: Request):
     # over multiple chunks), we still replace it with the body hash (because I couldn't get the
     # signing to work for "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" - I believe it requires using the signature from the previous chunk).
     # NOTE: This may cause issues when large files are _actually_ uploaded over multiple chunks.
+    # TODO test with an input file >5gb
     headers = {
         "host": f"{user_bucket}.s3.amazonaws.com",
         "x-amz-content-sha256": body_hash,
@@ -209,8 +292,8 @@ async def s3_endpoint(path: str, request: Request):
         data=body,
     )
 
-    if response.status_code != 200:
-        logger.debug(f"Received a non-200 status code from AWS: {response.status_code}")
+    if response.status_code >= 300:
+        logger.debug(f"Received a failure status code from AWS: {response.status_code}")
         # no need to log 404 errors except in debug mode: they are are expected when running
         # workflows (e.g. for Nextflow workflows, error output files may not be present when there
         # were no errors)
@@ -218,13 +301,17 @@ async def s3_endpoint(path: str, request: Request):
             logger.error(f"Error from AWS: {response.status_code} {response.text}")
 
     # return the response from AWS S3.
-    # mask the details of 403 errors from the end user: authentication is done internally by this
+    # - mask the details of 403 errors from the end user: authentication is done internally by this
     # function, so 403 errors are internal service errors
-    resp_contents = response.content if response.status_code != 403 else None
-    if "Content-Type" in response.headers:
-        return Response(
-            content=resp_contents,
-            status_code=response.status_code,
-            media_type=response.headers["Content-Type"],
-        )
-    return Response(content=resp_contents, status_code=response.status_code)
+    # - return all the headers from the AWS response, except `x-amz-bucket-region` which for some
+    # reason causes this error for tasks ran through Nextflow: `The AWS Access Key Id you provided
+    # does not exist in our records`
+    return Response(
+        content=(
+            response.content if response.status_code != HTTP_403_FORBIDDEN else None
+        ),
+        status_code=response.status_code,
+        headers={
+            k: v for k, v in response.headers.items() if k != "x-amz-bucket-region"
+        },
+    )

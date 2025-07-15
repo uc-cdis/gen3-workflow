@@ -2,7 +2,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("endpoint", ["/", "/_status"])
+@pytest.mark.parametrize("endpoint", ["/", "/_status", "/_status/"])
 @pytest.mark.parametrize(
     "client",
     [
@@ -25,8 +25,8 @@ async def test_status_endpoint(client, endpoint):
 
 
 @pytest.mark.asyncio
-async def test_version_endpoint(client):
-    res = await client.get("/_version")
+async def test_version_endpoint(client, trailing_slash):
+    res = await client.get(f"/_version{'/' if trailing_slash else ''}")
     assert res.status_code == 200
 
     version = res.json().get("version")

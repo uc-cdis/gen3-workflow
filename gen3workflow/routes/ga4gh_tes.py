@@ -10,7 +10,12 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
-from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+from starlette.status import (
+    HTTP_200_OK,
+    HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
+    HTTP_403_FORBIDDEN,
+)
 
 from gen3workflow import logger
 from gen3workflow.auth import Auth
@@ -20,7 +25,7 @@ from gen3workflow.config import config
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
 
-async def get_request_body(request: Request):
+async def get_request_body(request: Request) -> dict:
     # read body as bytes, then decode it as string if necessary
     body_bytes = await request.body()
     try:
@@ -31,6 +36,7 @@ async def get_request_body(request: Request):
 
 
 @router.get("/service-info", status_code=HTTP_200_OK)
+@router.get("/service-info/", status_code=HTTP_200_OK, include_in_schema=False)
 async def service_info(request: Request, auth=Depends(Auth)) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES service info")
@@ -38,7 +44,7 @@ async def service_info(request: Request, auth=Depends(Auth)) -> dict:
     url = f"{config['TES_SERVER_URL']}/service-info"
     res = await request.app.async_client.get(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     return res.json()
 
@@ -75,10 +81,12 @@ def get_non_allowed_images(images: set, username: str) -> set:
 
 
 @router.post("/tasks", status_code=HTTP_200_OK)
+@router.post("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
 async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
+    logger.debug(f"Incoming task creation request body: {body}")
 
     # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
     token_claims = await auth.get_token_claims()
@@ -109,12 +117,21 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     if "tags" not in body:
         body["tags"] = {}
+    task_tags = set(t.lower() for t in body["tags"])
+    if "authz" in task_tags:
+        err_msg = "Tag 'AUTHZ' cannot be used. It is a reserved tag."
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
     url = f"{config['TES_SERVER_URL']}/tasks"
-    res = await request.app.async_client.post(url, json=body)
+    res = await request.app.async_client.post(
+        url,
+        json=body,
+        headers={"Authorization": f"bearer {auth.bearer_token.credentials}"},
+    )
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'POST {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     try:
@@ -159,6 +176,7 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 
 
 @router.get("/tasks", status_code=HTTP_200_OK)
+@router.get("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
 async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' listing TES tasks")
@@ -184,7 +202,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await request.app.async_client.get(url, params=query_params)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     listed_tasks = res.json()
 
@@ -222,6 +240,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 
 
 @router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
+@router.get("/tasks/{task_id}/", status_code=HTTP_200_OK, include_in_schema=False)
 async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES task '{task_id}'")
@@ -238,7 +257,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}"
     res = await request.app.async_client.get(url, params=query_params)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     # check if this user has access to see this task
@@ -255,6 +274,9 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
+@router.post(
+    "/tasks/{task_id}/:cancel", status_code=HTTP_200_OK, include_in_schema=False
+)
 async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' canceling TES task '{task_id}'")
@@ -263,7 +285,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
     res = await request.app.async_client.get(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
     body = res.json()
     authz_path = body.get("tags", {}).get("AUTHZ")
@@ -278,7 +300,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
     res = await request.app.async_client.post(url)
     if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at '{url}': {res.status_code} {res.text}")
+        logger.error(f"TES server error at 'POST {url}': {res.status_code} {res.text}")
         raise HTTPException(res.status_code, res.text)
 
     return res.json()

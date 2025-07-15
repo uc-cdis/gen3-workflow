@@ -1,24 +1,55 @@
 from fastapi import FastAPI
-from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.routing import APIRoute
 import httpx
 from importlib.metadata import version
 import os
 import time
 
 from cdislogging import get_logger
+from fastapi import Request
 from gen3authz.client.arborist.async_client import ArboristClient
-from fastapi import Request, HTTPException
+
 from gen3workflow import logger
 from gen3workflow.config import config
 from gen3workflow.metrics import Metrics
 from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
-from gen3workflow.routes.s3 import router as s3_router
+from gen3workflow.routes.s3 import s3_root_router, s3_router
 from gen3workflow.routes.storage import router as storage_router
 from gen3workflow.routes.system import router as system_router
-from gen3workflow.auth import Auth
 
 
 def get_app(httpx_client=None) -> FastAPI:
+    existing_route_ids = set()
+
+    def generate_unique_route_id(route: APIRoute) -> str:
+        """
+        The default operation ID format is `<function name>_<full route>_<method>`.
+        A bug is causing the operation IDs for routes with multiple methods to not be
+        generated properly (the method in the ID doesn't match the actual operation method).
+        The OpenAPI docs generated currently have the error `Operations must have unique
+        operationIds` for any route that has multiple methods. There isn't currently a way
+        to generate an operation ID per method.
+        See https://github.com/fastapi/fastapi/issues/13175 and
+        https://github.com/fastapi/fastapi/pull/10694
+
+        This function simplifies the operation IDs to just `<function name>`.
+        It also adds a digit to operation IDs when there is more than 1 route with the same name.
+        For example, the code below would result in 2 operation IDs `get_status` and `get_status_2`.
+        @router.get("/status")
+        @router.get("/_status")
+        async def get_status():
+            [...]
+        """
+        if not route.include_in_schema:
+            return route.name
+        route_id = route.name
+        i = 2
+        while route_id in existing_route_ids:
+            route_id = f"{route.name}_{i}"
+            i += 1
+        existing_route_ids.add(route_id)
+        return route_id
+
     logger.info("Initializing app")
     config.validate()
 
@@ -30,12 +61,14 @@ def get_app(httpx_client=None) -> FastAPI:
         version=version("gen3workflow"),
         debug=config["APP_DEBUG"],
         root_path=config["DOCS_URL_PREFIX"],
+        generate_unique_id_function=generate_unique_route_id,
     )
     app.async_client = httpx_client or httpx.AsyncClient()
     app.include_router(ga4gh_tes_router, tags=["GA4GH TES"])
     app.include_router(s3_router, tags=["S3"])
     app.include_router(storage_router, tags=["Storage"])
     app.include_router(system_router, tags=["System"])
+    app.include_router(s3_root_router, tags=["S3"])
 
     # Following will update logger level, propagate, and handlers
     get_logger("gen3workflow", log_level=log_level)
