@@ -52,7 +52,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     """
     auth_header = headers.get("authorization")
     if not auth_header:
-        err_msg = "Not authenticated"
+        err_msg = "No Authorization header"
         logger.error(f"{err_msg}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     if auth_header.lower().startswith("bearer"):

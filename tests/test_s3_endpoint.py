@@ -302,7 +302,7 @@ async def test_set_access_token_and_get_user_id_invalid_auth():
     when a bearer token is used, or when the authorization header format is invalid.
     """
     # anonymous call (no authorization header): error
-    with pytest.raises(HTTPException, match="401: Not authenticated"):
+    with pytest.raises(HTTPException, match="401: No Authorization header"):
         await set_access_token_and_get_user_id(None, {})
 
     # unsupported bearer token: error.
