@@ -20,6 +20,7 @@ from starlette.status import (
 from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
+from gen3workflow.routes.utils import make_tes_server_request
 
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
@@ -42,10 +43,7 @@ async def service_info(request: Request, auth=Depends(Auth)) -> dict:
     logger.info(f"User '{user_id}' getting TES service info")
 
     url = f"{config['TES_SERVER_URL']}/service-info"
-    res = await request.app.async_client.get(url)
-    if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
-        raise HTTPException(res.status_code, res.text)
+    res = await make_tes_server_request(request.app.async_client, "get", url)
     return res.json()
 
 
@@ -125,14 +123,13 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
     url = f"{config['TES_SERVER_URL']}/tasks"
-    res = await request.app.async_client.post(
+    res = await make_tes_server_request(
+        request.app.async_client,
+        "post",
         url,
         json=body,
         headers={"Authorization": f"bearer {auth.bearer_token.credentials}"},
     )
-    if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at 'POST {url}': {res.status_code} {res.text}")
-        raise HTTPException(res.status_code, res.text)
 
     try:
         await auth.grant_user_access_to_their_own_tasks(
@@ -200,10 +197,9 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 
     # get all the tasks, regardless of access
     url = f"{config['TES_SERVER_URL']}/tasks"
-    res = await request.app.async_client.get(url, params=query_params)
-    if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
-        raise HTTPException(res.status_code, res.text)
+    res = await make_tes_server_request(
+        request.app.async_client, "get", url, params=query_params
+    )
     listed_tasks = res.json()
 
     # get all the tasks' authz resource paths, replacing the task ID placeholder with the actual ID
@@ -255,10 +251,9 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     query_params["view"] = "FULL"
 
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}"
-    res = await request.app.async_client.get(url, params=query_params)
-    if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
-        raise HTTPException(res.status_code, res.text)
+    res = await make_tes_server_request(
+        request.app.async_client, "get", url, params=query_params
+    )
 
     # check if this user has access to see this task
     body = res.json()
@@ -283,10 +278,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
 
     # check if this user has access to delete this task
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
-    res = await request.app.async_client.get(url)
-    if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at 'GET {url}': {res.status_code} {res.text}")
-        raise HTTPException(res.status_code, res.text)
+    res = await make_tes_server_request(request.app.async_client, "get", url)
     body = res.json()
     authz_path = body.get("tags", {}).get("AUTHZ")
     if not authz_path:
@@ -298,9 +290,6 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
 
     # the user has access: delete the task
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}:cancel"
-    res = await request.app.async_client.post(url)
-    if res.status_code != HTTP_200_OK:
-        logger.error(f"TES server error at 'POST {url}': {res.status_code} {res.text}")
-        raise HTTPException(res.status_code, res.text)
+    res = await make_tes_server_request(request.app.async_client, "post", url)
 
     return res.json()
