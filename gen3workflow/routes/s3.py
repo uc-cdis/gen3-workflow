@@ -50,7 +50,6 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     Returns:
         str: the user's ID
     """
-    print("set_access_token_and_get_user_id headers", headers)
     auth_header = headers.get("authorization")
     if not auth_header:
         err_msg = "No Authorization header"
