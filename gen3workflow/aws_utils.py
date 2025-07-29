@@ -9,7 +9,14 @@ from gen3workflow.config import config
 
 iam_client = boto3.client("iam")
 kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
-s3_client = boto3.client("s3")
+if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
+    )
+else:
+    s3_client = boto3.client("s3")
 
 
 def get_safe_name_from_hostname(user_id: Union[str, None]) -> str:
