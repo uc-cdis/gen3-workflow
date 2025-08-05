@@ -96,7 +96,7 @@ def get_app(httpx_client=None) -> FastAPI:
     )
 
     if app.metrics.enabled:
-        app.mount("/metrics/", app.metrics.get_asgi_app())
+        app.mount("/metrics", app.metrics.get_asgi_app())
 
     app.include_router(s3_root_router, tags=["S3"])
 
