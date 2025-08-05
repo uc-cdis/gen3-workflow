@@ -4,11 +4,6 @@ set -e
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${CURRENT_DIR}/_common_setup.sh"
-
-echo "installing dependencies with 'poetry install -vv'..."
-poetry install -vv
-poetry env info
-
 source "${CURRENT_DIR}/_setup_db.sh"
 
 
