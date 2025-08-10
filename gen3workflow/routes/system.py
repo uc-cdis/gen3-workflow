@@ -27,6 +27,6 @@ async def get_status(request: Request) -> dict:
     return dict(status="OK")
 
 
-# @router.get("/metrics", include_in_schema=False)
-# async def redirect_metrics():
-#     return RedirectResponse(url="/metrics/")
+@router.get("/metrics", include_in_schema=False)
+async def redirect_metrics():
+    return RedirectResponse(url="/metrics/")
