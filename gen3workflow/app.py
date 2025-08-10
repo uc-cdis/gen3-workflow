@@ -122,7 +122,7 @@ def get_app(httpx_client=None) -> FastAPI:
 
         # NOTE: If adding more endpoints to metrics, try making it configurable using a list of paths and methods in config.
         # For now, we are only interested in the "/ga4gh/tes/v1/tasks" endpoint for metrics.
-        if method != "POST" or path != "/ga4gh/tes/v1/tasks":
+        if method != "POST" or path.rstrip("/") != "/ga4gh/tes/v1/tasks":
             return response
 
         metrics = app.metrics
