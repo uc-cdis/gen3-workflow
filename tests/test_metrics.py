@@ -31,4 +31,8 @@ async def test_metrics_endpoint(client, trailing_slash):
 
     # Metrics endpoint is mounted at /metrics/,
     # so when trying to access it without a trailing slash, it should redirect, returning a 307 status code.
-    assert res.status_code == 200 if trailing_slash else 307
+    if trailing_slash:
+        assert res.status_code == 200
+    else:
+        assert res.status_code == 307
+        assert res.next_request.url == "http://test-gen3-wf/metrics/"
