@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 
 from gen3workflow import logger
@@ -25,8 +24,3 @@ async def get_status(request: Request) -> dict:
     except Exception:
         raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, "Unable to reach TES API")
     return dict(status="OK")
-
-
-@router.get("/metrics", include_in_schema=False)
-async def redirect_metrics():
-    return RedirectResponse(url="/metrics/")
