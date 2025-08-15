@@ -15,3 +15,7 @@ else
 fi
 # Source the environment variables from the metrics setup script
 source "${CURRENT_DIR}/setup_prometheus.sh" $PROMETHEUS_MULTIPROC_DIR
+
+echo "installing dependencies with 'poetry install -vv'..."
+poetry install -vv
+poetry env info
