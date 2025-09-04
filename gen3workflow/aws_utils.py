@@ -15,8 +15,15 @@ if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
         aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
         aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
     )
+    kms_client = boto3.client(
+        "kms",
+        aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
+        region_name=config["USER_BUCKETS_REGION"],
+    )
 else:
     s3_client = boto3.client("s3")
+    kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
 
 
 def get_safe_name_from_hostname(user_id: Union[str, None]) -> str:
