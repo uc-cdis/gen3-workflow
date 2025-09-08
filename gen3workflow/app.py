@@ -68,7 +68,6 @@ def get_app(httpx_client=None) -> FastAPI:
     app.include_router(s3_router, tags=["S3"])
     app.include_router(storage_router, tags=["Storage"])
     app.include_router(system_router, tags=["System"])
-    app.include_router(s3_root_router, tags=["S3"])
 
     # Following will update logger level, propagate, and handlers
     get_logger("gen3workflow", log_level=log_level)
@@ -99,6 +98,8 @@ def get_app(httpx_client=None) -> FastAPI:
     if app.metrics.enabled:
         app.mount("/metrics", app.metrics.get_asgi_app())
 
+    app.include_router(s3_root_router, tags=["S3"])
+
     @app.middleware("http")
     async def middleware_log_response_and_api_metric(
         request: Request, call_next
@@ -121,7 +122,7 @@ def get_app(httpx_client=None) -> FastAPI:
 
         # NOTE: If adding more endpoints to metrics, try making it configurable using a list of paths and methods in config.
         # For now, we are only interested in the "/ga4gh/tes/v1/tasks" endpoint for metrics.
-        if method != "POST" or path != "/ga4gh/tes/v1/tasks":
+        if method != "POST" or path.rstrip("/") != "/ga4gh/tes/v1/tasks":
             return response
 
         metrics = app.metrics
