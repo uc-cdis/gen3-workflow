@@ -158,6 +158,21 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
     """
     user_bucket_name = get_safe_name_from_hostname(user_id)
+    try:
+        s3_client.head_bucket(Bucket=user_bucket_name)
+        logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
+        return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
+
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code != "404":
+            logger.error(
+                f"Error checking existence of bucket '{user_bucket_name}' for user '{user_id}': {e}"
+            )
+            raise
+    logger.info(
+        f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user '{user_id}'"
+    )
     if config["USER_BUCKETS_REGION"] == "us-east-1":
         # it's the default region and cannot be specified in `LocationConstraint`
         s3_client.create_bucket(Bucket=user_bucket_name)
