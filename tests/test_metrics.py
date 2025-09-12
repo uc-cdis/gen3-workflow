@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import patch
+from conftest import trailing_slash, TEST_USER_TOKEN
 
 
 @pytest.mark.asyncio
@@ -19,3 +20,19 @@ async def test_metrics_collection(client, endpoint):
         else:
             await client.get(endpoint)
             mock_metrics.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint(client, trailing_slash):
+    res = await client.get(
+        f"/metrics{'/' if trailing_slash else ''}",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+
+    # Metrics endpoint is mounted at /metrics/,
+    # so when trying to access it without a trailing slash, it should redirect, returning a 307 status code.
+    if trailing_slash:
+        assert res.status_code == 200
+    else:
+        assert res.status_code == 307
+        assert res.next_request.url == "http://test-gen3-wf/metrics/"
