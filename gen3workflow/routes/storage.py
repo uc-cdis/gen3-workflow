@@ -20,7 +20,7 @@ async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
         "bucket": bucket_name,
         "workdir": f"s3://{bucket_name}/{bucket_prefix}",
         "region": bucket_region,
-        "kms_key_id": kms_key_arn.split("/")[-1] if kms_key_arn else None,
+        "kms_key_id": kms_key_arn if kms_key_arn else None,
     }
 
 
