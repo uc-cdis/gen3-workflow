@@ -306,7 +306,7 @@ async def s3_endpoint(path: str, request: Request):
     # - return all the headers from the AWS response, except `x-amz-bucket-region` which for some
     # reason causes this error for tasks ran through Nextflow: `The AWS Access Key Id you provided
     # does not exist in our records`
-    response_obj = Response(
+    return Response(
         content=(
             response.content if response.status_code != HTTP_403_FORBIDDEN else None
         ),
@@ -315,5 +315,3 @@ async def s3_endpoint(path: str, request: Request):
             k: v for k, v in response.headers.items() if k != "x-amz-bucket-region"
         },
     )
-    logger.debug(f"Returning S3 response with content {response.content}")
-    return response_obj
