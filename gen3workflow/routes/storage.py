@@ -3,7 +3,7 @@ from starlette.status import HTTP_200_OK, HTTP_204_NO_CONTENT, HTTP_404_NOT_FOUN
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
-
+from gen3workflow.config import config
 
 router = APIRouter(prefix="/storage")
 
@@ -20,7 +20,9 @@ async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
         "bucket": bucket_name,
         "workdir": f"s3://{bucket_name}/{bucket_prefix}",
         "region": bucket_region,
-        "kms_key_arn": kms_key_arn if kms_key_arn else None,
+        "kms_key_arn": (
+            kms_key_arn if config["KMS_ENCRYPTION_ENABLED"] and kms_key_arn else None
+        ),
     }
 
 
