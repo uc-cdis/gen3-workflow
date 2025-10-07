@@ -349,7 +349,7 @@ async def client(request):
                 authorized=authorized,
             )
         elif url.startswith(
-            f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.amazonaws.com"
+            f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
         ):
             # mock calls to AWS S3
             mocked_response = httpx.Response(

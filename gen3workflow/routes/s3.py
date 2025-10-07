@@ -211,7 +211,7 @@ async def s3_endpoint(path: str, request: Request):
     # NOTE: This may cause issues when large files are _actually_ uploaded over multiple chunks.
     # TODO test with an input file >5gb
     headers = {
-        "host": f"{user_bucket}.s3.amazonaws.com",
+        "host": f"{user_bucket}.s3.{region}.amazonaws.com",
         "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
@@ -282,7 +282,7 @@ async def s3_endpoint(path: str, request: Request):
     headers["authorization"] = (
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
-    s3_api_url = f"https://{user_bucket}.s3.amazonaws.com/{api_endpoint}"
+    s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
     response = await request.app.async_client.request(
         method=request.method,
@@ -293,7 +293,9 @@ async def s3_endpoint(path: str, request: Request):
     )
 
     if response.status_code >= 300:
-        logger.debug(f"Received a failure status code from AWS: {response.status_code}")
+        logger.debug(
+            f"Received a failure status code from AWS: {response.status_code}. {response.text=}"
+        )
         # no need to log 404 errors except in debug mode: they are are expected when running
         # workflows (e.g. for Nextflow workflows, error output files may not be present when there
         # were no errors)
