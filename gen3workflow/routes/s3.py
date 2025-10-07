@@ -293,7 +293,9 @@ async def s3_endpoint(path: str, request: Request):
     )
 
     if response.status_code >= 300:
-        logger.debug(f"Received a failure status code from AWS: {response.status_code}")
+        logger.debug(
+            f"Received a failure status code from AWS: {response.status_code}. {response.text=}"
+        )
         # no need to log 404 errors except in debug mode: they are are expected when running
         # workflows (e.g. for Nextflow workflows, error output files may not be present when there
         # were no errors)
