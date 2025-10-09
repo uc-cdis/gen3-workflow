@@ -31,15 +31,16 @@ def get_safe_name_from_hostname(
     user_id: Union[str, None], reserved_length: int = 0
 ) -> str:
     """
-    Generate a valid IAM user name or S3 bucket name for the specified user.
-    - IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
-    and/or the following: +=,.@_- (not enforced here since user IDs and hostname should not contain
-    special characters).
-    - S3 bucket names can contain up to 63 characters.
-
+    Generate a valid and length-safe name (for IAM user, S3 bucket, or IAM role)
+    derived from the configured hostname and optional user ID.
+    Rules:
+    - IAM user names: up to 64 characters.
+    - S3 bucket / IAM role names: up to 63 characters.
+    - Only alphanumeric characters and the following are allowed: +=,.@_-
+        (assumes HOSTNAME and user IDs are already compliant).
     Args:
-        user_id (str): The user's unique Gen3 ID. If None, will not be included in the safe name.
-        reserve_length (int): number of characters to reserve for suffixes when calculating max length
+        user_id (str | None): The user's unique Gen3 ID. If None, will not be included in the safe name.
+        reserve_length (int): Number of characters to reserve for prefixes/suffixes.
 
     Returns:
         str: safe name
@@ -54,6 +55,19 @@ def get_safe_name_from_hostname(
     if user_id:
         safe_name = f"{safe_name}-{user_id}"
     return safe_name
+
+
+def get_bucket_name_from_user_id(user_id: str) -> str:
+    """
+    Generate the S3 bucket name for the specified user.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+    Returns:
+        str: S3 bucket name
+    """
+    # Abstracted for future flexibility — currently same as safe name.
+    return get_safe_name_from_hostname(user_id)
 
 
 def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
@@ -78,7 +92,7 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         raise
 
 
-def create_iam_role_for_bucket_access(user_id: str, bucket_name: str) -> str:
+def create_iam_role_for_bucket_access(user_id: str) -> str:
     """
     Create an IAM role that can be assumed by EC2 instances to access the specified S3 bucket and KMS keys (if enabled).
     Args:
@@ -95,6 +109,7 @@ def create_iam_role_for_bucket_access(user_id: str, bucket_name: str) -> str:
         user_id, reserved_length=len(role_name_suffix)
     )
     role_name = f"{safe_name}{role_name_suffix}"
+    bucket_name = get_bucket_name_from_user_id(user_id)
 
     try:
         worker_role = iam_client.get_role(RoleName=role_name)
@@ -281,7 +296,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     Returns:
         tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
     """
-    user_bucket_name = get_safe_name_from_hostname(user_id)
+    user_bucket_name = get_bucket_name_from_user_id(user_id)
     try:
         s3_client.head_bucket(Bucket=user_bucket_name)
         logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
@@ -412,7 +427,7 @@ def delete_user_bucket(user_id: str) -> Union[str, None]:
     Raises:
         Exception: If there is an error during the deletion process.
     """
-    user_bucket_name = get_safe_name_from_hostname(user_id)
+    user_bucket_name = get_bucket_name_from_user_id(user_id)
 
     try:
         s3_client.head_bucket(Bucket=user_bucket_name)
