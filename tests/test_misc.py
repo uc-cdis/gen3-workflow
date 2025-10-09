@@ -69,11 +69,16 @@ async def test_storage_info(
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     assert res.status_code == 200, res.text
+
+    kms_key = aws_utils.kms_client.describe_key(KeyId=f"alias/{expected_bucket_name}")
+    kms_key_arn = kms_key["KeyMetadata"]["Arn"]
+
     storage_info = res.json()
     assert storage_info == {
         "bucket": expected_bucket_name,
         "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
         "region": config["USER_BUCKETS_REGION"],
+        "kms_key_arn": kms_key_arn,
     }
 
     # check that the bucket was created after the call to `/storage/info`
@@ -81,8 +86,6 @@ async def test_storage_info(
     assert bucket_exists, "Bucket does not exist"
 
     # check that the bucket is setup with KMS encryption
-    kms_key = aws_utils.kms_client.describe_key(KeyId=f"alias/{expected_bucket_name}")
-    kms_key_arn = kms_key["KeyMetadata"]["Arn"]
     bucket_encryption = aws_utils.s3_client.get_bucket_encryption(
         Bucket=expected_bucket_name
     )
