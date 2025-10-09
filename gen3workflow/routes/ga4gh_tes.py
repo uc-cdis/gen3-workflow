@@ -21,6 +21,7 @@ from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
 from gen3workflow.routes.utils import make_tes_server_request
+from gen3workflow import aws_utils
 
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
@@ -121,7 +122,9 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
-
+    body["tags"]["funnel_worker_role_arn"] = (
+        aws_utils.create_iam_role_for_bucket_access(user_id)
+    )
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
