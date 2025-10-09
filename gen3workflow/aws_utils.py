@@ -16,8 +16,15 @@ if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
         aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
         aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
     )
+    kms_client = boto3.client(
+        "kms",
+        aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
+        region_name=config["USER_BUCKETS_REGION"],
+    )
 else:
     s3_client = boto3.client("s3")
+    kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
 
 
 def get_safe_name_from_hostname(
@@ -278,7 +285,6 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     try:
         s3_client.head_bucket(Bucket=user_bucket_name)
         logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
-        return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
 
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
@@ -287,20 +293,41 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
                 f"Error checking existence of bucket '{user_bucket_name}' for user '{user_id}': {e}"
             )
             raise
-    logger.info(
-        f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user '{user_id}'"
-    )
-    if config["USER_BUCKETS_REGION"] == "us-east-1":
-        # it's the default region and cannot be specified in `LocationConstraint`
-        s3_client.create_bucket(Bucket=user_bucket_name)
-    else:
-        s3_client.create_bucket(
-            Bucket=user_bucket_name,
-            CreateBucketConfiguration={
-                "LocationConstraint": config["USER_BUCKETS_REGION"]
-            },
+        logger.info(
+            f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user '{user_id}'"
         )
-    logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
+        if config["USER_BUCKETS_REGION"] == "us-east-1":
+            # it's the default region and cannot be specified in `LocationConstraint`
+            s3_client.create_bucket(Bucket=user_bucket_name)
+        else:
+            s3_client.create_bucket(
+                Bucket=user_bucket_name,
+                CreateBucketConfiguration={
+                    "LocationConstraint": config["USER_BUCKETS_REGION"]
+                },
+            )
+        logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
+
+        expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
+        logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
+        s3_client.put_bucket_lifecycle_configuration(
+            Bucket=user_bucket_name,
+            LifecycleConfiguration={
+                "Rules": [
+                    {
+                        "ID": f"ExpireAllAfter{expiration_days}Days",
+                        "Expiration": {"Days": expiration_days},
+                        "Status": "Enabled",
+                        # apply to all objects:
+                        "Filter": {"Prefix": ""},
+                    },
+                ],
+            },
+            # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5, which is
+            # not allowed by FIPS. When FIPS mode is enabled, not specifying the algorithm causes this
+            # error: `Missing required header for this request: Content-MD5`.
+            ChecksumAlgorithm="SHA256",
+        )
 
     if config["KMS_ENCRYPTION_ENABLED"]:
         setup_kms_encryption_on_bucket(user_bucket_name)
@@ -308,27 +335,6 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
-
-    expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
-    logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
-    s3_client.put_bucket_lifecycle_configuration(
-        Bucket=user_bucket_name,
-        LifecycleConfiguration={
-            "Rules": [
-                {
-                    "ID": f"ExpireAllAfter{expiration_days}Days",
-                    "Expiration": {"Days": expiration_days},
-                    "Status": "Enabled",
-                    # apply to all objects:
-                    "Filter": {"Prefix": ""},
-                },
-            ],
-        },
-        # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5, which is
-        # not allowed by FIPS. When FIPS mode is enabled, not specifying the algorithm causes this
-        # error: `Missing required header for this request: Content-MD5`.
-        ChecksumAlgorithm="SHA256",
-    )
 
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
 
