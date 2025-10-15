@@ -2,6 +2,7 @@ from typing import Tuple, Union
 
 import boto3
 import json
+import os
 from botocore.exceptions import ClientError
 
 from gen3workflow import logger
@@ -25,6 +26,10 @@ if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
 else:
     s3_client = boto3.client("s3")
     kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
+
+aws_account_id = os.environ.get("AWS_ACCOUNT_ID")
+oidc_token_url = os.environ.get("OIDC_TOKEN_PROVIDER_URL")
+worker_namespace = os.environ.get("WORKER_PODS_NAMESPACE")
 
 
 def get_safe_name_from_hostname(
@@ -55,6 +60,19 @@ def get_safe_name_from_hostname(
     if user_id:
         safe_name = f"{safe_name}-{user_id}"
     return safe_name
+
+
+def get_worker_sa_name(user_id: str) -> str:
+    """
+    Generate the name of the Kubernetes service account used by worker pods for the specified user.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+    Returns:
+        str: service account name
+    """
+    safe_name = get_safe_name_from_hostname(user_id, reserved_length=len("-worker-sa"))
+    return f"{safe_name}-worker-sa"
 
 
 def get_bucket_name_from_user_id(user_id: str) -> str:
@@ -124,7 +142,21 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
                         "Effect": "Allow",
                         "Principal": {"Service": "ec2.amazonaws.com"},
                         "Action": "sts:AssumeRole",
-                    }
+                    },
+                    {
+                        "Sid": "",
+                        "Effect": "Allow",
+                        "Principal": {
+                            f"Federated": f"arn:aws:iam::{aws_account_id}:oidc-provider/{oidc_token_url}"
+                        },
+                        "Action": "sts:AssumeRoleWithWebIdentity",
+                        "Condition": {
+                            "StringEquals": {
+                                f"{oidc_token_url}:sub": f"system:serviceaccount:{worker_namespace}:{get_worker_sa_name(user_id)}",
+                                f"{oidc_token_url}:aud": "sts.amazonaws.com",
+                            }
+                        },
+                    },
                 ],
             }
             worker_role = iam_client.create_role(

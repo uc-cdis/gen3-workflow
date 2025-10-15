@@ -125,6 +125,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     body["tags"]["funnel_worker_role_arn"] = (
         aws_utils.create_iam_role_for_bucket_access(user_id)
     )
+    body["tags"]["worker_sa"] = aws_utils.get_worker_sa_name(user_id)
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
