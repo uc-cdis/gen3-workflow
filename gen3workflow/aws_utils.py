@@ -10,7 +10,6 @@ from gen3workflow.config import config
 
 
 iam_client = boto3.client("iam")
-kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
 if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
     s3_client = boto3.client(
         "s3",
@@ -27,8 +26,14 @@ else:
     s3_client = boto3.client("s3")
     kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
 
-aws_account_id = os.environ.get("AWS_ACCOUNT_ID")
-oidc_token_url = os.environ.get("OIDC_TOKEN_PROVIDER_URL")
+aws_account_id = boto3.client("sts").get_caller_identity().get("Account")
+oidc_token_url = (
+    boto3.client("eks")
+    .describe_cluster(name=os.environ.get("CLUSTER_NAME"))["cluster"]["identity"][
+        "oidc"
+    ]["issuer"]
+    .replace("https://", "")
+)
 worker_namespace = os.environ.get("WORKER_PODS_NAMESPACE")
 
 
@@ -144,7 +149,6 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
                         "Action": "sts:AssumeRole",
                     },
                     {
-                        "Sid": "",
                         "Effect": "Allow",
                         "Principal": {
                             f"Federated": f"arn:aws:iam::{aws_account_id}:oidc-provider/{oidc_token_url}"
