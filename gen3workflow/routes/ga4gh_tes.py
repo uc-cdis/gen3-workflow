@@ -269,6 +269,15 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     body["tags"]["AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [body["tags"]["AUTHZ"]])
 
+    # Eliminate fields not needed to the end user
+    tags_not_meant_for_user = [
+        "funnel_worker_role_arn",
+        "worker_sa",
+    ]
+    for field in tags_not_meant_for_user:
+        if field in body.get("tags", {}):
+            del body["tags"][field]
+
     return apply_view_to_task(requested_view, body)
 
 
