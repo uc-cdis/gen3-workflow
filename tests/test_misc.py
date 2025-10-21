@@ -27,7 +27,7 @@ def mock_aws_services():
         )
         aws_utils.s3_client = boto3.client("s3")
         aws_utils.sts_client = boto3.client("sts")
-        aws_utils.eks_client = boto3.client("eks")
+        aws_utils.eks_client = boto3.client("eks", region_name="us-east-1")
 
         # Setup: Create a mock EKS cluster in the virtual environment
         cluster_name = "test-cluster"
