@@ -149,7 +149,7 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
             )
             aws_account_id = sts_client.get_caller_identity().get("Account")
             oidc_token_url = eks_client.describe_cluster(
-                name=os.environ.get("CLUSTER_NAME")
+                name=os.environ.get("EKS_CLUSTER_NAME")
             )["cluster"]["identity"]["oidc"]["issuer"].replace("https://", "")
 
             worker_namespace = os.environ.get("WORKER_PODS_NAMESPACE")
