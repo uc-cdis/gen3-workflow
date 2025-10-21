@@ -29,8 +29,6 @@ def get_boto3_client(service_name: str, **kwargs):
 iam_client = get_boto3_client("iam")
 s3_client = get_boto3_client("s3")
 kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
-sts_client = get_boto3_client("sts")
-eks_client = get_boto3_client("eks")
 
 
 def get_safe_name_from_hostname(
@@ -135,18 +133,25 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
         logger.debug(f"IAM role '{role_name}' already exists")
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchEntity":
-            if (
-                "WORKER_PODS_NAMESPACE" not in os.environ
-                or "CLUSTER_NAME" not in os.environ
-            ):
+            required_env_vars = [
+                "WORKER_PODS_NAMESPACE",
+                "EKS_CLUSTER_NAME",
+                "EKS_CLUSTER_REGION",
+            ]
+            if any(env_var not in os.environ for env_var in required_env_vars):
                 raise Exception(
-                    "Environment variables 'WORKER_PODS_NAMESPACE' and 'CLUSTER_NAME' must be set to create IAM roles for worker pods"
+                    f"Environment variables {','.join(required_env_vars)} must be set to create IAM roles for worker pods"
                 )
             logger.info(f"Creating IAM role '{role_name}'")
+            sts_client = get_boto3_client("sts")
+            eks_client = get_boto3_client(
+                "eks", region_name=os.environ.get("EKS_CLUSTER_REGION")
+            )
             aws_account_id = sts_client.get_caller_identity().get("Account")
             oidc_token_url = eks_client.describe_cluster(
                 name=os.environ.get("CLUSTER_NAME")
             )["cluster"]["identity"]["oidc"]["issuer"].replace("https://", "")
+
             worker_namespace = os.environ.get("WORKER_PODS_NAMESPACE")
             assume_role_policy_document = {
                 "Version": "2012-10-17",
