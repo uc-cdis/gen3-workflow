@@ -10,6 +10,7 @@ from conftest import (
     TEST_USER_TOKEN,
 )
 
+from test_misc import mock_aws_services
 
 client_parameters = [
     pytest.param({"authorized": True, "tes_resp_code": 200}, id="success"),
@@ -103,7 +104,9 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
-async def test_create_task(client, access_token_patcher, trailing_slash):
+async def test_create_task(
+    client, access_token_patcher, mock_aws_services, trailing_slash
+):
     """
     Calls to `POST /ga4gh/tes/v1/tasks` should be forwarded to the TES server, along with the
     request body. A tag containing the user ID should be added.
@@ -126,11 +129,19 @@ async def test_create_task(client, access_token_patcher, trailing_slash):
             assert res.json() == {"detail": "TES server error"}
         else:
             assert res.json() == {"id": "123"}
+        task_body = {
+            "name": "test-task",
+            "tags": {
+                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+                "funnel_worker_role_arn": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-worker-role",
+                "worker_sa": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+            },
+        }
         mock_tes_server_request.assert_called_once_with(
             method="POST",
             path="/tasks",
             query_params={},
-            body=f'{{"name":"test-task","tags":{{"AUTHZ":"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
+            body=json.dumps(task_body, separators=(",", ":")),
             status_code=client.tes_resp_code,
         )
 
@@ -154,7 +165,7 @@ async def test_create_task(client, access_token_patcher, trailing_slash):
 @pytest.mark.parametrize(
     "access_token_patcher", [{"user_id": NEW_TEST_USER_ID}], indirect=True
 )
-async def test_create_task_new_user(client, access_token_patcher):
+async def test_create_task_new_user(client, access_token_patcher, mock_aws_services):
     """
     When a user who does not yet have access to their own tasks creates a task, calls to Arborist
     should be made to create a resource, role, policy and user, and to grant the user access.
@@ -166,11 +177,19 @@ async def test_create_task_new_user(client, access_token_patcher):
     )
     assert res.status_code == 200, res.text
     assert res.json() == {"id": "123"}
+    test_task_body = {
+        "name": "test-task",
+        "tags": {
+            "AUTHZ": f"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+            "funnel_worker_role_arn": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{NEW_TEST_USER_ID}-funnel-worker-role",
+            "worker_sa": f"gen3wf-localhost-{NEW_TEST_USER_ID}-worker-sa",
+        },
+    }
     mock_tes_server_request.assert_called_once_with(
         method="POST",
         path="/tasks",
         query_params={},
-        body=f'{{"name":"test-task","tags":{{"AUTHZ":"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"}}}}',
+        body=json.dumps(test_task_body, separators=(",", ":")),
         status_code=200,
     )
 
@@ -348,7 +367,12 @@ async def test_create_task_with_authz_tag(client, access_token_patcher):
     ],
 )
 async def test_create_task_with_whitelist_images(
-    client, access_token_patcher, req_body, status_code, error_message
+    client,
+    access_token_patcher,
+    mock_aws_services,
+    req_body,
+    status_code,
+    error_message,
 ):
     """
     Requests to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server along with the request body.
@@ -367,7 +391,9 @@ async def test_create_task_with_whitelist_images(
         result_body = {
             "executors": req_body["executors"],
             "tags": {
-                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+                "funnel_worker_role_arn": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-worker-role",
+                "worker_sa": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
             },
         }
         mock_tes_server_request.assert_called_once_with(

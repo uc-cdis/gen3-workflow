@@ -26,6 +26,17 @@ def mock_aws_services():
             "kms", region_name=config["USER_BUCKETS_REGION"]
         )
         aws_utils.s3_client = boto3.client("s3")
+        aws_utils.sts_client = boto3.client("sts")
+        aws_utils.eks_client = boto3.client("eks")
+
+        # Setup: Create a mock EKS cluster in the virtual environment
+        cluster_name = "test-cluster"
+
+        aws_utils.eks_client.create_cluster(
+            name=cluster_name,
+            roleArn="arn:aws:iam::123456789012:role/mock-eks-role",
+            resourcesVpcConfig={"subnetIds": ["subnet-12345"]},
+        )
 
         yield
 

@@ -9,32 +9,28 @@ from gen3workflow import logger
 from gen3workflow.config import config
 
 
-iam_client = boto3.client("iam")
-if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
-    s3_client = boto3.client(
-        "s3",
-        aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
-    )
-    kms_client = boto3.client(
-        "kms",
-        aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
-        region_name=config["USER_BUCKETS_REGION"],
-    )
-else:
-    s3_client = boto3.client("s3")
-    kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
+def get_boto3_client(service_name: str, **kwargs):
+    """
+    Create a boto3 client for the specified AWS service,
+    using credentials from the config if provided,
+    otherwise using IRSA as a fallback in the credential provider chain.
+    """
+    if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
+        return boto3.client(
+            service_name,
+            aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
+            **kwargs,
+        )
+    else:
+        return boto3.client(service_name, **kwargs)
 
-aws_account_id = boto3.client("sts").get_caller_identity().get("Account")
-oidc_token_url = (
-    boto3.client("eks")
-    .describe_cluster(name=os.environ.get("CLUSTER_NAME"))["cluster"]["identity"][
-        "oidc"
-    ]["issuer"]
-    .replace("https://", "")
-)
-worker_namespace = os.environ.get("WORKER_PODS_NAMESPACE")
+
+iam_client = get_boto3_client("iam")
+s3_client = get_boto3_client("s3")
+kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
+sts_client = get_boto3_client("sts")
+eks_client = get_boto3_client("eks")
 
 
 def get_safe_name_from_hostname(
@@ -139,7 +135,19 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
         logger.debug(f"IAM role '{role_name}' already exists")
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchEntity":
+            if (
+                "WORKER_PODS_NAMESPACE" not in os.environ
+                or "CLUSTER_NAME" not in os.environ
+            ):
+                raise Exception(
+                    "Environment variables 'WORKER_PODS_NAMESPACE' and 'CLUSTER_NAME' must be set to create IAM roles for worker pods"
+                )
             logger.info(f"Creating IAM role '{role_name}'")
+            aws_account_id = sts_client.get_caller_identity().get("Account")
+            oidc_token_url = eks_client.describe_cluster(
+                name=os.environ.get("CLUSTER_NAME")
+            )["cluster"]["identity"]["oidc"]["issuer"].replace("https://", "")
+            worker_namespace = os.environ.get("WORKER_PODS_NAMESPACE")
             assume_role_policy_document = {
                 "Version": "2012-10-17",
                 "Statement": [
