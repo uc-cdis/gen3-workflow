@@ -122,6 +122,8 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
 
+    # Create Karpented resources before creating the TES task
+
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
