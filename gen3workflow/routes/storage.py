@@ -14,8 +14,9 @@ async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     logger.info(f"User '{user_id}' getting their own storage info")
-    bucket_name, bucket_prefix, bucket_region = aws_utils.create_user_bucket(user_id)
-    _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(bucket_name)
+    bucket_name, bucket_prefix, bucket_region, kms_key_arn = (
+        aws_utils.create_user_bucket(user_id)
+    )
     return {
         "bucket": bucket_name,
         "workdir": f"s3://{bucket_name}/{bucket_prefix}",

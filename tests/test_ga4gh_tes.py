@@ -133,8 +133,8 @@ async def test_create_task(
             "name": "test-task",
             "tags": {
                 "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
-                "funnel_worker_role_arn": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-worker-role",
-                "worker_sa": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+                "FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
+                "WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
             },
         }
         mock_tes_server_request.assert_called_once_with(
@@ -181,8 +181,8 @@ async def test_create_task_new_user(client, access_token_patcher, mock_aws_servi
         "name": "test-task",
         "tags": {
             "AUTHZ": f"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
-            "funnel_worker_role_arn": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{NEW_TEST_USER_ID}-funnel-worker-role",
-            "worker_sa": f"gen3wf-localhost-{NEW_TEST_USER_ID}-worker-sa",
+            "FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{NEW_TEST_USER_ID}-funnel-role",
+            "WORKER_SA": f"gen3wf-localhost-{NEW_TEST_USER_ID}-worker-sa",
         },
     }
     mock_tes_server_request.assert_called_once_with(
@@ -250,7 +250,9 @@ async def test_create_task_with_authz_tag(client, access_token_patcher):
     )
     assert res.status_code == 400, res.text
     mock_tes_server_request.assert_not_called()
-    assert res.json() == {"detail": "Tag 'AUTHZ' cannot be used. It is a reserved tag."}
+    assert res.json() == {
+        "detail": "Tags {'WORKER_SA', 'FUNNEL_WORKER_ROLE_ARN', 'AUTHZ'} are reserved for internal use only and cannot be used."
+    }
 
 
 @pytest.mark.asyncio
@@ -392,8 +394,8 @@ async def test_create_task_with_whitelist_images(
             "executors": req_body["executors"],
             "tags": {
                 "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
-                "funnel_worker_role_arn": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-worker-role",
-                "worker_sa": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+                "FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
+                "WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
             },
         }
         mock_tes_server_request.assert_called_once_with(

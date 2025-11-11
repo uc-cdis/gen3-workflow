@@ -63,6 +63,9 @@ class Gen3WorkflowConfig(Config):
                 "TES_SERVER_URL": {"type": "string"},
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
                 "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
+                "WORKER_PODS_NAMESPACE": {"type": "string"},
+                "EKS_CLUSTER_NAME": {"type": "string"},
+                "EKS_CLUSTER_REGION": {"type": "string"},
             },
         }
         validate(instance=self, schema=schema)

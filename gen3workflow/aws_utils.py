@@ -29,6 +29,8 @@ def get_boto3_client(service_name: str, **kwargs):
 iam_client = get_boto3_client("iam")
 s3_client = get_boto3_client("s3")
 kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
+sts_client = get_boto3_client("sts")
+eks_client = get_boto3_client("eks", region_name=config["EKS_CLUSTER_REGION"])
 
 
 def get_safe_name_from_hostname(
@@ -44,7 +46,7 @@ def get_safe_name_from_hostname(
         (assumes HOSTNAME and user IDs are already compliant).
     Args:
         user_id (str | None): The user's unique Gen3 ID. If None, will not be included in the safe name.
-        reserve_length (int): Number of characters to reserve for prefixes/suffixes.
+        reserved_length (int): Number of characters to reserve for prefixes/suffixes.
 
     Returns:
         str: safe name
@@ -114,68 +116,63 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
     Create an IAM role that can be assumed by EC2 instances to access the specified S3 bucket and KMS keys (if enabled).
     Args:
         user_id (str): The user's unique Gen3 ID
-        bucket_name (str): name of the bucket to grant access to
     Returns:
         str: ARN of the created IAM role
     Raises:
         Exception: If there is an error during the creation or updating of the IAM role or policy
     """
-    # set up an IAM role that can be assumed as an IRSA role by EC2 instances
-    role_name_suffix = "-funnel-worker-role"
+    # set up an IAM role that can be assumed as an IRSA by EC2 instances
+    role_name_suffix = "-funnel-role"
     safe_name = get_safe_name_from_hostname(
         user_id, reserved_length=len(role_name_suffix)
     )
     role_name = f"{safe_name}{role_name_suffix}"
     bucket_name = get_bucket_name_from_user_id(user_id)
+    aws_account_id = sts_client.get_caller_identity().get("Account")
+    oidc_token_url = eks_client.describe_cluster(name=config["EKS_CLUSTER_NAME"])[
+        "cluster"
+    ]["identity"]["oidc"]["issuer"].replace("https://", "")
+
+    worker_namespace = config["WORKER_PODS_NAMESPACE"]
+
+    assume_role_policy_document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "ec2.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+            },
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    f"Federated": f"arn:aws:iam::{aws_account_id}:oidc-provider/{oidc_token_url}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        f"{oidc_token_url}:sub": f"system:serviceaccount:{worker_namespace}:{get_worker_sa_name(user_id)}",
+                        f"{oidc_token_url}:aud": "sts.amazonaws.com",
+                    }
+                },
+            },
+        ],
+    }
 
     try:
         worker_role = iam_client.get_role(RoleName=role_name)
-        logger.debug(f"IAM role '{role_name}' already exists")
+        logger.info(f"IAM role '{role_name}' already exists")
+        if (
+            worker_role["Role"]["AssumeRolePolicyDocument"]
+            != assume_role_policy_document
+        ):
+            logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
+            iam_client.update_assume_role_policy(
+                RoleName=role_name, PolicyDocument=assume_role_policy_document
+            )
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchEntity":
-            required_env_vars = [
-                "WORKER_PODS_NAMESPACE",
-                "EKS_CLUSTER_NAME",
-                "EKS_CLUSTER_REGION",
-            ]
-            if any(env_var not in os.environ for env_var in required_env_vars):
-                raise Exception(
-                    f"Environment variables {','.join(required_env_vars)} must be set to create IAM roles for worker pods"
-                )
             logger.info(f"Creating IAM role '{role_name}'")
-            sts_client = get_boto3_client("sts")
-            eks_client = get_boto3_client(
-                "eks", region_name=os.environ.get("EKS_CLUSTER_REGION")
-            )
-            aws_account_id = sts_client.get_caller_identity().get("Account")
-            oidc_token_url = eks_client.describe_cluster(
-                name=os.environ.get("EKS_CLUSTER_NAME")
-            )["cluster"]["identity"]["oidc"]["issuer"].replace("https://", "")
-
-            worker_namespace = os.environ.get("WORKER_PODS_NAMESPACE")
-            assume_role_policy_document = {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Effect": "Allow",
-                        "Principal": {"Service": "ec2.amazonaws.com"},
-                        "Action": "sts:AssumeRole",
-                    },
-                    {
-                        "Effect": "Allow",
-                        "Principal": {
-                            f"Federated": f"arn:aws:iam::{aws_account_id}:oidc-provider/{oidc_token_url}"
-                        },
-                        "Action": "sts:AssumeRoleWithWebIdentity",
-                        "Condition": {
-                            "StringEquals": {
-                                f"{oidc_token_url}:sub": f"system:serviceaccount:{worker_namespace}:{get_worker_sa_name(user_id)}",
-                                f"{oidc_token_url}:aud": "sts.amazonaws.com",
-                            }
-                        },
-                    },
-                ],
-            }
             worker_role = iam_client.create_role(
                 RoleName=role_name,
                 AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
@@ -229,34 +226,24 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
                 }
             )
 
-    try:
-        current_policy = iam_client.get_role_policy(
-            RoleName=role_name, PolicyName=policy_name
-        )
-        logger.debug(
-            f"IAM policy '{policy_name}' already exists for role '{role_name}'"
-        )
-        if current_policy["PolicyDocument"] != policy_document:
-            logger.info(f"Updating IAM policy '{policy_name}' for role '{role_name}'")
-            iam_client.put_role_policy(
-                RoleName=role_name,
-                PolicyName=policy_name,
-                PolicyDocument=json.dumps(policy_document),
-            )
-            logger.info(f"Updated IAM policy '{policy_name}' for role '{role_name}'")
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchEntity":
-            logger.info(f"Creating IAM policy '{policy_name}' for role '{role_name}'")
-            iam_client.put_role_policy(
-                RoleName=role_name,
-                PolicyName=policy_name,
-                PolicyDocument=json.dumps(policy_document),
-            )
+    iam_client.put_role_policy(
+        RoleName=role_name,
+        PolicyName=policy_name,
+        PolicyDocument=json.dumps(policy_document),
+    )
+    logger.info(f"Updated IAM policy '{policy_name}' for role '{role_name}'")
+
     return worker_role["Role"]["Arn"]
 
 
 def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
-    # set up KMS encryption on the bucket.
+    """
+    Set up KMS encryption on the bucket.
+    Args:
+        bucket_name (str): name of the bucket to setup KMS encryption
+    Returns:
+        str: KMS Key ARN
+    """
     # the only way to check if the KMS key has already been created is to use an alias
     kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
     if kms_key_arn:
@@ -333,6 +320,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         }}
         """,
     )
+    return kms_key_arn
 
 
 def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
@@ -392,15 +380,15 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             # error: `Missing required header for this request: Content-MD5`.
             ChecksumAlgorithm="SHA256",
         )
-
+    kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
-        setup_kms_encryption_on_bucket(user_bucket_name)
+        kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
 
-    return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
+    return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"], kms_key_arn
 
 
 def get_all_bucket_objects(user_bucket_name: str) -> list:

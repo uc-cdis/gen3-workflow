@@ -25,9 +25,6 @@ CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 environ["GEN3WORKFLOW_CONFIG_PATH"] = os.path.join(
     CURRENT_DIR, "test-gen3workflow-config.yaml"
 )
-environ["EKS_CLUSTER_NAME"] = "test-cluster"
-environ["WORKER_PODS_NAMESPACE"] = "test-namespace"
-environ["EKS_CLUSTER_REGION"] = "us-east-1"
 from gen3workflow.config import config
 
 config.validate()

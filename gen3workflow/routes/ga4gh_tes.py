@@ -117,15 +117,17 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     if "tags" not in body:
         body["tags"] = {}
     task_tags = set(t.lower() for t in body["tags"])
-    if "authz" in task_tags:
-        err_msg = "Tag 'AUTHZ' cannot be used. It is a reserved tag."
+    reserved_tags = {"AUTHZ", "FUNNEL_WORKER_ROLE_ARN", "WORKER_SA"}
+    conflicts = task_tags & {tag.lower() for tag in reserved_tags}
+    if conflicts:
+        err_msg = f"Tags {reserved_tags} are reserved for internal use only and cannot be used."
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
-    body["tags"]["funnel_worker_role_arn"] = (
+    body["tags"]["FUNNEL_WORKER_ROLE_ARN"] = (
         aws_utils.create_iam_role_for_bucket_access(user_id)
     )
-    body["tags"]["worker_sa"] = aws_utils.get_worker_sa_name(user_id)
+    body["tags"]["WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
@@ -271,8 +273,8 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
 
     # Eliminate fields not needed to the end user
     tags_not_meant_for_user = [
-        "funnel_worker_role_arn",
-        "worker_sa",
+        "FUNNEL_WORKER_ROLE_ARN",
+        "WORKER_SA",
     ]
     for field in tags_not_meant_for_user:
         if field in body.get("tags", {}):
