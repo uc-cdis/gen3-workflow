@@ -120,7 +120,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     reserved_tags = {"AUTHZ", "FUNNEL_WORKER_ROLE_ARN", "WORKER_SA"}
     conflicts = task_tags & {tag.lower() for tag in reserved_tags}
     if conflicts:
-        err_msg = f"Tags {reserved_tags} are reserved for internal use only and cannot be used."
+        err_msg = f"Tags {sorted(reserved_tags)} are reserved for internal use only and cannot be used."
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
