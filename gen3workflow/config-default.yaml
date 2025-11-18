@@ -77,5 +77,5 @@ PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
 #
 
 WORKER_PODS_NAMESPACE: default-namespace
-EKS_CLUSTER_NAME: default-cluster
+EKS_CLUSTER_NAME: ""
 EKS_CLUSTER_REGION: us-east-1

@@ -124,10 +124,13 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     body["tags"]["_AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
-    body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
-        aws_utils.create_iam_role_for_bucket_access(user_id)
-    )
-    body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
+    # TODO: Test running gen3-workflow locally and document this change
+    if config["EKS_CLUSTER_NAME"]:
+        body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
+            aws_utils.create_iam_role_for_bucket_access(user_id)
+        )
+        body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
+
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
