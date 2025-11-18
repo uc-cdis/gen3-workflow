@@ -331,7 +331,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         user_id (str): The user's unique Gen3 ID
 
     Returns:
-        tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
+        tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region, kms key ARN)
     """
     user_bucket_name = get_bucket_name_from_user_id(user_id)
     try:

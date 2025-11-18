@@ -215,7 +215,7 @@ def mock_tes_server_request_function(
         "state": "COMPLETE",
         "logs": [{"system_logs": ["blah"]}],
         "tags": {
-            "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+            "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
         },
     }
     # paths to reponses: { URL: { METHOD: response body } }
@@ -232,7 +232,7 @@ def mock_tes_server_request_function(
                         "state": "COMPLETE",
                         "logs": [{"system_logs": ["blah"]}],
                         "tags": {
-                            "AUTHZ": f"/users/OTHER_USER/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                            "_AUTHZ": f"/users/OTHER_USER/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
                         },
                     },
                     # test that the app can handle a task with no tags:

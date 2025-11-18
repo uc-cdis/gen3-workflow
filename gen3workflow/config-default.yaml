@@ -65,6 +65,16 @@ PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
 #################
 #  EKS CLUSTER  #
 #################
+# When Gen3Workflow runs on an EKS cluster, it relies on IAM Roles for Service Accounts (IRSA)
+# to provide AWS permissions to Funnel’s worker and executor pods.
+#
+# The parameters below are required for Gen3Workflow to:
+#   - Identify the Kubernetes namespace where worker pods run, to construct the correct IAM role trust relationship
+#   - Fetch cluster's OIDC provider URL based on the given cluster name and region
+#
+# In short: these values allow Gen3Workflow to generate per-user IAM roles that EKS will recognize and associate
+# with the corresponding service accounts used by Funnel pods.
+#
 
 WORKER_PODS_NAMESPACE: default-namespace
 EKS_CLUSTER_NAME: default-cluster

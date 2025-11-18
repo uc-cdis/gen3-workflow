@@ -57,7 +57,7 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
         url += f"&view={view}"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
-    # the call to the TES server always has `view=FULL` so we get the AUTHZ tag
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks/123",
@@ -82,14 +82,14 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
                 "id": "123",
                 "state": "COMPLETE",
                 "logs": [{"system_logs": ["blah"]}],
-                "tags": {"AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
+                "tags": {"_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
             }
         else:  # view == None or "MINIMAL"
             assert res.json() == {
                 "id": "123",
                 "state": "COMPLETE",
                 "logs": [{}],
-                "tags": {"AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
+                "tags": {"_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
             }
 
     # check that the appropriate authorization checks were made
@@ -132,9 +132,9 @@ async def test_create_task(
         task_body = {
             "name": "test-task",
             "tags": {
-                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
-                "FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
-                "WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+                "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+                "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
+                "_WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
             },
         }
         mock_tes_server_request.assert_called_once_with(
@@ -180,9 +180,9 @@ async def test_create_task_new_user(client, access_token_patcher, mock_aws_servi
     test_task_body = {
         "name": "test-task",
         "tags": {
-            "AUTHZ": f"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
-            "FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{NEW_TEST_USER_ID}-funnel-role",
-            "WORKER_SA": f"gen3wf-localhost-{NEW_TEST_USER_ID}-worker-sa",
+            "_AUTHZ": f"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+            "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{NEW_TEST_USER_ID}-funnel-role",
+            "_WORKER_SA": f"gen3wf-localhost-{NEW_TEST_USER_ID}-worker-sa",
         },
     }
     mock_tes_server_request.assert_called_once_with(
@@ -240,17 +240,17 @@ async def test_create_task_without_token(client):
 @pytest.mark.asyncio
 async def test_create_task_with_authz_tag(client, access_token_patcher):
     """
-    Users cannot specify the value of the "authz" tag themselves when creating a task, since it
+    Users cannot specify the value of the "_authz" tag themselves when creating a task, since it
     is used internally for authorization checks.
     """
     res = await client.post(
         "/ga4gh/tes/v1/tasks",
-        json={"name": "test-task", "tags": {"authz": "custom-authz-value"}},
+        json={"name": "test-task", "tags": {"_authz": "custom-authz-value"}},
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     assert res.status_code == 400, res.text
     mock_tes_server_request.assert_not_called()
-    reserved_tags = {"WORKER_SA", "FUNNEL_WORKER_ROLE_ARN", "AUTHZ"}
+    reserved_tags = {"_WORKER_SA", "_FUNNEL_WORKER_ROLE_ARN", "_AUTHZ"}
     assert res.json() == {
         "detail": f"Tags {sorted(reserved_tags)} are reserved for internal use only and cannot be used."
     }
@@ -394,9 +394,9 @@ async def test_create_task_with_whitelist_images(
         result_body = {
             "executors": req_body["executors"],
             "tags": {
-                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
-                "FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
-                "WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+                "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+                "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
+                "_WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
             },
         }
         mock_tes_server_request.assert_called_once_with(
@@ -423,7 +423,7 @@ async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
         url += f"&view={view}"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
-    # the call to the TES server always has `view=FULL` so we get the AUTHZ tag
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
@@ -451,7 +451,7 @@ async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
                             "state": "COMPLETE",
                             "logs": [{"system_logs": ["blah"]}],
                             "tags": {
-                                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"
+                                "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"
                             },
                         }
                     ]
@@ -464,7 +464,7 @@ async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
                             "state": "COMPLETE",
                             "logs": [{}],
                             "tags": {
-                                "AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"
+                                "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"
                             },
                         }
                     ]
@@ -494,7 +494,7 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
 
-    # there is always a 1st call with view=FULL to get the AUTHZ tag
+    # there is always a 1st call with view=FULL to get the _AUTHZ tag
     mock_tes_server_request.assert_any_call(
         method="GET",
         path="/tasks/123",
