@@ -238,10 +238,10 @@ async def test_create_task_without_token(client):
 
 
 @pytest.mark.asyncio
-async def test_create_task_with_authz_tag(client, access_token_patcher):
+async def test_create_task_with_reserved_tags(client, access_token_patcher):
     """
-    Users cannot specify the value of the "_authz" tag themselves when creating a task, since it
-    is used internally for authorization checks.
+    Users cannot specify the value of certain reserved tags ("_authz" "_worker_sa" etc.,) themselves
+    when creating a task, since these are strictly for internal use.
     """
     res = await client.post(
         "/ga4gh/tes/v1/tasks",
