@@ -163,6 +163,16 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     Returns:
         dict: TES task with applied view
     """
+
+    # Eliminate fields not needed to the end user
+    tags_not_meant_for_user = [
+        "_FUNNEL_WORKER_ROLE_ARN",
+        "_WORKER_SA",
+    ]
+    for field in tags_not_meant_for_user:
+        if field in task.get("tags", {}):
+            del task["tags"][field]
+
     if view == "FULL":
         return task
 
@@ -273,15 +283,6 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
     body["tags"]["_AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
-
-    # Eliminate fields not needed to the end user
-    tags_not_meant_for_user = [
-        "_FUNNEL_WORKER_ROLE_ARN",
-        "_WORKER_SA",
-    ]
-    for field in tags_not_meant_for_user:
-        if field in body.get("tags", {}):
-            del body["tags"][field]
 
     return apply_view_to_task(requested_view, body)
 
