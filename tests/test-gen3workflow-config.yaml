@@ -11,3 +11,7 @@ TASK_IMAGE_WHITELIST:
   - 9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/{username}:abc
   - "*.dkr.ecr.us-east-1.amazonaws.com/approved/{username}:test"
   - quay.io/nextflow/bash
+
+WORKER_PODS_NAMESPACE: test-namespace
+EKS_CLUSTER_NAME: test-cluster
+EKS_CLUSTER_REGION: us-east-1

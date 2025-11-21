@@ -1,48 +1,59 @@
 from typing import Tuple, Union
 
 import boto3
+import json
+import os
 from botocore.exceptions import ClientError
 
 from gen3workflow import logger
 from gen3workflow.config import config
 
 
-iam_client = boto3.client("iam")
-kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
-if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
-    s3_client = boto3.client(
-        "s3",
-        aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
-    )
-    kms_client = boto3.client(
-        "kms",
-        aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
-        region_name=config["USER_BUCKETS_REGION"],
-    )
-else:
-    s3_client = boto3.client("s3")
-    kms_client = boto3.client("kms", region_name=config["USER_BUCKETS_REGION"])
-
-
-def get_safe_name_from_hostname(user_id: Union[str, None]) -> str:
+def get_boto3_client(service_name: str, **kwargs):
     """
-    Generate a valid IAM user name or S3 bucket name for the specified user.
-    - IAM user names can contain up to 64 characters. They can only contain alphanumeric characters
-    and/or the following: +=,.@_- (not enforced here since user IDs and hostname should not contain
-    special characters).
-    - S3 bucket names can contain up to 63 characters.
+    Create a boto3 client for the specified AWS service,
+    using credentials from the config if provided,
+    otherwise using IRSA as a fallback in the credential provider chain.
+    """
+    if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
+        return boto3.client(
+            service_name,
+            aws_access_key_id=config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
+            **kwargs,
+        )
+    else:
+        return boto3.client(service_name, **kwargs)
 
+
+iam_client = get_boto3_client("iam")
+s3_client = get_boto3_client("s3")
+kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
+sts_client = get_boto3_client("sts")
+eks_client = get_boto3_client("eks", region_name=config["EKS_CLUSTER_REGION"])
+
+
+def get_safe_name_from_hostname(
+    user_id: Union[str, None], reserved_length: int = 0
+) -> str:
+    """
+    Generate a valid and length-safe name (for IAM user, S3 bucket, or IAM role)
+    derived from the configured hostname and optional user ID.
+    Rules:
+    - IAM user names: up to 64 characters.
+    - S3 bucket / IAM role names: up to 63 characters.
+    - Only alphanumeric characters and the following are allowed: +=,.@_-
+        (assumes HOSTNAME and user IDs are already compliant).
     Args:
-        user_id (str): The user's unique Gen3 ID. If None, will not be included in the safe name.
+        user_id (str | None): The user's unique Gen3 ID. If None, will not be included in the safe name.
+        reserved_length (int): Number of characters to reserve for prefixes/suffixes.
 
     Returns:
         str: safe name
     """
     escaped_hostname = config["HOSTNAME"].replace(".", "-")
     safe_name = f"gen3wf-{escaped_hostname}"
-    max_chars = 63
+    max_chars = 63 - reserved_length
     if user_id:
         max_chars = max_chars - len(f"-{user_id}")
     if len(safe_name) > max_chars:
@@ -50,6 +61,32 @@ def get_safe_name_from_hostname(user_id: Union[str, None]) -> str:
     if user_id:
         safe_name = f"{safe_name}-{user_id}"
     return safe_name
+
+
+def get_worker_sa_name(user_id: str) -> str:
+    """
+    Generate the name of the Kubernetes service account used by worker pods for the specified user.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+    Returns:
+        str: service account name
+    """
+    safe_name = get_safe_name_from_hostname(user_id, reserved_length=len("-worker-sa"))
+    return f"{safe_name}-worker-sa"
+
+
+def get_bucket_name_from_user_id(user_id: str) -> str:
+    """
+    Generate the S3 bucket name for the specified user.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+    Returns:
+        str: S3 bucket name
+    """
+    # Abstracted for future flexibility — currently same as safe name.
+    return get_safe_name_from_hostname(user_id)
 
 
 def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
@@ -74,8 +111,139 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         raise
 
 
+def create_iam_role_for_bucket_access(user_id: str) -> str:
+    """
+    Create an IAM role that can be assumed by EC2 instances to access the specified S3 bucket and KMS keys (if enabled).
+    Args:
+        user_id (str): The user's unique Gen3 ID
+    Returns:
+        str: ARN of the created IAM role
+    Raises:
+        Exception: If there is an error during the creation or updating of the IAM role or policy
+    """
+    # set up an IAM role that can be assumed as an IRSA by EC2 instances
+    role_name_suffix = "-funnel-role"
+    safe_name = get_safe_name_from_hostname(
+        user_id, reserved_length=len(role_name_suffix)
+    )
+    role_name = f"{safe_name}{role_name_suffix}"
+    bucket_name = get_bucket_name_from_user_id(user_id)
+    aws_account_id = sts_client.get_caller_identity().get("Account")
+    oidc_token_url = eks_client.describe_cluster(name=config["EKS_CLUSTER_NAME"])[
+        "cluster"
+    ]["identity"]["oidc"]["issuer"].replace("https://", "")
+
+    worker_namespace = config["WORKER_PODS_NAMESPACE"]
+
+    assume_role_policy_document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "ec2.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+            },
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    f"Federated": f"arn:aws:iam::{aws_account_id}:oidc-provider/{oidc_token_url}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        f"{oidc_token_url}:sub": f"system:serviceaccount:{worker_namespace}:{get_worker_sa_name(user_id)}",
+                        f"{oidc_token_url}:aud": "sts.amazonaws.com",
+                    }
+                },
+            },
+        ],
+    }
+
+    try:
+        worker_role = iam_client.get_role(RoleName=role_name)
+        logger.info(f"IAM role '{role_name}' already exists")
+        if (
+            worker_role["Role"]["AssumeRolePolicyDocument"]
+            != assume_role_policy_document
+        ):
+            logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
+            iam_client.update_assume_role_policy(
+                RoleName=role_name, PolicyDocument=assume_role_policy_document
+            )
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchEntity":
+            logger.info(f"Creating IAM role '{role_name}'")
+            worker_role = iam_client.create_role(
+                RoleName=role_name,
+                AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
+                Tags=[
+                    {
+                        "Key": "Name",
+                        "Value": get_safe_name_from_hostname(user_id=None),
+                    }
+                ],
+            )
+            logger.info(f"Created IAM role '{role_name}'")
+        else:
+            raise
+
+    policy_name = f"{role_name}-s3-access"
+    policy_document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket",
+                    "s3:GetBucketLocation",
+                ],
+                "Resource": f"arn:aws:s3:::{bucket_name}",
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                ],
+                "Resource": f"arn:aws:s3:::{bucket_name}/*",
+            },
+        ],
+    }
+
+    if config["KMS_ENCRYPTION_ENABLED"]:
+        _, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
+        if kms_key_arn:
+            logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
+            policy_document["Statement"].append(
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "kms:Decrypt",
+                        "kms:Encrypt",
+                        "kms:GenerateDataKey*",
+                    ],
+                    "Resource": kms_key_arn,
+                }
+            )
+
+    iam_client.put_role_policy(
+        RoleName=role_name,
+        PolicyName=policy_name,
+        PolicyDocument=json.dumps(policy_document),
+    )
+    logger.info(f"Updated IAM policy '{policy_name}' for role '{role_name}'")
+
+    return worker_role["Role"]["Arn"]
+
+
 def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
-    # set up KMS encryption on the bucket.
+    """
+    Set up KMS encryption on the bucket.
+    Args:
+        bucket_name (str): name of the bucket to setup KMS encryption
+    Returns:
+        str: KMS Key ARN
+    """
     # the only way to check if the KMS key has already been created is to use an alias
     kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
     if kms_key_arn:
@@ -152,6 +320,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         }}
         """,
     )
+    return kms_key_arn
 
 
 def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
@@ -162,9 +331,9 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         user_id (str): The user's unique Gen3 ID
 
     Returns:
-        tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region)
+        tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region, kms key ARN)
     """
-    user_bucket_name = get_safe_name_from_hostname(user_id)
+    user_bucket_name = get_bucket_name_from_user_id(user_id)
     try:
         s3_client.head_bucket(Bucket=user_bucket_name)
         logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
@@ -211,15 +380,15 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             # error: `Missing required header for this request: Content-MD5`.
             ChecksumAlgorithm="SHA256",
         )
-
+    kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
-        setup_kms_encryption_on_bucket(user_bucket_name)
+        kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
 
-    return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"]
+    return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"], kms_key_arn
 
 
 def get_all_bucket_objects(user_bucket_name: str) -> list:
@@ -295,7 +464,7 @@ def delete_user_bucket(user_id: str) -> Union[str, None]:
     Raises:
         Exception: If there is an error during the deletion process.
     """
-    user_bucket_name = get_safe_name_from_hostname(user_id)
+    user_bucket_name = get_bucket_name_from_user_id(user_id)
 
     try:
         s3_client.head_bucket(Bucket=user_bucket_name)

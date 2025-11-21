@@ -21,6 +21,7 @@ from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
 from gen3workflow.routes.utils import make_tes_server_request
+from gen3workflow import aws_utils
 
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
@@ -86,7 +87,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     body = await get_request_body(request)
     logger.debug(f"Incoming task creation request body: {body}")
 
-    # add the `AUTHZ` tag to the task, so access can be checked by the other endpoints
+    # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     if not user_id:
@@ -116,11 +117,19 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     if "tags" not in body:
         body["tags"] = {}
     task_tags = set(t.lower() for t in body["tags"])
-    if "authz" in task_tags:
-        err_msg = "Tag 'AUTHZ' cannot be used. It is a reserved tag."
+    reserved_tags = {"_AUTHZ", "_FUNNEL_WORKER_ROLE_ARN", "_WORKER_SA"}
+    conflicts = task_tags & {tag.lower() for tag in reserved_tags}
+    if conflicts:
+        err_msg = f"Tags {sorted(reserved_tags)} are reserved for internal use only and cannot be used."
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-    body["tags"]["AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+    body["tags"]["_AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+    # TODO: Test running gen3-workflow locally and document this change
+    if config["EKS_CLUSTER_NAME"]:
+        body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
+            aws_utils.create_iam_role_for_bucket_access(user_id)
+        )
+        body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
 
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
@@ -145,7 +154,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 def apply_view_to_task(view: str, task: dict) -> dict:
     """
     We always set the view to "FULL" when making get/list requests to the TES server, because we
-    need to get the AUTHZ tag in order to check whether users have access. This function applies
+    need to get the _AUTHZ tag in order to check whether users have access. This function applies
     the view that was originally requested by removing fields according to the TES spec.
 
     Args:
@@ -154,6 +163,16 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     Returns:
         dict: TES task with applied view
     """
+
+    # Eliminate fields not needed to the end user
+    tags_not_meant_for_user = [
+        "_FUNNEL_WORKER_ROLE_ARN",
+        "_WORKER_SA",
+    ]
+    for field in tags_not_meant_for_user:
+        if field in task.get("tags", {}):
+            del task["tags"][field]
+
     if view == "FULL":
         return task
 
@@ -205,11 +224,11 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     # get all the tasks' authz resource paths, replacing the task ID placeholder with the actual ID
     all_resource_paths = set()
     for task in listed_tasks.get("tasks", []):
-        if task.get("tags", {}).get("AUTHZ"):
-            task["tags"]["AUTHZ"] = task["tags"]["AUTHZ"].replace(
+        if task.get("tags", {}).get("_AUTHZ"):
+            task["tags"]["_AUTHZ"] = task["tags"]["_AUTHZ"].replace(
                 "TASK_ID_PLACEHOLDER", task.get("id")
             )
-            all_resource_paths.add(task["tags"]["AUTHZ"])
+            all_resource_paths.add(task["tags"]["_AUTHZ"])
 
     # ask arborist which resource paths the current user has access to.
     # `user_access` format: { <resource path>: True if user has access, False otherwise }
@@ -229,7 +248,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     listed_tasks["tasks"] = [
         apply_view_to_task(requested_view, task)
         for task in listed_tasks.get("tasks", [])
-        if user_access.get(task.get("tags", {}).get("AUTHZ"))
+        if user_access.get(task.get("tags", {}).get("_AUTHZ"))
     ]
 
     return listed_tasks
@@ -257,13 +276,13 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
 
     # check if this user has access to see this task
     body = res.json()
-    authz_path = body.get("tags", {}).get("AUTHZ")
+    authz_path = body.get("tags", {}).get("_AUTHZ")
     if not authz_path:
         err_msg = "No authz tag in task body"
         logger.error(f"{err_msg}: {body}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
-    body["tags"]["AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
-    await auth.authorize("read", [body["tags"]["AUTHZ"]])
+    body["tags"]["_AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
+    await auth.authorize("read", [body["tags"]["_AUTHZ"]])
 
     return apply_view_to_task(requested_view, body)
 
@@ -280,7 +299,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"
     res = await make_tes_server_request(request.app.async_client, "get", url)
     body = res.json()
-    authz_path = body.get("tags", {}).get("AUTHZ")
+    authz_path = body.get("tags", {}).get("_AUTHZ")
     if not authz_path:
         err_msg = "No authz tag in task body"
         logger.error(f"{err_msg}: {body}")

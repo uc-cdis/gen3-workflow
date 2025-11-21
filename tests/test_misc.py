@@ -1,3 +1,4 @@
+import os
 import boto3
 from botocore.exceptions import ClientError
 import json
@@ -26,6 +27,19 @@ def mock_aws_services():
             "kms", region_name=config["USER_BUCKETS_REGION"]
         )
         aws_utils.s3_client = boto3.client("s3")
+        aws_utils.sts_client = boto3.client("sts")
+        aws_utils.eks_client = boto3.client(
+            "eks", region_name=os.environ.get("EKS_CLUSTER_REGION", "us-east-1")
+        )
+
+        # Setup: Create a mock EKS cluster in the virtual environment
+        cluster_name = "test-cluster"
+
+        aws_utils.eks_client.create_cluster(
+            name=cluster_name,
+            roleArn="arn:aws:iam::123456789012:role/mock-eks-role",
+            resourcesVpcConfig={"subnetIds": ["subnet-12345"]},
+        )
 
         yield
 
@@ -48,6 +62,18 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
     safe_name = get_safe_name_from_hostname(user_id)
     assert len(safe_name) == 63
     assert safe_name == f"gen3wf-{escaped_shortened_hostname}-{user_id}"
+
+    # test with a hostname longer than max and an extra few characters of reserved length
+    reserved_length = len("qwert")
+    escaped_shortened_hostname_with_reserved_length = (
+        "qwertqwert-qwertqwert-qwertqwert-qwertqwert-"
+    )
+    safe_name = get_safe_name_from_hostname(user_id, reserved_length=reserved_length)
+    assert len(safe_name) + reserved_length == 63
+    assert (
+        safe_name
+        == f"gen3wf-{escaped_shortened_hostname_with_reserved_length}-{user_id}"
+    )
 
 
 @pytest.mark.asyncio
