@@ -22,6 +22,7 @@ if __name__ == "__main__":
         schema = app.openapi()
         path = os.path.join(CURRENT_DIR, "docs/openapi.yaml")
         yaml.Dumper.ignore_aliases = lambda *args: True
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w+") as f:
             yaml.dump(schema, f, default_flow_style=False)
         print(f"Saved docs at {path}")

@@ -14,16 +14,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
       with:
         ref: ${{ github.head_ref }}
         # Passing a PAT from the PlanXCybrog bot account here, since otherwise commit pushed by this action won't be able to trigger other actions, see https://github.com/stefanzweifel/git-auto-commit-action?tab=readme-ov-file#commits-made-by-this-action-do-not-trigger-new-workflow-runs
         token: ${{ secrets.PLANXCYBORG_PAT }}
     - name: Set up Python 3.9
-      uses: actions/setup-python@v1
+      uses: actions/setup-python@v6
       with:
         python-version: 3.9
-    - uses: actions/cache@preview
+    - uses: actions/cache@v4
       with:
         path: ~/.cache/pypoetry/virtualenvs
         key: ${{ runner.os }}-poetry-${{ hashFiles(format('{0}{1}', github.workspace, '/poetry.lock')) }}
@@ -37,7 +37,7 @@ jobs:
     - name: Build docs
       run: poetry run python run.py openapi
 
-    - uses: stefanzweifel/git-auto-commit-action@v4.1.2
+    - uses: stefanzweifel/git-auto-commit-action@v7
       with:
         commit_message: Apply automatic documentation changes
 

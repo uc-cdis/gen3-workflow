@@ -115,9 +115,8 @@ async def session():
 def access_token_patcher(request):
     """
     The `access_token` function will return a token linked to a test user.
-    This fixture should be used explicitely instead of the automatic
-    `access_token_user_client_patcher` fixture for endpoints that do not
-    support client tokens.
+    By default generates a user token, but can be parametrized to generate a client
+    token to test endpoints that support them.
     """
     user_id = TEST_USER_ID
     client_id = None
