@@ -351,10 +351,19 @@ async def client(request):
             f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
         ):
             # mock calls to AWS S3
+            resp_xml = MOCKED_S3_RESPONSE_XML
+            headers = {"content-type": "application/xml"}
+            # multipart upload special case:
+            if "test_s3_upload_file_multipart.txt" in url:
+                uploadId = "test-upload-id"
+                # "InitiateMultipartUploadResult" with "UploadId"
+                resp_xml = f"""<?xml version="1.0" encoding="UTF-8"?>\n<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Bucket><Key>test_s3_chunk_upload.txt</Key><UploadId>{uploadId}</UploadId></InitiateMultipartUploadResult>"""
+                if f"?uploadId={uploadId}&partNumber=" in url:
+                    headers["etag"] = "test-etag"
             mocked_response = httpx.Response(
                 status_code=200,
-                text=MOCKED_S3_RESPONSE_XML,
-                headers={"content-type": "application/xml"},
+                text=resp_xml,
+                headers=headers,
             )
 
         if mocked_response is not None:
