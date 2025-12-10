@@ -192,6 +192,7 @@ async def s3_endpoint(path: str, request: Request):
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
     body = await request.body()
+    print("*** request body:", body)
     body_hash = hashlib.sha256(body).hexdigest()
     timestamp = request.headers.get("x-amz-date")
     if not timestamp and request.headers.get("date"):
