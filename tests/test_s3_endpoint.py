@@ -2,9 +2,9 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-from unittest.mock import AsyncMock
-import os
+from unittest.mock import AsyncMock, patch
 import pytest
+import tempfile
 
 from conftest import MOCKED_S3_RESPONSE_DICT, TEST_USER_ID, TEST_USER_TOKEN
 from gen3workflow.config import config
@@ -327,21 +327,22 @@ async def test_set_access_token_and_get_user_id_invalid_auth():
 @pytest.mark.parametrize("s3_client", [{"endpoint": "s3"}], indirect=True)
 def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     """
-    TODO
+    Test that the boto3 `upload_file` function works with the `/s3` endpoint, both for a small
+    file uploaded in 1 chunk and for a large file uploaded in multiple chunks.
     """
-    # TODO replace file with temp file and delete it
-    # TODO doesn't work with KMS_ENCRYPTION_ENABLED
-    s3_client.upload_file(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "data",
-            "test_s3_upload_file.txt",
-        ),
-        f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
-        f"test_s3_upload_file{'_multipart' if multipart else ''}.txt",
-        # to test a multipart upload, set the chunk size to 1 to force splitting the file
-        # into multiple chunks
-        Config=boto3.s3.transfer.TransferConfig(
-            multipart_threshold=1 if multipart else 9999
-        ),
-    )
+    with patch(
+        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        lambda _: ("test_kms_key_alias", "test_kms_key_arn"),
+    ):
+        with tempfile.NamedTemporaryFile(mode="w+t", delete=True) as file_to_upload:
+            file_to_upload.write("Test file contents\n")
+            s3_client.upload_file(
+                file_to_upload.name,
+                f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
+                f"test_s3_upload_file{'_multipart' if multipart else ''}.txt",
+                # to test a multipart upload, set the chunk size to 1 to force splitting the file
+                # into multiple chunks:
+                Config=boto3.s3.transfer.TransferConfig(
+                    multipart_threshold=1 if multipart else 9999
+                ),
+            )
