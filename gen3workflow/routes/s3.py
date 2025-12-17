@@ -207,6 +207,8 @@ async def s3_endpoint(path: str, request: Request):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
+    print(f"*** query_params:", request.query_params)
+
     # generate the request headers.
     # overwrite the original `x-amz-content-sha256` header value with the body hash. When this
     # header is set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in the original request (payload sent
