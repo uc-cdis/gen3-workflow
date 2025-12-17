@@ -133,6 +133,21 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
+def chunked_to_non_chunked_body(body: str) -> str:
+    """
+    Turn a chunked body into a non-chunked body.
+
+    Each chunk has:
+        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
+        <chunk-data>\r\n
+    Final chunk:
+        0;chunk-signature=<sig>\r\n\r\n
+
+    Strip and return the data without the chunk signatures.
+    """
+    return b"".join([e for e in body.split(b"\r\n") if b";chunk-signature=" not in e])
+
+
 @s3_root_router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "TRACE", "HEAD"],
@@ -191,12 +206,7 @@ async def s3_endpoint(path: str, request: Request):
 
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
-    body = await request.body()
-    if body:
-        print("*** request body:", body)
-    for h, v in request.headers.items():
-        print(f"*** header '{h}': {v}")
-    body_hash = hashlib.sha256(body).hexdigest()
+
     timestamp = request.headers.get("x-amz-date")
     if not timestamp and request.headers.get("date"):
         # assume RFC 1123 format, convert to ISO 8601 basic YYYYMMDD'T'HHMMSS'Z' format
@@ -207,15 +217,20 @@ async def s3_endpoint(path: str, request: Request):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
-    print(f"*** query_params:", request.query_params)
-
-    # generate the request headers.
-    # overwrite the original `x-amz-content-sha256` header value with the body hash. When this
+    # Generate the body hash and the request headers.
+    # Overwrite the original `x-amz-content-sha256` header value with the body hash. When this
     # header is set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in the original request (payload sent
-    # over multiple chunks), we still replace it with the body hash (because I couldn't get the
-    # signing to work for "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" - I believe it requires using the signature from the previous chunk).
-    # NOTE: This may cause issues when large files are _actually_ uploaded over multiple chunks.
-    # TODO test with an input file >5gb
+    # over multiple chunks), we still replace it with the body hash and we strip the body of the
+    # chunk signatures => chunked uploads are turned into non-chunked uploads.
+    # The Minio-go S3 client used by Funnel uploads data in chunks. We could also implement the
+    # chunked signing but it's not straightforward.
+    body = await request.body()
+    if (
+        request.headers.get("x-amz-content-sha256")
+        == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
+    ):
+        body = chunked_to_non_chunked_body(body)
+    body_hash = hashlib.sha256(body).hexdigest()
     headers = {
         "host": f"{user_bucket}.s3.{region}.amazonaws.com",
         "x-amz-content-sha256": body_hash,
