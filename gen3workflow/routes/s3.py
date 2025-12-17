@@ -221,9 +221,11 @@ async def s3_endpoint(path: str, request: Request):
     # Overwrite the original `x-amz-content-sha256` header value with the body hash. When this
     # header is set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in the original request (payload sent
     # over multiple chunks), we still replace it with the body hash and we strip the body of the
-    # chunk signatures => chunked uploads are turned into non-chunked uploads.
-    # The Minio-go S3 client used by Funnel uploads data in chunks. We could also implement the
-    # chunked signing but it's not straightforward.
+    # chunk signatures => protocol translation from a chunk-signed streaming request (SigV4
+    # streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT). We could also
+    # implement chunked signing but it's not straightforward and likely unnecessary.
+    # NOTE: Chunked uploads and multipart uploads are NOT the same thing. Python boto3 does not
+    # generate chunked uploads, but the Minio-go S3 client used by Funnel does.
     body = await request.body()
     if (
         request.headers.get("x-amz-content-sha256")
