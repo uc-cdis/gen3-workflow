@@ -54,7 +54,6 @@ TASK_IMAGE_WHITELIST: []
   # - 9876543210.dkr.ecr.us-east-1.amazonaws.com/approved/{username}:abc
   # - quay.io/nextflow/bash:*
 
-
 #############
 #  METRICS  #
 #############
@@ -65,6 +64,7 @@ PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
 #################
 #  EKS CLUSTER  #
 #################
+
 # When Gen3Workflow runs on an EKS cluster, it relies on IAM Roles for Service Accounts (IRSA)
 # to provide AWS permissions to Funnel’s worker and executor pods.
 #
@@ -74,7 +74,6 @@ PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
 #
 # In short: these values allow Gen3Workflow to generate per-user IAM roles that EKS will recognize and associate
 # with the corresponding service accounts used by Funnel pods.
-#
 
 WORKER_PODS_NAMESPACE: default-namespace
 EKS_CLUSTER_NAME: ""

@@ -2,12 +2,16 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 import pytest
+import tempfile
 
 from conftest import MOCKED_S3_RESPONSE_DICT, TEST_USER_ID, TEST_USER_TOKEN
 from gen3workflow.config import config
-from gen3workflow.routes.s3 import set_access_token_and_get_user_id
+from gen3workflow.routes.s3 import (
+    set_access_token_and_get_user_id,
+    chunked_to_non_chunked_body,
+)
 
 
 TEST_CLIENT_ID = "client-azp"
@@ -319,3 +323,37 @@ async def test_set_access_token_and_get_user_id_invalid_auth():
         match="401: Unexpected format; unable to extract access token from authorization header",
     ):
         await set_access_token_and_get_user_id(None, {"authorization": "blah"})
+
+
+@pytest.mark.parametrize("multipart", [True, False])
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize("s3_client", [{"endpoint": "s3"}], indirect=True)
+def test_s3_upload_file(s3_client, access_token_patcher, multipart):
+    """
+    Test that the boto3 `upload_file` function works with the `/s3` endpoint, both for a small
+    file uploaded in 1 chunk and for a large file uploaded in multiple chunks.
+    """
+    with patch(
+        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        lambda _: ("test_kms_key_alias", "test_kms_key_arn"),
+    ):
+        with tempfile.NamedTemporaryFile(mode="w+t", delete=True) as file_to_upload:
+            file_to_upload.write("Test file contents\n")
+            s3_client.upload_file(
+                file_to_upload.name,
+                f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
+                f"test_s3_upload_file{'_multipart' if multipart else ''}.txt",
+                # to test a multipart upload, set the chunk size to 1 to force splitting the file
+                # into multiple chunks:
+                Config=boto3.s3.transfer.TransferConfig(
+                    multipart_threshold=1 if multipart else 9999
+                ),
+            )
+
+
+def test_chunked_to_non_chunked_body():
+    body = b"f;chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6891\r\nBonjour world!\n\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
+    assert chunked_to_non_chunked_body(body) == b"Bonjour world!\n"
+
+    body = b"5;chunk-signature=9f5c0b7f5c1a1e0a6f2f7c5f7c0d3a8f1c9e3a3b8b1cbb4eaa27f0d5b3a0b0f2\r\nHello\r\n5;chunk-signature=3b92d0a84f7b91f3a9f4d1f8c1e90c0f5b6d1b42a2f82a8e0b91d78a0cb8e0f1\r\nWorld\r\n5;chunk-signature=7e2c5a8c8a3d1b0f9d3a3a5e1f3e6b1a9c9f1a3e5f9c0d8a2b4c3e8f0d9b1c2\r\nAgain\r\n0;chunk-signature=2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d\r\n\r\n"
+    assert chunked_to_non_chunked_body(body) == b"HelloWorldAgain"
