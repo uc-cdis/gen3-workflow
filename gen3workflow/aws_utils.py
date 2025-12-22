@@ -168,7 +168,8 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
         ):
             logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
             iam_client.update_assume_role_policy(
-                RoleName=role_name, PolicyDocument=assume_role_policy_document
+                RoleName=role_name,
+                PolicyDocument=json.dumps(assume_role_policy_document),
             )
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchEntity":
