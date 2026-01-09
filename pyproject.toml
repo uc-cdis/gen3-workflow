@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gen3workflow"
-version = "0.1.0"
+version = "0.2.0"
 description = "Gen3 Workflow Execution Service"
 authors = ["CTDS UChicago <cdis@uchicago.edu>"]
 license = "Apache-2.0"
@@ -11,28 +11,30 @@ include = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<4"
-alembic = "<2"
+python = ">=3.13,<4"
+alembic = ">=1"
 asyncpg = "<1"
-authutils = "<7"
-boto3 = "<2"
-cdislogging = "<2"
+#authutils = ">=7"
+authutils = {git = "https://github.com/uc-cdis/authutils", branch = "feat/3.13"}
+boto3 = ">=1"
+cdislogging = ">=1"
 fastapi = "<1"
-gen3authz = ">=2.2.0,<3"
-gen3config = ">=2.0,<3"
+gen3authz = ">=3"
+gen3config = ">=2"
 gunicorn = "<24"
 httpx = "<1"
 jsonschema = "<5"
-sqlalchemy = { extras = ["asyncio"], version = "<3" }
+sqlalchemy = { extras = ["asyncio"], version = ">=2" }
 uvicorn = "<1"
-cdispyutils = "^2.4.1"
+#cdispyutils = ">=2"
+cdispyutils = {git = "https://github.com/uc-cdis/cdis-python-utils", branch = "feat/3.13"}
 
 [tool.poetry.group.dev.dependencies]
-freezegun = "<2"
-moto = "<6"
-pytest = "<9"
-pytest-asyncio = "<1"
-pytest-cov = "<7"
+freezegun = "*"
+moto = "*"
+pytest = "*"
+pytest-asyncio = "*"
+pytest-cov = "*"
 
 [build-system]
 requires = ["poetry<2"]

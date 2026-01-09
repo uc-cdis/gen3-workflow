@@ -15,7 +15,7 @@ Contents:
 
 Install required software:
 
-*   [Python](https://www.python.org/downloads/) 3.9.x
+*   [Python](https://www.python.org/downloads/) 3.13.x
 *   [Poetry](https://poetry.eustace.io/docs/#installation)
 
 Then use `poetry install` to install the dependencies. Before that,
