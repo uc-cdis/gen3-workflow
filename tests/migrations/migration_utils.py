@@ -15,11 +15,17 @@ class MigrationRunner:
         self.alembic_ini_path = os.path.join(current_dir, "../../alembic.ini")
 
     async def upgrade(self, target: str):
+        """
+        Run an alembic upgrade command
+        """
         self.action = "upgrade"
         self.target = target
         await self._run_alembic_command()
 
     async def downgrade(self, target: str):
+        """
+        Run an alembic downgrade command
+        """
         self.action = "downgrade"
         self.target = target
         await self._run_alembic_command()

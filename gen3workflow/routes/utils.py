@@ -15,6 +15,9 @@ async def make_tes_server_request(
     headers: dict = {},
     params: dict = {},
 ) -> Response:
+    """
+    Utility function to make a request to the external TES server and check the response
+    """
     err_msg = f"TES server error at '{method.upper()} {url}'"
     http_func = getattr(async_client, method)
     http_func_args = {}

@@ -51,6 +51,9 @@ LOCAL_CONFIG_FOLDER = "{}/.gen3/gen3-workflow".format(expanduser("~"))
 
 
 def main():
+    """
+    Config file management CLI
+    """
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(title="action", dest="action")
 
@@ -94,6 +97,9 @@ def main():
 
 
 def create_config_file(file_name, full_path=None):
+    """
+    Initialize a new config file
+    """
     config_path = full_path or os.path.join(LOCAL_CONFIG_FOLDER, file_name)
     dir_name = os.path.dirname(config_path)
     if dir_name and not os.path.exists(dir_name):
@@ -105,6 +111,9 @@ def create_config_file(file_name, full_path=None):
 
 
 def get_config_file(file_name):
+    """
+    Find the config file in the directories configured to be searched
+    """
     search_folders = [LOCAL_CONFIG_FOLDER]
     try:
         config_path = config.get_config_path(

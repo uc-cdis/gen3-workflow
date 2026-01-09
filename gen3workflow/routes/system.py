@@ -13,12 +13,18 @@ router = APIRouter()
 @router.get("/_version")
 @router.get("/_version/", include_in_schema=False)
 def get_version(request: Request) -> dict:
+    """
+    Get app version
+    """
     return dict(version=request.app.version)
 
 
 @router.get("/_status")
 @router.get("/_status/", include_in_schema=False)
 async def get_status(request: Request) -> dict:
+    """
+    Get app status
+    """
     tes_status_url = f"{config['TES_SERVER_URL']}/service-info"
     try:
         await make_tes_server_request(request.app.async_client, "get", tes_status_url)

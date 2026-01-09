@@ -24,6 +24,9 @@ async def test_metrics_collection(client, endpoint):
 
 @pytest.mark.asyncio
 async def test_metrics_endpoint(client, trailing_slash):
+    """
+    Test hitting the metrics endpoint
+    """
     res = await client.get(
         f"/metrics{'/' if trailing_slash else ''}",
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},

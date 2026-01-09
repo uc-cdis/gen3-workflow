@@ -146,6 +146,9 @@ def access_token_patcher(request):
 
 
 def mock_arborist_request_function(method: str, path: str, body: str, authorized: bool):
+    """
+    Mock authz responses from Gen3 Arborist
+    """
     # paths to reponses: { URL: { METHOD: (status code, response body) } }
     paths_to_responses = {
         # access check:
@@ -209,6 +212,9 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
 def mock_tes_server_request_function(
     method: str, path: str, query_params: dict, body: str, status_code: int
 ):
+    """
+    Mock responses from an external TES server
+    """
     accessible_task = {
         "id": "123",
         "state": "COMPLETE",
@@ -290,6 +296,9 @@ class UvicornServer(uvicorn.Server):
 
     @contextlib.contextmanager
     def run_in_thread(self):
+        """
+        Start a new thread to run the server
+        """
         thread = Thread(target=self.run)
         thread.start()
         try:
@@ -355,10 +364,10 @@ async def client(request):
             headers = {"content-type": "application/xml"}
             # multipart upload special case:
             if "test_s3_upload_file_multipart.txt" in url:
-                uploadId = "test-upload-id"
+                upload_id = "test-upload-id"
                 # "InitiateMultipartUploadResult" with "UploadId"
-                resp_xml = f"""<?xml version="1.0" encoding="UTF-8"?>\n<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Bucket><Key>test_s3_chunk_upload.txt</Key><UploadId>{uploadId}</UploadId></InitiateMultipartUploadResult>"""
-                if f"?uploadId={uploadId}&partNumber=" in url:
+                resp_xml = f"""<?xml version="1.0" encoding="UTF-8"?>\n<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Bucket><Key>test_s3_chunk_upload.txt</Key><UploadId>{upload_id}</UploadId></InitiateMultipartUploadResult>"""
+                if f"?uploadId={upload_id}&partNumber=" in url:
                     headers["etag"] = "test-etag"
             mocked_response = httpx.Response(
                 status_code=200,
@@ -405,4 +414,8 @@ async def client(request):
     params=[False, True], ids=["without trailing slash", "with trailing slash"]
 )
 def trailing_slash(request):
+    """
+    Fixture used to run some tests twice, hitting the API endpoints with and without a trailing
+    slash
+    """
     return request.param

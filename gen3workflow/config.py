@@ -18,6 +18,10 @@ class Gen3WorkflowConfig(Config):
         super(Gen3WorkflowConfig, self).__init__(*args, **kwargs)
 
     def post_process(self) -> None:
+        """
+        `post_process` runs after the class has been initialized.
+        Generate the DB_CONNECTION_STRING configuration from the database settings.
+        """
         # generate DB_CONNECTION_STRING from DB configs or env vars
         drivername = os.environ.get("DB_DRIVER", self["DB_DRIVER"])
         host = os.environ.get("DB_HOST", self["DB_HOST"])
@@ -37,6 +41,9 @@ class Gen3WorkflowConfig(Config):
         self.validate_top_level_configs()
 
     def validate_top_level_configs(self) -> None:
+        """
+        Validate the configured fields
+        """
         schema = {
             "type": "object",
             "additionalProperties": False,
