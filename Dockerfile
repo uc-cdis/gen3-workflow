@@ -26,6 +26,7 @@ RUN poetry install --without dev --no-interaction
 FROM base
 
 COPY --from=builder /${appname} /${appname}
+COPY --from=builder /venv /venv
 
 # switch to root user to install vim
 USER root
