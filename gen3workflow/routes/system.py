@@ -35,4 +35,7 @@ async def get_status(request: Request) -> dict:
 
 @router.get("/metrics", include_in_schema=False)
 async def redirect_metrics():
+    """
+    Metrics endpoint
+    """
     return RedirectResponse(url="/metrics/")
