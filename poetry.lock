@@ -164,33 +164,29 @@ name = "authutils"
 version = "7.2.1"
 description = "Gen3 auth utility functions"
 optional = false
-python-versions = ">=3.13, <4.0"
+python-versions = "<4.0,>=3.13"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "authutils-7.2.1-py3-none-any.whl", hash = "sha256:9acc018ff90988dac06a19af42519f8b3670e7ba6fb01dc5931de039d0d1fff5"},
+    {file = "authutils-7.2.1.tar.gz", hash = "sha256:b7bb56e11c2a9343450c1d9d104dfe2c07310ced08d6d2659a00ee832c081f0a"},
+]
 
 [package.dependencies]
 authlib = ">=1.6.5"
-cached-property = "~=1.4"
+cached-property = ">=1.4,<2.0"
 cdiserrors = "*"
 cdislogging = "*"
-cryptography = "^44.0.1"
+cryptography = ">=44.0.1,<45.0.0"
 httpx = ">=0.23.0,<1.0.0"
 pyjwt = {version = ">=2.4.0,<3.0", extras = ["crypto"]}
 starlette = "*"
 werkzeug = "*"
-xmltodict = "~=0.9"
+xmltodict = ">=0.9,<1.0"
 
 [package.extras]
 datamodelutils = ["datamodelutils"]
 fastapi = ["fastapi (>=0.65.2,<0.66.0)"]
 flask = ["Flask (<=2.3.3)"]
-
-[package.source]
-type = "git"
-url = "https://github.com/uc-cdis/authutils"
-reference = "feat/3.13"
-resolved_reference = "c8bfda36d79683b2d9fb2a67bad173446aa1251c"
 
 [[package]]
 name = "backoff"
@@ -218,18 +214,18 @@ files = [
 
 [[package]]
 name = "boto3"
-version = "1.42.24"
+version = "1.42.25"
 description = "The AWS SDK for Python"
 optional = false
 python-versions = ">=3.9"
 groups = ["main", "dev"]
 files = [
-    {file = "boto3-1.42.24-py3-none-any.whl", hash = "sha256:8ed6ad670a5a2d7f66c1b0d3362791b48392c7a08f78479f5d8ab319a4d9118f"},
-    {file = "boto3-1.42.24.tar.gz", hash = "sha256:c47a2f40df933e3861fc66fd8d6b87ee36d4361663a7e7ba39a87f5a78b2eae1"},
+    {file = "boto3-1.42.25-py3-none-any.whl", hash = "sha256:8128bde4f9d5ffce129c76d1a2efe220e3af967a2ad30bc305ba088bbc96343d"},
+    {file = "boto3-1.42.25.tar.gz", hash = "sha256:ccb5e757dd62698d25766cc54cf5c47bea43287efa59c93cf1df8c8fbc26eeda"},
 ]
 
 [package.dependencies]
-botocore = ">=1.42.24,<1.43.0"
+botocore = ">=1.42.25,<1.43.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.16.0,<0.17.0"
 
@@ -238,14 +234,14 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "botocore"
-version = "1.42.24"
+version = "1.42.25"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">=3.9"
 groups = ["main", "dev"]
 files = [
-    {file = "botocore-1.42.24-py3-none-any.whl", hash = "sha256:8fca9781d7c84f7ad070fceffaff7179c4aa7a5ffb27b43df9d1d957801e0a8d"},
-    {file = "botocore-1.42.24.tar.gz", hash = "sha256:be8d1bea64fb91eea08254a1e5fea057e4428d08e61f4e11083a02cafc1f8cc6"},
+    {file = "botocore-1.42.25-py3-none-any.whl", hash = "sha256:470261966aab1d09a1cd4ba56810098834443602846559ba9504f6613dfa52dc"},
+    {file = "botocore-1.42.25.tar.gz", hash = "sha256:7ae79d1f77d3771e83e4dd46bce43166a1ba85d58a49cffe4c4a721418616054"},
 ]
 
 [package.dependencies]
@@ -301,13 +297,15 @@ files = [
 
 [[package]]
 name = "cdispyutils"
-version = "2.4.1"
+version = "2.5.0"
 description = "This package includes several utility Python tools for the Gen3 stack."
 optional = false
-python-versions = ">=3.13,<4"
+python-versions = "<4,>=3.13"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "cdispyutils-2.5.0-py3-none-any.whl", hash = "sha256:f04dcab859eea8c15ad5d8298323745d54f0f01e10a098a8eb22a1b659df3347"},
+    {file = "cdispyutils-2.5.0.tar.gz", hash = "sha256:a5d0de1f0819e738bb0fdedffaf4b3a31dbd3f7b07873f1943efd246724221f2"},
+]
 
 [package.dependencies]
 cdiserrors = "*"
@@ -320,12 +318,6 @@ requests = "*"
 [package.extras]
 profiling = ["Werkzeug", "matplotlib", "numpy"]
 uwsgi = ["uwsgi"]
-
-[package.source]
-type = "git"
-url = "https://github.com/uc-cdis/cdis-python-utils"
-reference = "feat/3.13"
-resolved_reference = "787058b7e27e5738b1c57bfaab94a0b47ca5bdc6"
 
 [[package]]
 name = "certifi"
@@ -2153,4 +2145,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "194bb0adef8e5378a5f77623d5d533972e7fab12ba5c11b8a377e3af7ab77a99"
+content-hash = "ad05398f9146a8cd4466c902d74bf19dc4fb45fa27f3e72d0466cf9da68d0df0"

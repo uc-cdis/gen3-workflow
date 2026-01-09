@@ -14,8 +14,7 @@ include = [
 python = ">=3.13,<4"
 alembic = ">=1"
 asyncpg = "<1"
-#authutils = ">=7"
-authutils = {git = "https://github.com/uc-cdis/authutils", branch = "feat/3.13"}
+authutils = ">=7"
 boto3 = ">=1"
 botocore = "*"
 cdislogging = ">=1"
@@ -27,8 +26,7 @@ httpx = "<1"
 jsonschema = "<5"
 sqlalchemy = { extras = ["asyncio"], version = ">=2" }
 uvicorn = "<1"
-#cdispyutils = ">=2"
-cdispyutils = {git = "https://github.com/uc-cdis/cdis-python-utils", branch = "feat/3.13"}
+cdispyutils = ">=2"
 starlette = "*"
 pyyaml = "*"
 
