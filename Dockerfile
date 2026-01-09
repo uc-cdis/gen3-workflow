@@ -12,8 +12,6 @@ RUN chown -R gen3:gen3 /${appname}
 # Builder stage
 FROM base AS builder
 
-USER gen3
-
 # copy ONLY poetry artifact, install the dependencies but not the app;
 # this will make sure that the dependencies are cached
 COPY poetry.lock pyproject.toml /${appname}/
@@ -28,6 +26,9 @@ RUN poetry install --without dev --no-interaction
 FROM base
 
 COPY --from=builder /${appname} /${appname}
+
+# switch to root user to install vim
+USER root
 
 RUN dnf -y install vim
 
