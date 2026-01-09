@@ -12,8 +12,6 @@ include = [
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4"
-alembic = ">=1"
-asyncpg = "<1"
 authutils = ">=7"
 boto3 = ">=1"
 botocore = "*"
@@ -24,7 +22,6 @@ gen3config = ">=2"
 gunicorn = "<24"
 httpx = "<1"
 jsonschema = "<5"
-sqlalchemy = { extras = ["asyncio"], version = ">=2" }
 uvicorn = "<1"
 cdispyutils = ">=2"
 starlette = "*"
@@ -37,12 +34,6 @@ pytest = "*"
 pytest-asyncio = "*"
 pytest-cov = "*"
 deptry = "*"
-
-[tool.deptry.per_rule_ignores]
-DEP002 = [
-  "asyncpg"
-]
-
 
 [build-system]
 requires = ["poetry<2"]

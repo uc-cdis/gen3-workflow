@@ -17,22 +17,6 @@ class Gen3WorkflowConfig(Config):
     def __init__(self, *args, **kwargs):
         super(Gen3WorkflowConfig, self).__init__(*args, **kwargs)
 
-    def post_process(self) -> None:
-        """
-        `post_process` runs after the class has been initialized.
-        Generate the DB_CONNECTION_STRING configuration from the database settings.
-        """
-        # generate DB_CONNECTION_STRING from DB configs or env vars
-        drivername = os.environ.get("DB_DRIVER", self["DB_DRIVER"])
-        host = os.environ.get("DB_HOST", self["DB_HOST"])
-        port = os.environ.get("DB_PORT", self["DB_PORT"])
-        username = os.environ.get("DB_USER", self["DB_USER"])
-        password = os.environ.get("DB_PASSWORD", self["DB_PASSWORD"])
-        database = os.environ.get("DB_DATABASE", self["DB_DATABASE"])
-        self["DB_CONNECTION_STRING"] = (
-            f"{drivername}://{username}:{password}@{host}:{port}/{database}"
-        )
-
     def validate(self) -> None:
         """
         Perform a series of sanity checks on a loaded config.
@@ -59,13 +43,6 @@ class Gen3WorkflowConfig(Config):
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY": {"type": ["string", "null"]},
                 "KMS_ENCRYPTION_ENABLED": {"type": "boolean"},
-                "DB_DRIVER": {"type": "string"},
-                "DB_HOST": {"type": "string"},
-                "DB_PORT": {"type": "integer"},
-                "DB_USER": {"type": "string"},
-                "DB_PASSWORD": {"type": "string"},
-                "DB_DATABASE": {"type": "string"},
-                "DB_CONNECTION_STRING": {"type": "string"},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
@@ -95,13 +72,3 @@ try:
 except Exception:
     logger.warning("Unable to load config, using default config...", exc_info=True)
     config.load(config_path=DEFAULT_CFG_PATH)
-
-
-if __name__ == "__main__":
-    # used by `bin._common_setup.sh` to create the database as configured
-    host = os.environ.get("DB_HOST", config["DB_HOST"])
-    port = os.environ.get("DB_PORT", config["DB_PORT"])
-    username = os.environ.get("DB_USER", config["DB_USER"])
-    password = os.environ.get("DB_PASSWORD", config["DB_PASSWORD"])
-    database = os.environ.get("DB_DATABASE", config["DB_DATABASE"])
-    print("\n", host, port, username, password, database)

@@ -59,12 +59,6 @@ Update your configuration file:
 - set `TES_SERVER_URL` to the TES server URL
 - set `MOCK_AUTH` to `true`, so that no attempts to interact with Arborist are made.
 
-Run database schema migration:
-
-```bash
-alembic upgrade head
-```
-
 Start the Gen3Workflow app:
 
 ```bash

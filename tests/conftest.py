@@ -15,7 +15,6 @@ from fastapi import Request
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.config import environ
 from threading import Thread
 import uvicorn
@@ -30,7 +29,6 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
-from tests.migrations.migration_utils import MigrationRunner
 
 
 TEST_USER_ID = "user-64"
@@ -66,49 +64,6 @@ MOCKED_S3_RESPONSE_DICT = {
     "MaxKeys": 250,
     "EncodingType": "url",
 }
-
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
-async def migrate_database_to_the_latest():
-    """
-    Migrate the database to the latest version before running the tests.
-    """
-    migration_runner = MigrationRunner()
-    await migration_runner.upgrade("head")
-
-
-@pytest_asyncio.fixture(scope="function")
-async def reset_database():
-    """
-    Most tests do not store data in the database, so for performance this fixture does not
-    autorun. To be used in tests that interact with the database.
-    """
-    migration_runner = MigrationRunner()
-    await migration_runner.downgrade("base")
-    await migration_runner.upgrade("head")
-
-    yield
-
-    await migration_runner.downgrade("base")
-    await migration_runner.upgrade("head")
-
-
-@pytest_asyncio.fixture(scope="function")
-async def session():
-    """
-    Database session
-    """
-    engine = create_async_engine(
-        config["DB_CONNECTION_STRING"], echo=False, future=True
-    )
-    session_maker = async_sessionmaker(
-        engine, expire_on_commit=False, autocommit=False, autoflush=False
-    )
-
-    async with session_maker() as session:
-        yield session
-
-    await engine.dispose()
 
 
 @pytest.fixture(scope="function")
