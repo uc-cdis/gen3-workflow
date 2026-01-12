@@ -11,10 +11,6 @@ export ENV="production"
 
 source "${CURRENT_DIR}/bin/_common_setup.sh"
 
-#TODO: if we need a DB later, run `source "${CURRENT_DIR}/_setup_db.sh`
-#source "${CURRENT_DIR}/_setup_db.sh
-
-
 poetry run gunicorn \
   gen3workflow.app:app \
   -k uvicorn.workers.UvicornWorker \

@@ -15,7 +15,6 @@ from fastapi import Request
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.config import environ
 from threading import Thread
 import uvicorn
@@ -30,7 +29,6 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
-from tests.migrations.migration_utils import MigrationRunner
 
 
 TEST_USER_ID = "user-64"
@@ -68,49 +66,6 @@ MOCKED_S3_RESPONSE_DICT = {
 }
 
 
-@pytest_asyncio.fixture(scope="session", autouse=True)
-async def migrate_database_to_the_latest():
-    """
-    Migrate the database to the latest version before running the tests.
-    """
-    migration_runner = MigrationRunner()
-    await migration_runner.upgrade("head")
-
-
-@pytest_asyncio.fixture(scope="function")
-async def reset_database():
-    """
-    Most tests do not store data in the database, so for performance this fixture does not
-    autorun. To be used in tests that interact with the database.
-    """
-    migration_runner = MigrationRunner()
-    await migration_runner.downgrade("base")
-    await migration_runner.upgrade("head")
-
-    yield
-
-    await migration_runner.downgrade("base")
-    await migration_runner.upgrade("head")
-
-
-@pytest_asyncio.fixture(scope="function")
-async def session():
-    """
-    Database session
-    """
-    engine = create_async_engine(
-        config["DB_CONNECTION_STRING"], echo=False, future=True
-    )
-    session_maker = async_sessionmaker(
-        engine, expire_on_commit=False, autocommit=False, autoflush=False
-    )
-
-    async with session_maker() as session:
-        yield session
-
-    await engine.dispose()
-
-
 @pytest.fixture(scope="function")
 def access_token_patcher(request):
     """
@@ -146,6 +101,9 @@ def access_token_patcher(request):
 
 
 def mock_arborist_request_function(method: str, path: str, body: str, authorized: bool):
+    """
+    Mock authz responses from Gen3 Arborist
+    """
     # paths to reponses: { URL: { METHOD: (status code, response body) } }
     paths_to_responses = {
         # access check:
@@ -209,6 +167,9 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
 def mock_tes_server_request_function(
     method: str, path: str, query_params: dict, body: str, status_code: int
 ):
+    """
+    Mock responses from an external TES server
+    """
     accessible_task = {
         "id": "123",
         "state": "COMPLETE",
@@ -290,6 +251,9 @@ class UvicornServer(uvicorn.Server):
 
     @contextlib.contextmanager
     def run_in_thread(self):
+        """
+        Start a new thread to run the server
+        """
         thread = Thread(target=self.run)
         thread.start()
         try:
@@ -355,10 +319,10 @@ async def client(request):
             headers = {"content-type": "application/xml"}
             # multipart upload special case:
             if "test_s3_upload_file_multipart.txt" in url:
-                uploadId = "test-upload-id"
+                upload_id = "test-upload-id"
                 # "InitiateMultipartUploadResult" with "UploadId"
-                resp_xml = f"""<?xml version="1.0" encoding="UTF-8"?>\n<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Bucket><Key>test_s3_chunk_upload.txt</Key><UploadId>{uploadId}</UploadId></InitiateMultipartUploadResult>"""
-                if f"?uploadId={uploadId}&partNumber=" in url:
+                resp_xml = f"""<?xml version="1.0" encoding="UTF-8"?>\n<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Bucket><Key>test_s3_chunk_upload.txt</Key><UploadId>{upload_id}</UploadId></InitiateMultipartUploadResult>"""
+                if f"?uploadId={upload_id}&partNumber=" in url:
                     headers["etag"] = "test-etag"
             mocked_response = httpx.Response(
                 status_code=200,
@@ -405,4 +369,8 @@ async def client(request):
     params=[False, True], ids=["without trailing slash", "with trailing slash"]
 )
 def trailing_slash(request):
+    """
+    Fixture used to run some tests twice, hitting the API endpoints with and without a trailing
+    slash
+    """
     return request.param

@@ -11,6 +11,9 @@ router = APIRouter(prefix="/storage")
 @router.get("/info", status_code=HTTP_200_OK)
 @router.get("/info/", status_code=HTTP_200_OK, include_in_schema=False)
 async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
+    """
+    Get details about the current user's storage setup
+    """
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     logger.info(f"User '{user_id}' getting their own storage info")
@@ -32,6 +35,9 @@ async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
     "/user-bucket/", status_code=HTTP_204_NO_CONTENT, include_in_schema=False
 )
 async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
+    """
+    Delete the current user's S3 bucket
+    """
     await auth.authorize("delete", ["/services/workflow/gen3-workflow/user-bucket"])
 
     token_claims = await auth.get_token_claims()

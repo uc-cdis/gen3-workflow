@@ -28,6 +28,9 @@ router = APIRouter(prefix="/ga4gh/tes/v1")
 
 
 async def get_request_body(request: Request) -> dict:
+    """
+    Extract the body from a FastAPI request
+    """
     # read body as bytes, then decode it as string if necessary
     body_bytes = await request.body()
     try:
@@ -40,6 +43,9 @@ async def get_request_body(request: Request) -> dict:
 @router.get("/service-info", status_code=HTTP_200_OK)
 @router.get("/service-info/", status_code=HTTP_200_OK, include_in_schema=False)
 async def service_info(request: Request, auth=Depends(Auth)) -> dict:
+    """
+    Get details about the GA4GH TES server
+    """
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES service info")
 
@@ -82,6 +88,9 @@ def get_non_allowed_images(images: set, username: str) -> set:
 @router.post("/tasks", status_code=HTTP_200_OK)
 @router.post("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
 async def create_task(request: Request, auth=Depends(Auth)) -> dict:
+    """
+    Create a GA4GH TES task
+    """
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
@@ -194,6 +203,9 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 @router.get("/tasks", status_code=HTTP_200_OK)
 @router.get("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
 async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
+    """
+    List the user's GA4GH TES tasks
+    """
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' listing TES tasks")
 
@@ -257,6 +269,9 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 @router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
 @router.get("/tasks/{task_id}/", status_code=HTTP_200_OK, include_in_schema=False)
 async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
+    """
+    Get a GA4GH TES task
+    """
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES task '{task_id}'")
 
@@ -292,6 +307,9 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     "/tasks/{task_id}/:cancel", status_code=HTTP_200_OK, include_in_schema=False
 )
 async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
+    """
+    Cancel a GA4GH TES task
+    """
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' canceling TES task '{task_id}'")
 

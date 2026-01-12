@@ -1,7 +1,7 @@
-ARG AZLINUX_BASE_VERSION=master
+ARG AZLINUX_BASE_VERSION=3.13-pythonnginx
 
-# Base stage with python-build-base
-FROM quay.io/cdis/python-nginx-al:${AZLINUX_BASE_VERSION} AS base
+# Base stage
+FROM quay.io/cdis/amazonlinux-base:${AZLINUX_BASE_VERSION} AS base
 
 ENV appname=gen3workflow
 
@@ -11,8 +11,6 @@ RUN chown -R gen3:gen3 /${appname}
 
 # Builder stage
 FROM base AS builder
-
-USER gen3
 
 # copy ONLY poetry artifact, install the dependencies but not the app;
 # this will make sure that the dependencies are cached
@@ -28,6 +26,10 @@ RUN poetry install --without dev --no-interaction
 FROM base
 
 COPY --from=builder /${appname} /${appname}
+COPY --from=builder /venv /venv
+
+# switch to root user to install vim
+USER root
 
 RUN dnf -y install vim
 

@@ -236,13 +236,13 @@ async def test_s3_endpoint_with_bearer_token(client, path):
     ids=["with token sub", "without token sub"],
 )
 @pytest.mark.parametrize(
-    "key_includes_userId", [True, False], ids=["key format A", "key format B"]
+    "key_includes_user_id", [True, False], ids=["key format A", "key format B"]
 )
 @pytest.mark.parametrize(
     "auth_header_format", [1, 2], ids=["auth format 1", "auth format 2"]
 )
 async def test_set_access_token_and_get_user_id(
-    auth_header_format, key_includes_userId, token_claims_sub, token_claims_azp
+    auth_header_format, key_includes_user_id, token_claims_sub, token_claims_azp
 ):
     """
     Test `set_access_token_and_get_user_id` behavior with various combinations of access token and
@@ -266,7 +266,7 @@ async def test_set_access_token_and_get_user_id(
     auth.get_token_claims.return_value = token_claims
 
     aws_access_key_id = TEST_USER_TOKEN
-    if key_includes_userId:
+    if key_includes_user_id:
         aws_access_key_id += f";userId={TEST_USER_ID}"
 
     if auth_header_format == 1:
@@ -275,17 +275,17 @@ async def test_set_access_token_and_get_user_id(
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
     # no user ID in the token claims or in the key ID: error
-    if not key_includes_userId and not token_claims_sub:
+    if not key_includes_user_id and not token_claims_sub:
         with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # user ID in the key ID, which implies a client flow, but no client ID in the token
     # claims: error
-    elif key_includes_userId and not token_claims_azp:
+    elif key_includes_user_id and not token_claims_azp:
         with pytest.raises(HTTPException, match="401: No client ID in token"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # user ID in the key ID, which implies a client flow, AND user ID in the token claims: error.
     # similar test case as `test_s3_endpoint_unsupported_oidc_token`
-    elif key_includes_userId and token_claims_sub:
+    elif key_includes_user_id and token_claims_sub:
         with pytest.raises(
             HTTPException, match="401: Expected a client token not linked to a user"
         ):
@@ -352,6 +352,9 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
 
 
 def test_chunked_to_non_chunked_body():
+    """
+    Test that `chunked_to_non_chunked_body` correctly parses request bodies from chunked data
+    """
     body = b"f;chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6891\r\nBonjour world!\n\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
     assert chunked_to_non_chunked_body(body) == b"Bonjour world!\n"
 

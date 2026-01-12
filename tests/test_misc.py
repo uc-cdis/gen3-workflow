@@ -14,6 +14,9 @@ from gen3workflow.config import config
 
 @pytest.fixture(scope="function")
 def reset_config_hostname():
+    """
+    Reset the `HOSTNAME` configuration at the end of tests that use this fixture
+    """
     original_hostname = config["HOSTNAME"]
     yield
     config["HOSTNAME"] = original_hostname
@@ -21,6 +24,9 @@ def reset_config_hostname():
 
 @pytest.fixture(scope="function")
 def mock_aws_services():
+    """
+    Mock all AWS services
+    """
     with mock_aws():
         aws_utils.iam_client = boto3.client("iam")
         aws_utils.kms_client = boto3.client(
@@ -45,6 +51,9 @@ def mock_aws_services():
 
 
 def test_get_safe_name_from_hostname(reset_config_hostname):
+    """
+    Test that `get_safe_name_from_hostname` correctly generates "safe names" from hostnames
+    """
     user_id = "asdfgh"
 
     # test a hostname with a `.`; it should be replaced by a `-`
@@ -80,6 +89,9 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
 async def test_storage_info(
     client, access_token_patcher, mock_aws_services, trailing_slash
 ):
+    """
+    Check that S3 buckets are correctly created and configured by the `/storage/info` endpoint
+    """
     # check that the user's storage information is as expected
     expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 

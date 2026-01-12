@@ -30,16 +30,6 @@ S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY:
 
 KMS_ENCRYPTION_ENABLED: true
 
-#############
-# DATABASE #
-#############
-
-DB_DRIVER: postgresql+asyncpg
-DB_HOST: localhost
-DB_PORT: 5432
-DB_USER: postgres
-DB_PASSWORD: postgres
-DB_DATABASE: gen3workflow_test
 
 #############
 # GA4GH TES #

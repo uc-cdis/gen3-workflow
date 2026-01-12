@@ -19,6 +19,9 @@ from gen3workflow.routes.system import router as system_router
 
 
 def get_app(httpx_client=None) -> FastAPI:
+    """
+    Initialize the FastAPI app
+    """
     existing_route_ids = set()
 
     def generate_unique_route_id(route: APIRoute) -> str:

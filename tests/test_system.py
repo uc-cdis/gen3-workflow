@@ -26,6 +26,9 @@ async def test_status_endpoint(client, endpoint):
 
 @pytest.mark.asyncio
 async def test_version_endpoint(client, trailing_slash):
+    """
+    Test the version endpoint
+    """
     res = await client.get(f"/_version{'/' if trailing_slash else ''}")
     assert res.status_code == 200
 

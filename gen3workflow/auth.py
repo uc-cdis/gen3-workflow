@@ -31,6 +31,9 @@ class Auth:
         self.bearer_token = bearer_token
 
     def get_access_token(self) -> str:
+        """
+        Extract the current token string
+        """
         if config["MOCK_AUTH"]:
             return "123"
 
@@ -41,6 +44,9 @@ class Auth:
         )
 
     async def get_token_claims(self) -> dict:
+        """
+        Extract the claims from the curent token
+        """
         if config["MOCK_AUTH"]:
             return {"sub": 64, "context": {"user": {"name": "mocked-user"}}}
 
@@ -67,6 +73,9 @@ class Auth:
         return token_claims
 
     async def get_user_id(self) -> Union[str, None]:
+        """
+        Parse the user ID from the access token claims
+        """
         try:
             token_claims = await self.get_token_claims()
         except Exception:
@@ -79,6 +88,9 @@ class Auth:
         resources: list,
         throw: bool = True,
     ) -> bool:
+        """
+        Check whether the current token owner has access to perform the specified action
+        """
         if config["MOCK_AUTH"]:
             return True
 

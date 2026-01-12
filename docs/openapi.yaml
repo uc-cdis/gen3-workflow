@@ -36,11 +36,12 @@ components:
       type: http
 info:
   title: Gen3Workflow
-  version: 0.1.0
+  version: 0.2.0
 openapi: 3.1.0
 paths:
   /_status:
     get:
+      description: Get app status
       operationId: get_status
       responses:
         '200':
@@ -56,6 +57,7 @@ paths:
       - System
   /_version:
     get:
+      description: Get app version
       operationId: get_version
       responses:
         '200':
@@ -71,6 +73,7 @@ paths:
       - System
   /ga4gh/tes/v1/service-info:
     get:
+      description: Get details about the GA4GH TES server
       operationId: service_info
       responses:
         '200':
@@ -88,6 +91,7 @@ paths:
       - GA4GH TES
   /ga4gh/tes/v1/tasks:
     get:
+      description: List the user's GA4GH TES tasks
       operationId: list_tasks
       responses:
         '200':
@@ -104,6 +108,7 @@ paths:
       tags:
       - GA4GH TES
     post:
+      description: Create a GA4GH TES task
       operationId: create_task
       responses:
         '200':
@@ -121,6 +126,7 @@ paths:
       - GA4GH TES
   /ga4gh/tes/v1/tasks/{task_id}:
     get:
+      description: Get a GA4GH TES task
       operationId: get_task
       parameters:
       - in: path
@@ -151,6 +157,7 @@ paths:
       - GA4GH TES
   /ga4gh/tes/v1/tasks/{task_id}:cancel:
     post:
+      description: Cancel a GA4GH TES task
       operationId: cancel_task
       parameters:
       - in: path
@@ -486,6 +493,7 @@ paths:
       - S3
   /storage/info:
     get:
+      description: Get details about the current user's storage setup
       operationId: get_storage_info
       responses:
         '200':
@@ -503,6 +511,7 @@ paths:
       - Storage
   /storage/user-bucket:
     delete:
+      description: Delete the current user's S3 bucket
       operationId: delete_user_bucket
       responses:
         '204':
