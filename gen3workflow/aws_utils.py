@@ -9,6 +9,14 @@ from gen3workflow import logger
 from gen3workflow.config import config
 
 
+def _json_normalized(obj: dict) -> str:
+    """
+    Reads a Python dict and returns a JSON string with ordered keys
+    Use case: when comparing JSON objects returned by AWS, comparisons are deterministic and less flaky
+    """
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+
 def get_boto3_client(service_name: str, **kwargs):
     """
     Create a boto3 client for the specified AWS service,
@@ -162,10 +170,12 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
     try:
         worker_role = iam_client.get_role(RoleName=role_name)
         logger.info(f"IAM role '{role_name}' already exists")
-        if (
+        current_policy = _json_normalized(
             worker_role["Role"]["AssumeRolePolicyDocument"]
-            != assume_role_policy_document
-        ):
+        )
+        updated_policy = _json_normalized(assume_role_policy_document)
+
+        if current_policy != updated_policy:
             logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
             iam_client.update_assume_role_policy(
                 RoleName=role_name,
