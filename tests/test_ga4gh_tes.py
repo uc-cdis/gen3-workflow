@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -114,11 +115,15 @@ async def test_create_task(
     If the user is not authorized, we should get a 403 error and no TES server requests should
     be made.
     """
-    res = await client.post(
-        f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}",
-        json={"name": "test-task"},
-        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
-    )
+    with patch(
+        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        lambda _: ("test_kms_key_alias", "*"),
+    ):
+        res = await client.post(
+            f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}",
+            json={"name": "test-task"},
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        )
     if not client.authorized:
         assert res.status_code == 403, res.text
         mock_tes_server_request.assert_not_called()
@@ -170,11 +175,15 @@ async def test_create_task_new_user(client, access_token_patcher, mock_aws_servi
     When a user who does not yet have access to their own tasks creates a task, calls to Arborist
     should be made to create a resource, role, policy and user, and to grant the user access.
     """
-    res = await client.post(
-        "/ga4gh/tes/v1/tasks",
-        json={"name": "test-task"},
-        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
-    )
+    with patch(
+        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        lambda _: ("test_kms_key_alias", "*"),
+    ):
+        res = await client.post(
+            "/ga4gh/tes/v1/tasks",
+            json={"name": "test-task"},
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        )
     assert res.status_code == 200, res.text
     assert res.json() == {"id": "123"}
     test_task_body = {
@@ -381,11 +390,15 @@ async def test_create_task_with_whitelist_images(
     Requests to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server along with the request body.
     Ensure that any image sent to the TES server belongs exclusively to whitelisted repositories specified in the configuration.
     """
-    res = await client.post(
-        "/ga4gh/tes/v1/tasks",
-        json=req_body,
-        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
-    )
+    with patch(
+        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        lambda _: ("test_kms_key_alias", "*"),
+    ):
+        res = await client.post(
+            "/ga4gh/tes/v1/tasks",
+            json=req_body,
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        )
 
     assert status_code == res.status_code, res.text
     if status_code == 403:

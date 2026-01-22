@@ -228,7 +228,7 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
         if not kms_key_arn:
             err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
             logger.error(
-                f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
+                f"No existing KMS key found for bucket '{bucket_name}'. {err_msg}"
             )
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
         logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")

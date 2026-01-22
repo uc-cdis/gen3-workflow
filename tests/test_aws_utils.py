@@ -158,6 +158,12 @@ def test_update_assume_role_policy_called_when_policy_updated(mock_aws_services)
         RoleName=role_name, AssumeRolePolicyDocument=json.dumps(assume_role_policy_doc)
     )
 
+    # Create KMS key to make sure, key exists and is added to the policy
+    kms_key_alias = f"alias/gen3wf-localhost-{TEST_USER_ID}"
+    output = aws_utils.kms_client.create_key()
+    kms_key_arn = output["KeyMetadata"]["Arn"]
+    aws_utils.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
+
     with patch.object(
         aws_utils.iam_client,
         "update_assume_role_policy",
@@ -184,6 +190,11 @@ def test_does_not_update_assume_role_policy_when_unchanged(mock_aws_services):
     """
     Test aws_utils.iam.update_assume_role_policy is NOT called when the policy is unchanged
     """
+    # Create KMS key to make sure, key exists and is added to the policy
+    kms_key_alias = f"alias/gen3wf-localhost-{TEST_USER_ID}"
+    output = aws_utils.kms_client.create_key()
+    kms_key_arn = output["KeyMetadata"]["Arn"]
+    aws_utils.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
 
     # Compute OIDC issuer from mocked EKS (non-deterministic, therefore can't be hardcoded)
     mock_oidc_token_url = aws_utils.eks_client.describe_cluster(
