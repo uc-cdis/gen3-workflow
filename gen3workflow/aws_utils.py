@@ -1,9 +1,11 @@
-from typing import Tuple, Union
-
-import boto3
 import json
 import os
+from typing import Tuple, Union
+
+from fastapi import HTTPException
+import boto3
 from botocore.exceptions import ClientError
+from starlette.status import HTTP_400_BAD_REQUEST
 
 from gen3workflow import logger
 from gen3workflow.config import config
