@@ -223,19 +223,24 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
 
     if config["KMS_ENCRYPTION_ENABLED"]:
         _, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
-        if kms_key_arn:
-            logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
-            policy_document["Statement"].append(
-                {
-                    "Effect": "Allow",
-                    "Action": [
-                        "kms:Decrypt",
-                        "kms:Encrypt",
-                        "kms:GenerateDataKey*",
-                    ],
-                    "Resource": kms_key_arn,
-                }
+        if not kms_key_arn:
+            err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
+            logger.error(
+                f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
             )
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+        logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
+        policy_document["Statement"].append(
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "kms:Decrypt",
+                    "kms:Encrypt",
+                    "kms:GenerateDataKey*",
+                ],
+                "Resource": kms_key_arn,
+            }
+        )
 
     iam_client.put_role_policy(
         RoleName=role_name,
