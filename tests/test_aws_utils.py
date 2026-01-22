@@ -243,7 +243,8 @@ def test_create_role_for_bucket_access_with_no_kms_enabled(
 
     monkeypatch.setitem(aws_utils.config, "KMS_ENCRYPTION_ENABLED", False)
 
-    # Create KMS key to make sure, key exists and is added to the policy
+    # Create KMS key to make sure, the policy is not updated when
+    # KMS is diabled, despite a key being present
     kms_key_alias = f"alias/gen3wf-localhost-{TEST_USER_ID}"
     output = aws_utils.kms_client.create_key()
     kms_key_arn = output["KeyMetadata"]["Arn"]
