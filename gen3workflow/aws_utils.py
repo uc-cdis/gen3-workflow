@@ -9,7 +9,7 @@ from gen3workflow import logger
 from gen3workflow.config import config
 
 
-def _json_normalized(obj: dict) -> str:
+def dict_to_sorted_json_str(obj: dict) -> str:
     """
     Reads a Python dict and returns a JSON string with ordered keys
     Use case: when comparing JSON objects returned by AWS, comparisons are deterministic and less flaky
@@ -170,10 +170,10 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
     try:
         worker_role = iam_client.get_role(RoleName=role_name)
         logger.info(f"IAM role '{role_name}' already exists")
-        current_policy = _json_normalized(
+        current_policy = dict_to_sorted_json_str(
             worker_role["Role"]["AssumeRolePolicyDocument"]
         )
-        updated_policy = _json_normalized(assume_role_policy_document)
+        updated_policy = dict_to_sorted_json_str(assume_role_policy_document)
 
         if current_policy != updated_policy:
             logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")

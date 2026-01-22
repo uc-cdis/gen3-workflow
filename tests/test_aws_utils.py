@@ -49,7 +49,7 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
             kwargs["AssumeRolePolicyDocument"]
         )  # raises if invalid JSON
 
-        actual_assume_role_json_string = aws_utils._json_normalized(
+        actual_assume_role_json_string = aws_utils.dict_to_sorted_json_str(
             actual_assume_role_policy
         )
 
@@ -81,7 +81,7 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
                 },
             ],
         }
-        expected_assume_role_json_string = aws_utils._json_normalized(
+        expected_assume_role_json_string = aws_utils.dict_to_sorted_json_str(
             expected_assume_role_policy
         )
         assert expected_assume_role_json_string == actual_assume_role_json_string, (
@@ -137,9 +137,9 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
         actual_policy = json.loads(
             put_role_policy_spy_kwargs["PolicyDocument"]
         )  # raises if invalid JSON
-        actual_policy_json_string = aws_utils._json_normalized(actual_policy)
+        actual_policy_json_string = aws_utils.dict_to_sorted_json_str(actual_policy)
 
-        expected_policy_json_string = aws_utils._json_normalized(expected_policy)
+        expected_policy_json_string = aws_utils.dict_to_sorted_json_str(expected_policy)
         assert expected_policy_json_string == actual_policy_json_string, (
             "PolicyDocument mismatch\n"
             f"EXPECTED:\n{json.dumps(expected_policy_json_string, indent=2, sort_keys=True)}\n\n"
@@ -289,9 +289,9 @@ def test_create_role_for_bucket_access_with_no_kms_enabled(
         actual_policy = json.loads(
             put_role_policy_spy_kwargs["PolicyDocument"]
         )  # raises if invalid JSON
-        actual_policy_doc = aws_utils._json_normalized(actual_policy)
+        actual_policy_doc = aws_utils.dict_to_sorted_json_str(actual_policy)
 
-        expected_policy_doc = aws_utils._json_normalized(expected_policy)
+        expected_policy_doc = aws_utils.dict_to_sorted_json_str(expected_policy)
         assert expected_policy_doc == actual_policy_doc, (
             "PolicyDocument mismatch\n"
             f"EXPECTED:\n{json.dumps(expected_policy_doc, indent=2, sort_keys=True)}\n\n"
