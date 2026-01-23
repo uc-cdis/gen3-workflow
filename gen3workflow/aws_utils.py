@@ -1,12 +1,22 @@
-from typing import Tuple, Union
-
-import boto3
 import json
 import os
+from typing import Tuple, Union
+
+from fastapi import HTTPException
+import boto3
 from botocore.exceptions import ClientError
+from starlette.status import HTTP_400_BAD_REQUEST
 
 from gen3workflow import logger
 from gen3workflow.config import config
+
+
+def dict_to_sorted_json_str(obj: dict) -> str:
+    """
+    Reads a Python dict and returns a JSON string with ordered keys
+    Use case: when comparing JSON objects returned by AWS, comparisons are deterministic and less flaky
+    """
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
 
 
 def get_boto3_client(service_name: str, **kwargs):
@@ -162,10 +172,12 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
     try:
         worker_role = iam_client.get_role(RoleName=role_name)
         logger.info(f"IAM role '{role_name}' already exists")
-        if (
+        current_policy = dict_to_sorted_json_str(
             worker_role["Role"]["AssumeRolePolicyDocument"]
-            != assume_role_policy_document
-        ):
+        )
+        updated_policy = dict_to_sorted_json_str(assume_role_policy_document)
+
+        if current_policy != updated_policy:
             logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
             iam_client.update_assume_role_policy(
                 RoleName=role_name,
@@ -213,19 +225,24 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
 
     if config["KMS_ENCRYPTION_ENABLED"]:
         _, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
-        if kms_key_arn:
-            logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
-            policy_document["Statement"].append(
-                {
-                    "Effect": "Allow",
-                    "Action": [
-                        "kms:Decrypt",
-                        "kms:Encrypt",
-                        "kms:GenerateDataKey*",
-                    ],
-                    "Resource": kms_key_arn,
-                }
+        if not kms_key_arn:
+            err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
+            logger.error(
+                f"No existing KMS key found for bucket '{bucket_name}'. {err_msg}"
             )
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+        logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
+        policy_document["Statement"].append(
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "kms:Decrypt",
+                    "kms:Encrypt",
+                    "kms:GenerateDataKey*",
+                ],
+                "Resource": kms_key_arn,
+            }
+        )
 
     iam_client.put_role_policy(
         RoleName=role_name,
