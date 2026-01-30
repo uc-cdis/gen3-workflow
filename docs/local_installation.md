@@ -169,3 +169,4 @@ You can also store your images in a local registry. Kind and Minikube are popula
 
 Dependencies:
 Gen3Workflow relies on Arborist to run. Please view the [Arborist Quick Start Guide](https://github.com/uc-cdis/arborist) for more information.
+Gen3Workflow also relies on [Funnel](https://ohsu-comp-bio.github.io/funnel) with [Funnel-gen3-plugin](https://github.com/uc-cdis/funnel-gen3-plugin) and [Fence]((https://github.com/uc-cdis/fence))

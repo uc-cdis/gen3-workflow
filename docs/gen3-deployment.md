@@ -88,6 +88,9 @@ gen3WorkflowConfig:
             jobsNamespace: workflow-pods-qa-midrc
 ```
 
+### 7. Helm Chart architecture
+* More information regarding how the helm chart is designed can be found in this document -- [WIP-Placeholder link](#placeholder_link)
+
 ---
 
 ## Documentation WIP
