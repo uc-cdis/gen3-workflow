@@ -49,7 +49,12 @@ Gen3Workflow requires specific IAM roles and policies.
 * If **Crossplane is enabled**, these resources are created automatically during Helm deployment.
 * If **Crossplane is not enabled**, you must create them manually using this Helm template as reference:
   [gen3-workflow/templates/crossplane.yaml](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/templates/crossplane.yaml)
+  * Also, one needs to update `.Values.serviceAccount.annotations` to include the role-arn that must be assigned to the gen3-workflow's service account.
+  ```
+  eks.amazonaws.com/role-arn: <iam-role-arn>
+  ```
 
+- Note: Crossplane can be enabled by updating `.Values.global.crossplane`. More information [here](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3/values.yaml#L39)
 ---
 
 ## 5. Authorization Setup
