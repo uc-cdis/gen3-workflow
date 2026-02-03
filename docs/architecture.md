@@ -1,4 +1,4 @@
-# Architecture
+# Architecture Documentation
 
 ### Deployment alongside Funnel
 
