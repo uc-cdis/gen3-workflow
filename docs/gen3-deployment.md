@@ -17,11 +17,8 @@ gen3-workflow:
 
 ## 2. Configure Gen3Workflow
 
-You can customize Gen3Workflow by overriding values under `gen3WorkflowConfig` in your `values.yaml`.
-
-The default configuration is available here:
-[gen3-workflow/values.yaml#L308](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/values.yaml#L308)
-(See `.Values.gen3WorkflowConfig`)
+* You can customize Gen3Workflow by overriding values under `gen3WorkflowConfig` in your `values.yaml`.
+* The default configuration is available here: [gen3-workflow/values.yaml#L308](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/values.yaml#L308) (See `.Values.gen3WorkflowConfig`)
 
 ---
 
@@ -59,10 +56,8 @@ Gen3Workflow requires specific IAM roles and policies.
 
 ## 5. Authorization Setup
 
-Update your `user.yaml` as described in the authorization guide:
-* [Authorization Documentation](authorization.md)
-
-After updating, run the `usersync` job to apply the changes.
+* Update your `user.yaml` as described in the authorization guide: **[Authorization Documentation](authorization.md)**
+* After updating, run the `usersync` job to apply the changes.
 
 ---
 
@@ -81,8 +76,19 @@ gen3WorkflowConfig:
             jobsNamespace: <jobs-namespace>
 ```
 
-**Recommendation:**
-Use a naming convention such as: `workflow-pods-<release-namespace>`
+### **Requirement: JobsNamespace Naming Convention**
+
+Funnel supports any Kubernetes-compatible value for `JobsNamespace`. However, when using Funnel together with **Gen3 Workflow**, a specific naming convention is required.
+
+> **Required:**
+> Users **must** set `JobsNamespace` to:
+>
+> ```
+> workflow-pods-<release-namespace>
+> ```
+
+This naming convention is required to ensure correct integration and expected behavior between Gen3 Workflow and Funnel. Using a different value may result in deployment issues or unexpected runtime behavior.
+
 
 Example:
 
@@ -93,16 +99,16 @@ gen3WorkflowConfig:
             jobsNamespace: workflow-pods-qa-midrc
 ```
 
-### 7. Helm Chart architecture
-* More information regarding how the helm chart is designed can be found in this document -- [WIP-Placeholder link](#placeholder_link)
+## 7. Helm Chart Architecture
 
+* For more details on how the Helm chart is designed, refer to the [Helm Chart Architecture](architecture.md#helm-chart-architecture) document.
+
+## 8. Nextflow tests
+* Follow the steps in [Run Nextflow workflows with Gen3Workflow](local_installation.md#run-nextflow-workflows-with-gen3workflow) to test the deployment using Nextflow workflows.
+* When deploying Gen3 Workflow to a Gen3 instance, ensure **Gen3Workflow URL** is set to your commons' endpoint URL.
 ---
 
-## Documentation WIP
-
-9. Follow [these steps](local_installation.md#run-nextflow-workflows-with-gen3workflow) to test the deployment.
-
-## Automation notes
+## 9. Automation notes
 
 Some manual steps are currently necessary to deploy Gen3Workflow to a new Gen3 instance.
 

@@ -67,6 +67,8 @@ python run.py
 
 Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/docs> (you might have to set `DOCS_URL_PREFIX` to `""` in your configuration file for the docs endpoint to work).
 
+>Note: Although the gen3-workflow service can run as a standalone component, a complete end-to-end experience with Funnel and the Funnel plugin requires interaction with the Fence service. While support for this workflow is planned for future releases, it is not currently supported out of the box.
+
 ## Run Nextflow workflows with Gen3Workflow
 
 - Hit the `/storage/info` endpoint to get your working directory
@@ -113,7 +115,7 @@ gen3 run nextflow run hello
 
 ## AWS access
 
-For full functionality, the Gen3Workflow service requires access to perform a number of operations in AWS. The full policy can be found [here](https://github.com/uc-cdis/cloud-automation/blob/master/gen3/bin/kube-setup-gen3-workflow.sh).
+For full functionality, the Gen3Workflow service requires access to perform a number of operations in AWS. The full policy can be found here -- [gen3-workflow/templates/crossplane.yaml](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/templates/crossplane.yaml)
 
 ## Quickstart with Helm
 
@@ -168,5 +170,5 @@ You can also store your images in a local registry. Kind and Minikube are popula
 - https://minikube.sigs.k8s.io/docs/handbook/registry/#enabling-insecure-registries
 
 Dependencies:
-Gen3Workflow relies on Arborist to run. Please view the [Arborist Quick Start Guide](https://github.com/uc-cdis/arborist) for more information.
-Gen3Workflow also relies on [Funnel](https://ohsu-comp-bio.github.io/funnel) with [Funnel-gen3-plugin](https://github.com/uc-cdis/funnel-gen3-plugin) and [Fence]((https://github.com/uc-cdis/fence))
+* Gen3Workflow relies on Arborist to run. Please view the [Arborist Quick Start Guide](https://github.com/uc-cdis/arborist) for more information.
+* Gen3Workflow also relies on [Funnel](https://ohsu-comp-bio.github.io/funnel) with [Funnel-gen3-plugin](https://github.com/uc-cdis/funnel-gen3-plugin) and [Fence]((https://github.com/uc-cdis/fence))
