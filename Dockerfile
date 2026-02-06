@@ -12,15 +12,20 @@ RUN chown -R gen3:gen3 /${appname}
 # Builder stage
 FROM base AS builder
 
+USER root
+
 # copy ONLY poetry artifact, install the dependencies but not the app;
 # this will make sure that the dependencies are cached
 COPY poetry.lock pyproject.toml /${appname}/
 RUN poetry install -vv --no-root --only main --no-interaction
 
-COPY --chown=gen3:gen3 . /${appname}
-
-# install the app
+COPY . /${appname}
 RUN poetry install --without dev --no-interaction
+
+# ensure the app dir + venv are owned by gen3 for runtime image
+RUN chown -R gen3:gen3 /${appname} /venv
+
+USER gen3
 
 # Final stage
 FROM base
