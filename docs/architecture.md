@@ -97,7 +97,7 @@ This ensures Funnel always has valid credentials to authenticate with Fence with
   * Ensure only authorized pods and services can communicate with Funnel
   * Reduce the blast radius of misconfigurations or compromised workloads
 
-* The diagram below illustrates the Funnel network policy model:
+* The diagram below illustrates the Funnel network policy model when deployed with MongoDB as funnel backend:
 
 ![Funnel Network Policies diagram](funnel_network_policies.jpg)
 

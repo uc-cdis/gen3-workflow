@@ -31,11 +31,7 @@ Deploying Gen3Workflow automatically creates a **funnel-oidc-job**, which:
 
 > **Note:**
 > The value `gen3-workflow.externalSecrets.funnelOidcClient` can be overridden to use a different secret name when external secrets are enabled.
-> This is typically configured by the PE team using the pattern:
->
-> ```
-> <env_name>-funnel-oidc-client
-> ```
+> This is typically configured by the PE team using the pattern: `<env_name>-funnel-oidc-client`
 
 ---
 
