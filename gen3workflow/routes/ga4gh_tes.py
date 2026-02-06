@@ -93,7 +93,8 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     """
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    # TODO: Return a 400 error instead of 500 when there is any decode exception while getting request body
+    # TODO: Return a 400 error instead of 500 when there is a decode exception caused by a bad
+    # command value while getting request body
     body = await get_request_body(request)
     logger.debug(f"Incoming task creation request body: {body}")
 

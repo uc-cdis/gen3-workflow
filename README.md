@@ -14,5 +14,6 @@ The documentation can be browsed in the [docs](docs) folder, and key documents a
 * [Local installation](docs/local_installation.md)
 * [Deployment to a Gen3 instance](docs/gen3-deployment.md)
 * [Architecture](docs/architecture.md)
+* [Helm chart architecture](docs/helm_chart_architecture.md)
 * [Authorization](docs/authorization.md)
 * [S3 interaction](docs/s3.md)

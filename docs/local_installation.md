@@ -67,7 +67,7 @@ python run.py
 
 Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/docs> (you might have to set `DOCS_URL_PREFIX` to `""` in your configuration file for the docs endpoint to work).
 
->Note: Although the gen3-workflow service can run as a standalone component, a complete end-to-end experience with Funnel and the Funnel plugin requires interaction with the Fence service. While support for this workflow is planned for future releases, it is not currently supported out of the box.
+> Note: Although the Gen3Workflow service can run as a standalone component, a complete end-to-end experience with Funnel and the Funnel plugin requires interaction with the Fence service. While support for this flow is planned for future releases, it is not currently supported out of the box.
 
 ## Run Nextflow workflows with Gen3Workflow
 
@@ -115,7 +115,7 @@ gen3 run nextflow run hello
 
 ## AWS access
 
-For full functionality, the Gen3Workflow service requires access to perform a number of operations in AWS. The full policy can be found here -- [gen3-workflow/templates/crossplane.yaml](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/templates/crossplane.yaml)
+For full functionality, the Gen3Workflow service requires access to perform a number of operations in AWS. The full policy can be found here: [gen3-workflow/templates/crossplane.yaml](https://github.com/uc-cdis/gen3-helm/blob/c9ad644/helm/gen3-workflow/templates/crossplane.yaml)
 
 ## Quickstart with Helm
 
@@ -132,9 +132,9 @@ helm upgrade --install gen3/gen3workflow
 ```
 These commands will add the Gen3 helm chart repo and install the Gen3Workflow service to your Kubernetes cluster.
 
-Deploying Gen3Workflow this way will use the defaults that are defined in this [values.yaml file](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3workflow/values.yaml)
+Deploying Gen3Workflow this way will use the defaults that are defined in this [values.yaml file](https://github.com/uc-cdis/gen3-helm/blob/03227ec/helm/gen3workflow/values.yaml)
 
-You can learn more about these values by accessing the Gen3Workflow [README.md](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3workflow/README.md)
+You can learn more about these values by accessing the Gen3Workflow [README.md](https://github.com/uc-cdis/gen3-helm/blob/03227ec/helm/gen3workflow/README.md)
 
 If you would like to override any of the default values, simply copy the above values.yaml file into a local file and make any changes needed.
 
@@ -171,4 +171,4 @@ You can also store your images in a local registry. Kind and Minikube are popula
 
 Dependencies:
 * Gen3Workflow relies on Arborist to run. Please view the [Arborist Quick Start Guide](https://github.com/uc-cdis/arborist) for more information.
-* Gen3Workflow also relies on [Funnel](https://ohsu-comp-bio.github.io/funnel) with [Funnel-gen3-plugin](https://github.com/uc-cdis/funnel-gen3-plugin) and [Fence]((https://github.com/uc-cdis/fence))
+* Gen3Workflow also relies on [Funnel](https://ohsu-comp-bio.github.io/funnel) with [Funnel-gen3-plugin](https://github.com/uc-cdis/funnel-gen3-plugin) and [Fence]((https://github.com/uc-cdis/fence)).

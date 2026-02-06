@@ -18,7 +18,7 @@ gen3-workflow:
 ## 2. Configure Gen3Workflow
 
 * You can customize Gen3Workflow by overriding values under `gen3WorkflowConfig` in your `values.yaml`.
-* The default configuration is available here: [gen3-workflow/values.yaml#L308](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/values.yaml#L308) (See `.Values.gen3WorkflowConfig`)
+* The default configuration is available here: [gen3-workflow/values.yaml#L308](https://github.com/uc-cdis/gen3-helm/blob/03227ec/helm/gen3-workflow/values.yaml#L308) (See `.Values.gen3WorkflowConfig`)
 
 ---
 
@@ -41,13 +41,13 @@ Gen3Workflow requires specific IAM roles and policies.
 
 * If **Crossplane is enabled**, these resources are created automatically during Helm deployment.
 * If **Crossplane is not enabled**, you must create them manually using this Helm template as reference:
-  [gen3-workflow/templates/crossplane.yaml](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/templates/crossplane.yaml)
+  [gen3-workflow/templates/crossplane.yaml](https://github.com/uc-cdis/gen3-helm/blob/03227ec/helm/gen3-workflow/templates/crossplane.yaml)
   * Also, one needs to update `.Values.serviceAccount.annotations` to include the role-arn that must be assigned to the gen3-workflow's service account.
   ```
   eks.amazonaws.com/role-arn: <iam-role-arn>
   ```
 
-- Note: Crossplane can be enabled by updating `.Values.global.crossplane`. More information [here](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3/values.yaml#L39)
+- Note: Crossplane can be enabled by updating `.Values.global.crossplane`. More information [here](https://github.com/uc-cdis/gen3-helm/blob/03227ec/helm/gen3/values.yaml#L39)
 ---
 
 ## 5. Authorization Setup
@@ -97,7 +97,7 @@ gen3WorkflowConfig:
 
 ## 7. Helm Chart Architecture
 
-* For more details on how the Helm chart is designed, refer to the [Helm Chart Architecture](architecture.md#helm-chart-architecture) document.
+* For more details on how the Helm chart is designed, refer to the [Helm Chart Architecture](helm_chart_architecture.md) document.
 
 ## 8. Nextflow tests
 * Follow the steps in [Run Nextflow workflows with Gen3Workflow](local_installation.md#run-nextflow-workflows-with-gen3workflow) to test the deployment using Nextflow workflows.
