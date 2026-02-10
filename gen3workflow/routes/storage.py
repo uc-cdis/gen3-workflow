@@ -50,7 +50,7 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     logger.info(f"User '{user_id}' deleting their storage bucket")
-    deleted_bucket_name = aws_utils.delete_user_bucket(user_id)
+    deleted_bucket_name = aws_utils.cleanup_user_bucket(user_id, delete_bucket=True)
 
     if not deleted_bucket_name:
         raise HTTPException(
@@ -85,7 +85,7 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     logger.info(f"User '{user_id}' emptying their storage bucket")
-    deleted_bucket_name = aws_utils.empty_user_bucket(user_id)
+    deleted_bucket_name = aws_utils.cleanup_user_bucket(user_id)
 
     if not deleted_bucket_name:
         raise HTTPException(

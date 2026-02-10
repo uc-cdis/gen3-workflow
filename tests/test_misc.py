@@ -324,7 +324,7 @@ async def test_delete_user_bucket_no_token(client, mock_aws_services):
     """
     mock_delete_bucket = MagicMock()
     # Delete the bucket
-    with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
+    with patch("gen3workflow.aws_utils.cleanup_user_bucket", mock_delete_bucket):
         res = await client.delete("/storage/user-bucket")
         assert res.status_code == 401, res.text
         assert res.json() == {"detail": "Must provide an access token"}
@@ -346,7 +346,7 @@ async def test_delete_user_bucket_unauthorized(
     """
     mock_delete_bucket = MagicMock()
     # Delete the bucket
-    with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
+    with patch("gen3workflow.aws_utils.cleanup_user_bucket", mock_delete_bucket):
         res = await client.delete(
             "/storage/user-bucket",
             headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
