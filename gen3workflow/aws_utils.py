@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 from fastapi import HTTPException
 import boto3
@@ -409,6 +409,26 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"], kms_key_arn
 
 
+def _get_user_bucket_if_present(user_id: str) -> Optional[str]:
+    """
+    Return the user's bucket name if it exists in S3, else None.
+
+    Derives the bucket name from the user_id and checks its existence
+    using a HeadBucket call. Raises for any AWS errors other than
+    bucket-not-found.
+    """
+    bucket = get_bucket_name_from_user_id(user_id)
+    try:
+        s3_client.head_bucket(Bucket=bucket)
+        return bucket
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code")
+        if code == "404":
+            logger.warning(f"Bucket '{bucket}' not found for user '{user_id}'.")
+            return None
+        raise
+
+
 def get_all_bucket_objects(user_bucket_name: str) -> list:
     """
     Get all objects from the specified S3 bucket.
@@ -472,6 +492,20 @@ def delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
             raise Exception(response)
 
 
+def empty_user_bucket(user_id: str) -> Optional[str]:
+    bucket = _get_user_bucket_if_present(user_id)
+    if not bucket:
+        return None
+    try:
+        delete_all_bucket_objects(user_id, bucket)
+    except Exception as e:
+        logger.error(
+            f"Failed to empty the bucket: '{bucket}' for user '{user_id}': {e}"
+        )
+        raise
+    return bucket
+
+
 def delete_user_bucket(user_id: str) -> Union[str, None]:
     """
     Deletes all objects from a user's S3 bucket before deleting the bucket itself.
@@ -482,19 +516,10 @@ def delete_user_bucket(user_id: str) -> Union[str, None]:
     Raises:
         Exception: If there is an error during the deletion process.
     """
-    user_bucket_name = get_bucket_name_from_user_id(user_id)
-
-    try:
-        s3_client.head_bucket(Bucket=user_bucket_name)
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        if error_code == "404":
-            logger.warning(
-                f"Bucket '{user_bucket_name}' not found for user '{user_id}'."
-            )
-            return None
-
+    user_bucket_name = _get_user_bucket_if_present(user_id)
     logger.info(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
+    if not user_bucket_name:
+        return None
     try:
         delete_all_bucket_objects(user_id, user_bucket_name)
         s3_client.delete_bucket(Bucket=user_bucket_name)

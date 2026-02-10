@@ -266,6 +266,23 @@ async def test_create_task_with_reserved_tags(client, access_token_patcher):
 
 
 @pytest.mark.asyncio
+async def test_create_task_with_invalid_body(client, access_token_patcher):
+    """
+    Users cannot specify the value of certain reserved tags ("_authz" "_worker_sa" etc.,) themselves
+    when creating a task, since these are strictly for internal use.
+    """
+    res = await client.post(
+        "/ga4gh/tes/v1/tasks",
+        content='{"name": "test-task", "command": ["echo Hello World",""&&", "echo Goodbye!"]}',  # Malformed command list
+        headers={
+            "Authorization": f"bearer {TEST_USER_TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
+    assert res.status_code == 400, res.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "req_body,status_code, error_message",
     [

@@ -1,5 +1,10 @@
 from fastapi import APIRouter, Depends, Request, HTTPException
-from starlette.status import HTTP_200_OK, HTTP_204_NO_CONTENT, HTTP_404_NOT_FOUND
+from starlette.status import (
+    HTTP_200_OK,
+    HTTP_202_ACCEPTED,
+    HTTP_204_NO_CONTENT,
+    HTTP_404_NOT_FOUND,
+)
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
@@ -30,13 +35,15 @@ async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
     }
 
 
-@router.delete("/user-bucket", status_code=HTTP_204_NO_CONTENT)
-@router.delete(
-    "/user-bucket/", status_code=HTTP_204_NO_CONTENT, include_in_schema=False
-)
+@router.delete("/user-bucket", status_code=HTTP_202_ACCEPTED)
+@router.delete("/user-bucket/", status_code=HTTP_202_ACCEPTED, include_in_schema=False)
 async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     """
     Delete the current user's S3 bucket
+
+    Note:
+    Amazon S3 processes bucket deletion asynchronously. The bucket may
+    remain visible for a short period until deletion fully propagates.
     """
     await auth.authorize("delete", ["/services/workflow/gen3-workflow/user-bucket"])
 
@@ -51,5 +58,40 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         )
 
     logger.info(
-        f"Bucket '{deleted_bucket_name}' for user '{user_id}' deleted successfully"
+        f"Bucket '{deleted_bucket_name}' for user '{user_id}' scheduled for deletion"
+    )
+
+    return {
+        "message": "Bucket deletion initiated.",
+        "bucket": deleted_bucket_name,
+        "details": (
+            "Amazon S3 processes bucket deletion asynchronously. "
+            "The bucket may remain visible for a short period until "
+            "deletion fully propagates across AWS."
+        ),
+    }
+
+
+@router.delete("/user-bucket/objects", status_code=HTTP_204_NO_CONTENT)
+@router.delete(
+    "/user-bucket/objects/", status_code=HTTP_204_NO_CONTENT, include_in_schema=False
+)
+async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
+    """
+    Deletes all the objects from current user's S3 bucket
+    """
+    await auth.authorize("delete", ["/services/workflow/gen3-workflow/user-bucket"])
+
+    token_claims = await auth.get_token_claims()
+    user_id = token_claims.get("sub")
+    logger.info(f"User '{user_id}' emptying their storage bucket")
+    deleted_bucket_name = aws_utils.empty_user_bucket(user_id)
+
+    if not deleted_bucket_name:
+        raise HTTPException(
+            HTTP_404_NOT_FOUND, "Deletion failed: No user bucket found."
+        )
+
+    logger.info(
+        f"All objects remvoved from bucket '{deleted_bucket_name}' for user '{user_id}'"
     )

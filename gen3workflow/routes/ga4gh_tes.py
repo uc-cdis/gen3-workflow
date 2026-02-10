@@ -93,7 +93,13 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     """
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    body = await get_request_body(request)
+    try:
+        body = await get_request_body(request)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=f"Invalid JSON in request body: {e.msg}",
+        )
     logger.debug(f"Incoming task creation request body: {body}")
 
     # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
