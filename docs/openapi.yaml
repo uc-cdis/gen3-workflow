@@ -511,13 +511,35 @@ paths:
       - Storage
   /storage/user-bucket:
     delete:
-      description: Delete the current user's S3 bucket
+      description: 'Delete the current user''s S3 bucket
+
+
+        Note:
+
+        Amazon S3 processes bucket deletion asynchronously. The bucket may
+
+        remain visible for a short period until deletion fully propagates.'
       operationId: delete_user_bucket
+      responses:
+        '202':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Delete User Bucket
+      tags:
+      - Storage
+  /storage/user-bucket/objects:
+    delete:
+      description: Deletes all the objects from current user's S3 bucket
+      operationId: empty_user_bucket
       responses:
         '204':
           description: Successful Response
       security:
       - HTTPBearer: []
-      summary: Delete User Bucket
+      summary: Empty User Bucket
       tags:
       - Storage
