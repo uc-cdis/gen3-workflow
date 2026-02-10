@@ -357,7 +357,7 @@ async def test_delete_user_bucket_unauthorized(
 
 
 @pytest.mark.asyncio
-async def test_empty_user_bucket_with_files(
+async def test_delete_user_bucket_objects_with_existing_files(
     client, access_token_patcher, mock_aws_services
 ):
     """
