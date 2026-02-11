@@ -37,7 +37,14 @@ async def get_request_body(request: Request) -> dict:
         body = body_bytes.decode()
     except UnicodeDecodeError:
         body = str(body_bytes)  # in case of binary data
-    return json.loads(body)
+
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=f"Invalid JSON in request body: {e.msg}",
+        )
 
 
 @router.get("/service-info", status_code=HTTP_200_OK)
@@ -93,13 +100,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     """
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    try:
-        body = await get_request_body(request)
-    except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON in request body: {e.msg}",
-        )
+    body = await get_request_body(request)
     logger.debug(f"Incoming task creation request body: {body}")
 
     # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
