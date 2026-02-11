@@ -255,7 +255,7 @@ async def test_delete_user_bucket(
         f"/storage/user-bucket{'/' if trailing_slash else ''}",
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
-    assert res.status_code == 204, res.text
+    assert res.status_code == 202, res.text
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
@@ -307,7 +307,7 @@ async def test_delete_user_bucket_with_files(
     res = await client.delete(
         "/storage/user-bucket", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
-    assert res.status_code == 204, res.text
+    assert res.status_code == 202, res.text
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
@@ -324,7 +324,7 @@ async def test_delete_user_bucket_no_token(client, mock_aws_services):
     """
     mock_delete_bucket = MagicMock()
     # Delete the bucket
-    with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
+    with patch("gen3workflow.aws_utils.cleanup_user_bucket", mock_delete_bucket):
         res = await client.delete("/storage/user-bucket")
         assert res.status_code == 401, res.text
         assert res.json() == {"detail": "Must provide an access token"}
@@ -346,7 +346,7 @@ async def test_delete_user_bucket_unauthorized(
     """
     mock_delete_bucket = MagicMock()
     # Delete the bucket
-    with patch("gen3workflow.aws_utils.delete_user_bucket", mock_delete_bucket):
+    with patch("gen3workflow.aws_utils.cleanup_user_bucket", mock_delete_bucket):
         res = await client.delete(
             "/storage/user-bucket",
             headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
@@ -354,3 +354,47 @@ async def test_delete_user_bucket_unauthorized(
         assert res.status_code == 403, res.text
         assert res.json() == {"detail": "Permission denied"}
         mock_delete_bucket.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_user_bucket_objects_with_existing_files(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Attempt to delete all the objects in a bucket that is not empty.
+    Endpoint must be able to delete all the files but should not delete the bucket.
+    """
+
+    # Create the bucket if it doesn't exist
+    res = await client.get(
+        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    bucket_name = res.json()["bucket"]
+
+    # Remove the bucket policy enforcing KMS encryption
+    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
+    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
+    aws_utils.s3_client.delete_bucket_policy(Bucket=bucket_name)
+
+    object_count = 10
+    for i in range(object_count):
+        aws_utils.s3_client.put_object(
+            Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
+        )
+
+    # Delete all the bucket objects
+    res = await client.delete(
+        "/storage/user-bucket/objects",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 204, res.text
+
+    # Verify the bucket still exists
+    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    assert bucket_exists, f"Bucket '{bucket_name} is expected to exist but not found"
+
+    # Verify all the objects in the bucket are deleted
+    object_list = aws_utils.get_all_bucket_objects(bucket_name)
+    assert (
+        len(object_list) == 0
+    ), f"Expected bucket to have no objects, but found {len(object_list)}.\n{object_list=}"

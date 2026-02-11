@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 from fastapi import HTTPException
 import boto3
@@ -472,15 +472,21 @@ def delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
             raise Exception(response)
 
 
-def delete_user_bucket(user_id: str) -> Union[str, None]:
+def cleanup_user_bucket(user_id: str, delete_bucket: bool = False) -> Union[str, None]:
     """
-    Deletes all objects from a user's S3 bucket before deleting the bucket itself.
+    Empty a user's S3 bucket and optionally delete the bucket.
 
     Args:
-        user_id (str): The user's unique Gen3 ID
+        user_id: User identifier used to derive the bucket name.
+        delete_bucket:  If True, delete the bucket after removing all objects.
+                        Defaults to False (only objects are removed).
+
+    Returns:
+        Bucket name if it exists and cleanup was performed, otherwise None
+        if the bucket does not exist.
 
     Raises:
-        Exception: If there is an error during the deletion process.
+        Exception: Propagates unexpected errors during cleanup or deletion.
     """
     user_bucket_name = get_bucket_name_from_user_id(user_id)
 
@@ -493,15 +499,17 @@ def delete_user_bucket(user_id: str) -> Union[str, None]:
                 f"Bucket '{user_bucket_name}' not found for user '{user_id}'."
             )
             return None
-
-    logger.info(f"Deleting bucket '{user_bucket_name}' for user '{user_id}'")
     try:
         delete_all_bucket_objects(user_id, user_bucket_name)
-        s3_client.delete_bucket(Bucket=user_bucket_name)
+        if delete_bucket:
+            logger.info(
+                f"Initializing delete for bucket '{user_bucket_name}' for user '{user_id}'"
+            )
+            s3_client.delete_bucket(Bucket=user_bucket_name)
         return user_bucket_name
 
     except Exception as e:
         logger.error(
-            f"Failed to delete bucket '{user_bucket_name}' for user '{user_id}': {e}"
+            f"Failed to cleanup bucket '{user_bucket_name}' for user '{user_id}': {e}"
         )
         raise
