@@ -70,17 +70,23 @@ gen3-workflow:
 
 ## IAM Permissions (Crossplane vs Manual Setup)
 
-Gen3Workflow requires specific IAM roles and policies.
+Gen3Workflow requires some access in AWS to function properly.
 
 Crossplane can be enabled by updating `.Values.global.crossplane`. More information [here](https://github.com/uc-cdis/gen3-helm/blob/03227ec/helm/gen3/values.yaml#L42).
 
 * If **Crossplane is enabled**, these resources are created automatically during Helm deployment.
-* If **Crossplane is not enabled**, you must create them manually using this Helm template as reference:
-  [gen3-workflow/templates/crossplane.yaml](https://github.com/uc-cdis/gen3-helm/blob/03227ec/helm/gen3-workflow/templates/crossplane.yaml)
-  * Also, one needs to update `.Values.serviceAccount.annotations` to include the role-arn that must be assigned to the gen3-workflow's service account.
-  ```
-  eks.amazonaws.com/role-arn: <iam-role-arn>
-  ```
+* If **Crossplane is not enabled**, you can create them manually using [this Helm template](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/templates/crossplane.yaml) as reference.
+
+> In CTDS environments, the recommendation is to use Crossplane for Dev and QA environments and Terraform/Terragrunt for Production environments. Check out [this internal link](https://github.com/uc-cdis/gen3-terragrunt/pull/251/changes) for an example of creating this role with Terragrunt.
+
+Once the role is created, add it to your configuration:
+```yaml
+gen3-workflow:
+  [...]
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::123456789:role/my-gen3-workflow-role"
+```
 
 ---
 
