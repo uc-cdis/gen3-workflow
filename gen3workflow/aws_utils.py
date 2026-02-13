@@ -40,7 +40,9 @@ iam_client = get_boto3_client("iam")
 s3_client = get_boto3_client("s3")
 kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
 sts_client = get_boto3_client("sts")
-eks_client = get_boto3_client("eks", region_name=config["EKS_CLUSTER_REGION"])
+
+if "EKS_CLUSTER_REGION" in config:
+    eks_client = get_boto3_client("eks", region_name=config["EKS_CLUSTER_REGION"])
 
 
 def get_safe_name_from_hostname(
