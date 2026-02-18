@@ -17,6 +17,7 @@ global:
     pushSecret: true
   postgres:
     externalSecret: "<name of master Postgres secret in AWS Secrets Manager>"
+  clusterName: "<name of the eks cluster where the gen3 instance is deployed>"
 
 gen3-workflow: # <-- configure the Gen3Workflow chart
   enabled: true
@@ -53,6 +54,11 @@ funnel: # <-- configure the Gen3 Funnel chart
 >
 > Deploying Gen3Workflow also automatically creates a `funnel-oidc-job`, which creates a Fence client for the Funnel plugin and stores the client ID and secret in a `funnel-oidc-client` Kubernetes secret.
 > Note: The value `funnel.externalSecrets.funnelOidcClient` can be overridden to use a different secret name when external secrets are enabled. It is typically configured using the pattern: `<namespace>-funnel-oidc-client`.
+>
+> - *Cluster Configuration Requirement*
+>
+> Gen3Workflow requires the Gen3 Helm chart’s `.Values.global.clusterName` to be set to the name of the Amazon EKS cluster where Gen3 is deployed. While Gen3 strives to remain cloud-agnostic, Gen3Workflow currently requires Amazon EKS for supported operation. This value must be configured correctly to ensure proper deployment and integration.
+
 
 ---
 
