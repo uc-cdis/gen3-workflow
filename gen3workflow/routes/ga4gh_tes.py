@@ -73,13 +73,22 @@ def get_non_allowed_images(images: set, username: str) -> set:
     - set: Set of images not allowed based on whitelisted patterns.
     """
 
-    # Update each whitelisted image to a regex with updated {username} value with an actual username
-    # and `*` with `.*` to match any sequence of characters, storing the resulting patterns in a set
-    whitelisted_images_regex = {
+    def _image_to_regex(image: str) -> str:
+        """
+        Update a whitelisted image to a regex: replace {username} with the actual username,
+        replace `*` with `.*` to match any sequence of characters, and replace `:.*` with
+        `(:.+|\Z)` so that "myimage" is accepted if "myimage:*" is in the whitelist.
+        """
         # TODO: I think the ECR repos have escaped usernames
-        image.replace("{username}", username).replace("*", ".*")
-        for image in config["TASK_IMAGE_WHITELIST"]
+        image = image.replace("{username}", username)
+        image = image.replace("*", ".*")
+        image = image.replace(":.*", "(:.+|\\Z)")
+        return image
+
+    whitelisted_images_regex = {
+        _image_to_regex(image) for image in config["TASK_IMAGE_WHITELIST"]
     }
+
     # Add the image to non_allowed_images if it does not match any pattern in whitelisted_images_regex
     non_allowed_images = {
         image
