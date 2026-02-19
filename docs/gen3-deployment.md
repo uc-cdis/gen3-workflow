@@ -83,7 +83,7 @@ Crossplane can be enabled by updating `.Values.global.crossplane`. More informat
 * If **Crossplane is enabled**, these resources are created automatically during Helm deployment.
 * If **Crossplane is not enabled**, you can create them manually using [this Helm template](https://github.com/uc-cdis/gen3-helm/blob/master/helm/gen3-workflow/templates/crossplane.yaml) as reference.
 
-> In CTDS environments, the recommendation is to use Crossplane for Dev and QA environments and Terraform/Terragrunt for Production environments. Check out [this internal link](https://github.com/uc-cdis/gen3-terragrunt/pull/251/changes) for an example of creating this role with Terragrunt.
+> In CTDS environments, the recommendation is to use Crossplane for Dev/QA and Terraform/Terragrunt for Production environments. Check out [this internal link](https://github.com/uc-cdis/gen3-terragrunt/pull/251/changes) for an example of creating this role with Terragrunt.
 
 Once the role is created, add it to your configuration:
 ```yaml
