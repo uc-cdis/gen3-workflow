@@ -284,7 +284,7 @@ async def test_create_task_with_invalid_body(client, access_token_patcher):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "req_body,status_code, error_message",
+    "req_body, status_code, error_message",
     [
         (
             {"executors": []},
@@ -351,6 +351,9 @@ async def test_create_task_with_invalid_body(client, access_token_patcher):
                 "executors": [
                     {
                         "image": "public.ecr.aws/random/approved/public:abc",  # whitelisted with image name
+                    },
+                    {
+                        "image": "public.ecr.aws/random/approved/public",  # whitelisted with image name
                     },
                 ]
             },

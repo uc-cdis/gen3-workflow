@@ -307,6 +307,9 @@ async def s3_endpoint(path: str, request: Request):
     )
     s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
+
+    # TODO: Enclose this with a retry if S3 response with a 500 error (which is possible! Failing
+    # fast can break a whole nextflow workflow)
     response = await request.app.async_client.request(
         method=request.method,
         url=s3_api_url,
