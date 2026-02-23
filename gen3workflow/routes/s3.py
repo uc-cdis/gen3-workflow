@@ -133,19 +133,34 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
-def chunked_to_non_chunked_body(body: str) -> str:
+def chunked_to_non_chunked_body(body: str, stream_type: str) -> str:
     """
     Turn a chunked body into a non-chunked body.
 
-    Each chunk has:
-        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
-        <chunk-data>\r\n
-    Final chunk:
-        0;chunk-signature=<sig>\r\n\r\n
-
     Strip and return the data without the chunk signatures.
     """
-    return b"".join([e for e in body.split(b"\r\n") if b";chunk-signature=" not in e])
+    if stream_type == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
+        # Each chunk has:
+        #     <chunk-size-in-hex>;chunk-signature=<sig>\r\n
+        #     <chunk-data>\r\n
+        # Final chunk:
+        #     0;chunk-signature=<sig>\r\n\r\n
+        return b"".join(
+            [e for e in body.split(b"\r\n") if b";chunk-signature=" not in e]
+        )
+    elif stream_type == "STREAMING-UNSIGNED-PAYLOAD-TRAILER":
+        # Each chunk has:
+        #     <chunk-size-in-hex>\r\n
+        #     <chunk-data>\r\n
+        # Final chunk:
+        #     0\r\n
+        #     x-amz-checksum-<hash algorithm>:<checksum of entire payload>\r\n
+        #     \r\n
+        return b"".join(
+            [e for e in body.split(b"\r\n") if e and b"x-amz-checksum" not in e][1::2]
+        )
+    else:
+        return body
 
 
 @s3_root_router.api_route(
@@ -227,13 +242,16 @@ async def s3_endpoint(path: str, request: Request):
     # NOTE: Chunked uploads and multipart uploads are NOT the same thing. Python boto3 does not
     # generate chunked uploads, but the Minio-go S3 client used by Funnel does.
     body = await request.body()
-    print("x-amz-content-sha256:", request.headers.get("x-amz-content-sha256"))
+    print("=============")
+    # print("x-amz-content-sha256:", request.headers.get("x-amz-content-sha256"))
     print("body:", body)
-    if (
-        request.headers.get("x-amz-content-sha256")
-        == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
-    ):
-        body = chunked_to_non_chunked_body(body)
+    print("headers:")
+    for k, v in request.headers.items():
+        print(f"  {k} = {v}")
+    print("=============")
+    body = chunked_to_non_chunked_body(
+        body, request.headers.get("x-amz-content-sha256")
+    )
     body_hash = hashlib.sha256(body).hexdigest()
     headers = {
         "host": f"{user_bucket}.s3.{region}.amazonaws.com",
