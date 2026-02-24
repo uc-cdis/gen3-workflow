@@ -258,7 +258,7 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
-    for h in ["x-amz-trailer", "content-encoding", "content-length"]:
+    for h in ["x-amz-trailer", "content-encoding", "Content-Length"]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
 
@@ -287,7 +287,8 @@ async def s3_endpoint(path: str, request: Request):
         headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request
-    lowercase_sorted_headers = sorted([k.lower() for k in headers.keys()])
+    # lowercase_sorted_headers = sorted([k.lower() for k in headers.keys()])
+    lowercase_sorted_headers = sorted([k for k in headers.keys()], key=str.casefold)
     canonical_headers = "".join(
         f"{key}:{headers[key]}\n" for key in lowercase_sorted_headers
     )
@@ -327,14 +328,15 @@ async def s3_endpoint(path: str, request: Request):
         signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
     ).hexdigest()
 
+    # AWS is case sensitive about the Content-Length header, but v4 signing
+    # requires lowercase headers (hence use of `lowercase_sorted_headers` var)
+    # content_length = headers.get("content-length")
+    # if content_length:
+    #     headers.pop("content-length")
+    #     headers["Content-Length"] = content_length
+
     # construct the Authorization header from the credentials and the signature, and forward the
     # call to AWS S3 with the new Authorization header
-    # Note: AWS is case sensitive about the Content-Length header, but v4 signing
-    # requires lowercase headers (hence use of `lowercase_sorted_headers` var)
-    content_length = headers.get("content-length")
-    if content_length:
-        headers.pop("content-length")
-        headers["Content-Length"] = content_length
     print("=============")
     print("headers:")
     for k, v in headers.items():
