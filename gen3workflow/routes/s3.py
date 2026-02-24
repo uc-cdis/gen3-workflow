@@ -242,6 +242,9 @@ async def s3_endpoint(path: str, request: Request):
     # NOTE: Chunked uploads and multipart uploads are NOT the same thing. Python boto3 does not
     # generate chunked uploads, but the Minio-go S3 client used by Funnel does.
     body = await request.body()
+    print("=============")
+    print("body:", body)
+    print("=============")
     body = chunked_to_non_chunked_body(
         body, request.headers.get("x-amz-content-sha256")
     )
