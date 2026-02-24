@@ -133,34 +133,17 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
-def chunked_to_non_chunked_body(body: str, stream_type: str) -> str:
+def chunked_to_non_chunked_body(body: str) -> str:
     """
     Turn a chunked body into a non-chunked body.
-
+    Each chunk has:
+        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
+        <chunk-data>\r\n
+    Final chunk:
+        0;chunk-signature=<sig>\r\n\r\n
     Strip and return the data without the chunk signatures.
     """
-    if stream_type == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
-        # Each chunk is:
-        #     <chunk-size-in-hex>;chunk-signature=<sig>\r\n
-        #     <chunk-data>\r\n
-        # Final chunk:
-        #     0;chunk-signature=<sig>\r\n\r\n
-        return b"".join(
-            [e for e in body.split(b"\r\n") if b";chunk-signature=" not in e]
-        )
-    # elif stream_type == "STREAMING-UNSIGNED-PAYLOAD-TRAILER":
-    #     # Each chunk is:
-    #     #     <chunk-size-in-hex>\r\n
-    #     #     <chunk-data>\r\n
-    #     # Final chunk:
-    #     #     0\r\n
-    #     #     x-amz-checksum-<hash algorithm>:<checksum of entire payload>\r\n
-    #     #     \r\n
-    #     return b"".join(
-    #         [e for e in body.split(b"\r\n") if e and b"x-amz-checksum" not in e][1::2]
-    #     )
-    else:
-        return body
+    return b"".join([e for e in body.split(b"\r\n") if b";chunk-signature=" not in e])
 
 
 @s3_root_router.api_route(
@@ -232,40 +215,37 @@ async def s3_endpoint(path: str, request: Request):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
-    # Generate the body hash and the request headers.
-    # Overwrite the original `x-amz-content-sha256` header value with the body hash. When this
-    # header is set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in the original request (payload sent
-    # over multiple chunks), we still replace it with the body hash and we strip the body of the
-    # chunk signatures => protocol translation from a chunk-signed streaming request (SigV4
-    # streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT). We could also
-    # implement chunked signing but it's not straightforward and likely unnecessary.
-    # NOTE: Chunked uploads and multipart uploads are NOT the same thing. Python boto3 does not
-    # generate chunked uploads, but the Minio-go S3 client used by Funnel does.
-    # TODO update ^
+    # Generate the request headers. Chunked payload support:
+    # - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
+    #   The body includes chunks and checksums. It can be forwarded to AWS without changes as long
+    #   as the necessary headers are forwarded as well.
+    # - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
+    #   Funnel uses this client.
+    #   We overwrite the original `x-amz-content-sha256` header value with the body hash and we
+    #   strip the body of the chunk signatures => protocol translation from a chunk-signed streaming
+    #   request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT).
+    #   We could also implement chunked signing but it's not straightforward and likely unnecessary.
+    # Note: Chunked uploads != multipart uploads.
     body = await request.body()
-    body = chunked_to_non_chunked_body(
-        body, request.headers.get("x-amz-content-sha256")
-    )
-
-    body_hash = (
-        hashlib.sha256(body).hexdigest()
-        if request.headers.get("x-amz-content-sha256")
-        != "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
-        else "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
-    )
     headers = {
         "host": f"{user_bucket}.s3.{region}.amazonaws.com",
-        "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
     for h in [
-        "x-amz-trailer",
         "content-encoding",
         "content-length",
+        "x-amz-content-sha256",
         "x-amz-decoded-content-length",
+        "x-amz-trailer",
     ]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
+    if (
+        request.headers.get("x-amz-content-sha256")
+        == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
+    ):
+        body = chunked_to_non_chunked_body(body)
+        headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -291,7 +271,7 @@ async def s3_endpoint(path: str, request: Request):
         headers["x-amz-server-side-encryption"] = "aws:kms"
         headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
-    # construct the canonical request
+    # construct the canonical request. All header keys must be lowercase
     sorted_headers = sorted(list(headers.keys()), key=str.casefold)
     lowercase_sorted_headers = [k.lower() for k in sorted_headers]
     canonical_headers = "".join(
@@ -305,6 +285,7 @@ async def s3_endpoint(path: str, request: Request):
         f"{urllib.parse.quote_plus(key)}={urllib.parse.quote_plus(query_params[key])}"
         for key in query_params_names
     )
+    body_hash = request.headers.get("x-amz-content-sha256")
     canonical_request = (
         f"{request.method}\n"
         f"{request_path}\n"

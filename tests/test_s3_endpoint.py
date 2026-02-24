@@ -355,18 +355,8 @@ def test_chunked_to_non_chunked_body():
     """
     Test that `chunked_to_non_chunked_body` correctly parses request bodies from chunked data
     """
-    stream_type = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
-
     body = b"f;chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6891\r\nBonjour world!\n\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
-    assert chunked_to_non_chunked_body(body, stream_type) == b"Bonjour world!\n"
+    assert chunked_to_non_chunked_body(body) == b"Bonjour world!\n"
 
     body = b"5;chunk-signature=9f5c0b7f5c1a1e0a6f2f7c5f7c0d3a8f1c9e3a3b8b1cbb4eaa27f0d5b3a0b0f2\r\nHello\r\n5;chunk-signature=3b92d0a84f7b91f3a9f4d1f8c1e90c0f5b6d1b42a2f82a8e0b91d78a0cb8e0f1\r\nWorld\r\n5;chunk-signature=7e2c5a8c8a3d1b0f9d3a3a5e1f3e6b1a9c9f1a3e5f9c0d8a2b4c3e8f0d9b1c2\r\nAgain\r\n0;chunk-signature=2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d\r\n\r\n"
-    assert chunked_to_non_chunked_body(body, stream_type) == b"HelloWorldAgain"
-
-    # stream_type = "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
-
-    # body = b"15\r\nthis is my test file\n\r\n0\r\nx-amz-checksum-crc64nvme:8Aw6xnIR8s4=\r\n\r\n"
-    # assert chunked_to_non_chunked_body(body, stream_type) == b"this is my test file\n"
-
-    # body = b"15\r\nHello\n\r\n5\r\nWorld\r\n0\r\nx-amz-checksum-sha256: [checksum-of-entire-object-or-specific-data]\r\n\r\nx-amz-checksum-sha256: [checksum-of-entire-object-or-specific-data]\r\n\r\n"
-    # assert chunked_to_non_chunked_body(body, stream_type) == b"Hello\nWorld"
+    assert chunked_to_non_chunked_body(body) == b"HelloWorldAgain"
