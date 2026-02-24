@@ -258,9 +258,7 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
-    # Note: AWS is case sensitive about the Content-Length header, but v4 signing
-    # requires lowercase headers (hence use of `lowercase_sorted_headers` var)
-    for h in ["x-amz-trailer", "content-encoding", "Content-Length"]:
+    for h in ["x-amz-trailer", "content-encoding", "content-length"]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
 
@@ -331,6 +329,12 @@ async def s3_endpoint(path: str, request: Request):
 
     # construct the Authorization header from the credentials and the signature, and forward the
     # call to AWS S3 with the new Authorization header
+    # Note: AWS is case sensitive about the Content-Length header, but v4 signing
+    # requires lowercase headers (hence use of `lowercase_sorted_headers` var)
+    content_length = headers.get("content-length")
+    if content_length:
+        headers.pop("content-length")
+        headers["Content-Length"] = content_length
     print("=============")
     print("headers:")
     for k, v in headers.items():
