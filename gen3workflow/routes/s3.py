@@ -242,13 +242,6 @@ async def s3_endpoint(path: str, request: Request):
     # NOTE: Chunked uploads and multipart uploads are NOT the same thing. Python boto3 does not
     # generate chunked uploads, but the Minio-go S3 client used by Funnel does.
     body = await request.body()
-    print("=============")
-    # print("x-amz-content-sha256:", request.headers.get("x-amz-content-sha256"))
-    print("body:", body)
-    print("headers:")
-    for k, v in request.headers.items():
-        print(f"  {k} = {v}")
-    print("=============")
     body = chunked_to_non_chunked_body(
         body, request.headers.get("x-amz-content-sha256")
     )
@@ -271,9 +264,8 @@ async def s3_endpoint(path: str, request: Request):
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
 
-    # if this is a PUT/POST request, we need the KMS key ID to use for encryption
-    # Note: PUT: file upload; POST: multipart file upload
-    if config["KMS_ENCRYPTION_ENABLED"] and request.method in ["PUT", "POST"]:
+    # if this is a PUT request, we need the KMS key ID to use for encryption
+    if config["KMS_ENCRYPTION_ENABLED"] and request.method == "PUT":
         _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
             err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
