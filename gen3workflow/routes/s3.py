@@ -148,17 +148,17 @@ def chunked_to_non_chunked_body(body: str, stream_type: str) -> str:
         return b"".join(
             [e for e in body.split(b"\r\n") if b";chunk-signature=" not in e]
         )
-    elif stream_type == "STREAMING-UNSIGNED-PAYLOAD-TRAILER":
-        # Each chunk is:
-        #     <chunk-size-in-hex>\r\n
-        #     <chunk-data>\r\n
-        # Final chunk:
-        #     0\r\n
-        #     x-amz-checksum-<hash algorithm>:<checksum of entire payload>\r\n
-        #     \r\n
-        return b"".join(
-            [e for e in body.split(b"\r\n") if e and b"x-amz-checksum" not in e][1::2]
-        )
+    # elif stream_type == "STREAMING-UNSIGNED-PAYLOAD-TRAILER":
+    #     # Each chunk is:
+    #     #     <chunk-size-in-hex>\r\n
+    #     #     <chunk-data>\r\n
+    #     # Final chunk:
+    #     #     0\r\n
+    #     #     x-amz-checksum-<hash algorithm>:<checksum of entire payload>\r\n
+    #     #     \r\n
+    #     return b"".join(
+    #         [e for e in body.split(b"\r\n") if e and b"x-amz-checksum" not in e][1::2]
+    #     )
     else:
         return body
 
@@ -254,6 +254,14 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
+
+    if (
+        request.headers.get("x-amz-content-sha256")
+        == "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
+    ):
+        headers["x-amz-content-sha256"] = "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
+        headers["x-amz-trailer"] = request.headers.get("x-amz-trailer")
+        headers["content-encoding"] = request.headers.get("content-encoding")
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
