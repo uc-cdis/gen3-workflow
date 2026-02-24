@@ -222,12 +222,6 @@ async def s3_endpoint(path: str, request: Request):
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
 
-    print("=============")
-    print("request.headers:")
-    for k, v in request.headers.items():
-        print(f"  {k}: {v}")
-    print("=============")
-
     timestamp = request.headers.get("x-amz-date")
     if not timestamp and request.headers.get("date"):
         # assume RFC 1123 format, convert to ISO 8601 basic YYYYMMDD'T'HHMMSS'Z' format
@@ -272,9 +266,6 @@ async def s3_endpoint(path: str, request: Request):
     ]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
-    print("body:", body)
-    print("len(body):", len(body))
-    print("content-length:", request.headers.get("content-length"))
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -323,9 +314,6 @@ async def s3_endpoint(path: str, request: Request):
         f"{signed_headers}\n"
         f"{body_hash}"
     )
-    print("=============")
-    print("canonical_request:", canonical_request)
-    print("=============")
 
     # construct the string to sign based on the canonical request
     string_to_sign = (
@@ -342,20 +330,8 @@ async def s3_endpoint(path: str, request: Request):
         signing_key, string_to_sign.encode("utf-8"), hashlib.sha256
     ).hexdigest()
 
-    # AWS is case sensitive about the Content-Length header, but v4 signing
-    # requires lowercase headers (hence use of `lowercase_sorted_headers` var)
-    # content_length = headers.get("content-length")
-    # if content_length:
-    #     headers.pop("content-length")
-    #     headers["Content-Length"] = content_length
-
     # construct the Authorization header from the credentials and the signature, and forward the
     # call to AWS S3 with the new Authorization header
-    print("=============")
-    print("headers:")
-    for k, v in headers.items():
-        print(f"  {k}: {v}")
-    print("=============")
     headers["authorization"] = (
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
