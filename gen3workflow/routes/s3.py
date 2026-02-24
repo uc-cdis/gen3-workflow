@@ -241,27 +241,26 @@ async def s3_endpoint(path: str, request: Request):
     # implement chunked signing but it's not straightforward and likely unnecessary.
     # NOTE: Chunked uploads and multipart uploads are NOT the same thing. Python boto3 does not
     # generate chunked uploads, but the Minio-go S3 client used by Funnel does.
+    # TODO update ^
     body = await request.body()
-    print("=============")
-    print("body:", body)
-    print("=============")
     body = chunked_to_non_chunked_body(
         body, request.headers.get("x-amz-content-sha256")
     )
-    body_hash = hashlib.sha256(body).hexdigest()
+
+    body_hash = (
+        hashlib.sha256(body).hexdigest()
+        if request.headers.get("x-amz-content-sha256")
+        != "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
+        else "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
+    )
     headers = {
         "host": f"{user_bucket}.s3.{region}.amazonaws.com",
         "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
-
-    if (
-        request.headers.get("x-amz-content-sha256")
-        == "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
-    ):
-        headers["x-amz-content-sha256"] = "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
-        headers["x-amz-trailer"] = request.headers.get("x-amz-trailer")
-        headers["content-encoding"] = request.headers.get("content-encoding")
+    for h in ["x-amz-trailer", "content-encoding", "content-length"]:
+        if request.headers.get(h):
+            headers[h] = request.headers[h]
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -308,6 +307,9 @@ async def s3_endpoint(path: str, request: Request):
         f"{signed_headers}\n"
         f"{body_hash}"
     )
+    print("=============")
+    print("canonical_request:", canonical_request)
+    print("=============")
 
     # construct the string to sign based on the canonical request
     string_to_sign = (
