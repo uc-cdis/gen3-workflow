@@ -222,6 +222,12 @@ async def s3_endpoint(path: str, request: Request):
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
 
+    print("=============")
+    print("request.headers:")
+    for k, v in request.headers.items():
+        print(f"  {k}: {v}")
+    print("=============")
+
     timestamp = request.headers.get("x-amz-date")
     if not timestamp and request.headers.get("date"):
         # assume RFC 1123 format, convert to ISO 8601 basic YYYYMMDD'T'HHMMSS'Z' format
@@ -258,9 +264,17 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
-    for h in ["x-amz-trailer", "content-encoding", "Content-Length"]:
+    for h in [
+        "x-amz-trailer",
+        "content-encoding",
+        "content-length",
+        "x-amz-decoded-content-length",
+    ]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
+    print("body:", body)
+    print("len(body):", len(body))
+    print("content-length:", request.headers.get("content-length"))
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -287,10 +301,10 @@ async def s3_endpoint(path: str, request: Request):
         headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request
-    # lowercase_sorted_headers = sorted([k.lower() for k in headers.keys()])
-    lowercase_sorted_headers = sorted([k for k in headers.keys()], key=str.casefold)
+    sorted_headers = sorted(list(headers.keys()), key=str.casefold)
+    lowercase_sorted_headers = [k.lower() for k in sorted_headers]
     canonical_headers = "".join(
-        f"{key}:{headers[key]}\n" for key in lowercase_sorted_headers
+        f"{key.lower()}:{headers[key]}\n" for key in sorted_headers
     )
     signed_headers = ";".join(lowercase_sorted_headers)
     query_params = dict(request.query_params)
