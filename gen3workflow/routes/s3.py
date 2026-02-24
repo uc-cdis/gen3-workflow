@@ -258,6 +258,8 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
+    # Note: AWS is case sensitive about the Content-Length header, but v4 signing
+    # requires lowercase headers (hence use of `lowercase_sorted_headers` var)
     for h in ["x-amz-trailer", "content-encoding", "Content-Length"]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
@@ -287,10 +289,11 @@ async def s3_endpoint(path: str, request: Request):
         headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request
+    lowercase_sorted_headers = sorted([k.lower() for k in headers.keys()])
     canonical_headers = "".join(
-        f"{key}:{headers[key]}\n" for key in sorted(list(headers.keys()))
+        f"{key}:{headers[key]}\n" for key in lowercase_sorted_headers
     )
-    signed_headers = ";".join(sorted([k.lower() for k in headers.keys()]))
+    signed_headers = ";".join(lowercase_sorted_headers)
     query_params = dict(request.query_params)
     # the query params in the canonical request have to be sorted:
     query_params_names = sorted(list(query_params.keys()))
