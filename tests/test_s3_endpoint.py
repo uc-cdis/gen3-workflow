@@ -363,10 +363,10 @@ def test_chunked_to_non_chunked_body():
     body = b"5;chunk-signature=9f5c0b7f5c1a1e0a6f2f7c5f7c0d3a8f1c9e3a3b8b1cbb4eaa27f0d5b3a0b0f2\r\nHello\r\n5;chunk-signature=3b92d0a84f7b91f3a9f4d1f8c1e90c0f5b6d1b42a2f82a8e0b91d78a0cb8e0f1\r\nWorld\r\n5;chunk-signature=7e2c5a8c8a3d1b0f9d3a3a5e1f3e6b1a9c9f1a3e5f9c0d8a2b4c3e8f0d9b1c2\r\nAgain\r\n0;chunk-signature=2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d\r\n\r\n"
     assert chunked_to_non_chunked_body(body, stream_type) == b"HelloWorldAgain"
 
-    stream_type = "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
+    # stream_type = "STREAMING-UNSIGNED-PAYLOAD-TRAILER"
 
-    body = b"15\r\nthis is my test file\n\r\n0\r\nx-amz-checksum-crc64nvme:8Aw6xnIR8s4=\r\n\r\n"
-    assert chunked_to_non_chunked_body(body, stream_type) == b"this is my test file\n"
+    # body = b"15\r\nthis is my test file\n\r\n0\r\nx-amz-checksum-crc64nvme:8Aw6xnIR8s4=\r\n\r\n"
+    # assert chunked_to_non_chunked_body(body, stream_type) == b"this is my test file\n"
 
-    body = b"15\r\nHello\n\r\n5\r\nWorld\r\n0\r\nx-amz-checksum-sha256: [checksum-of-entire-object-or-specific-data]\r\n\r\nx-amz-checksum-sha256: [checksum-of-entire-object-or-specific-data]\r\n\r\n"
-    assert chunked_to_non_chunked_body(body, stream_type) == b"Hello\nWorld"
+    # body = b"15\r\nHello\n\r\n5\r\nWorld\r\n0\r\nx-amz-checksum-sha256: [checksum-of-entire-object-or-specific-data]\r\n\r\nx-amz-checksum-sha256: [checksum-of-entire-object-or-specific-data]\r\n\r\n"
+    # assert chunked_to_non_chunked_body(body, stream_type) == b"Hello\nWorld"

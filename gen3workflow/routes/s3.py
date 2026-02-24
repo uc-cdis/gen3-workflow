@@ -258,7 +258,7 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-content-sha256": body_hash,
         "x-amz-date": timestamp,
     }
-    for h in ["x-amz-trailer", "content-encoding", "content-length"]:
+    for h in ["x-amz-trailer", "content-encoding", "Content-Length"]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
 
@@ -328,6 +328,11 @@ async def s3_endpoint(path: str, request: Request):
 
     # construct the Authorization header from the credentials and the signature, and forward the
     # call to AWS S3 with the new Authorization header
+    print("=============")
+    print("headers:")
+    for k, v in headers.items():
+        print(f"  {k}: {v}")
+    print("=============")
     headers["authorization"] = (
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
