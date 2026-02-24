@@ -140,7 +140,7 @@ def chunked_to_non_chunked_body(body: str, stream_type: str) -> str:
     Strip and return the data without the chunk signatures.
     """
     if stream_type == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
-        # Each chunk has:
+        # Each chunk is:
         #     <chunk-size-in-hex>;chunk-signature=<sig>\r\n
         #     <chunk-data>\r\n
         # Final chunk:
@@ -149,7 +149,7 @@ def chunked_to_non_chunked_body(body: str, stream_type: str) -> str:
             [e for e in body.split(b"\r\n") if b";chunk-signature=" not in e]
         )
     elif stream_type == "STREAMING-UNSIGNED-PAYLOAD-TRAILER":
-        # Each chunk has:
+        # Each chunk is:
         #     <chunk-size-in-hex>\r\n
         #     <chunk-data>\r\n
         # Final chunk:
@@ -271,8 +271,9 @@ async def s3_endpoint(path: str, request: Request):
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
 
-    # if this is a PUT request, we need the KMS key ID to use for encryption
-    if config["KMS_ENCRYPTION_ENABLED"] and request.method == "PUT":
+    # if this is a PUT/POST request, we need the KMS key ID to use for encryption
+    # Note: PUT: file upload; POST: multipart file upload
+    if config["KMS_ENCRYPTION_ENABLED"] and request.method in ["PUT", "POST"]:
         _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
             err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
@@ -339,9 +340,7 @@ async def s3_endpoint(path: str, request: Request):
     )
 
     if response.status_code >= 300:
-        logger.debug(
-            f"Received a failure status code from AWS: {response.status_code}. {response.text=}"
-        )
+        logger.debug(f"Received a failure status code from AWS: {response.status_code}")
         # no need to log 404 errors except in debug mode: they are are expected when running
         # workflows (e.g. for Nextflow workflows, error output files may not be present when there
         # were no errors)
