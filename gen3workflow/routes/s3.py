@@ -180,6 +180,10 @@ async def s3_endpoint(path: str, request: Request):
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
     logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
+    if request.method == "GET" and path == "s3":
+        err_msg = f"'ls' not supported, use 'ls s3://{user_bucket}' instead"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
