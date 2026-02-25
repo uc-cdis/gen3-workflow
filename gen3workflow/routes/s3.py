@@ -280,11 +280,10 @@ async def s3_endpoint(path: str, request: Request):
 
     # construct the canonical request. All header keys must be lowercase
     sorted_headers = sorted(list(headers.keys()), key=str.casefold)
-    lowercase_sorted_headers = [k.lower() for k in sorted_headers]
     canonical_headers = "".join(
         f"{key.lower()}:{headers[key]}\n" for key in sorted_headers
     )
-    signed_headers = ";".join(lowercase_sorted_headers)
+    signed_headers = ";".join([k.lower() for k in sorted_headers])
     query_params = dict(request.query_params)
     # the query params in the canonical request have to be sorted:
     query_params_names = sorted(list(query_params.keys()))
@@ -292,7 +291,6 @@ async def s3_endpoint(path: str, request: Request):
         f"{urllib.parse.quote_plus(key)}={urllib.parse.quote_plus(query_params[key])}"
         for key in query_params_names
     )
-    body_hash = headers["x-amz-content-sha256"]
     canonical_request = (
         f"{request.method}\n"
         f"{request_path}\n"
@@ -300,7 +298,7 @@ async def s3_endpoint(path: str, request: Request):
         f"{canonical_headers}"
         f"\n"
         f"{signed_headers}\n"
-        f"{body_hash}"
+        f"{headers['x-amz-content-sha256']}"
     )
 
     # construct the string to sign based on the canonical request
