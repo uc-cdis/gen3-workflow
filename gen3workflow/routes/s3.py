@@ -302,8 +302,6 @@ async def s3_endpoint(path: str, request: Request):
         f"{signed_headers}\n"
         f"{body_hash}"
     )
-    print("====== canonical_request")
-    print(canonical_request)
 
     # construct the string to sign based on the canonical request
     string_to_sign = (
@@ -322,13 +320,6 @@ async def s3_endpoint(path: str, request: Request):
 
     # construct the Authorization header from the credentials and the signature, and forward the
     # call to AWS S3 with the new Authorization header
-    print("====== request.headers")
-    for v, k in request.headers.items():
-        print(f"{k}: {v}")
-    print("====== headers")
-    for v, k in headers.items():
-        print(f"{k}: {v}")
-    print("======")
     headers["authorization"] = (
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
