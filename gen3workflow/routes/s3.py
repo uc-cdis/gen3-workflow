@@ -246,7 +246,7 @@ async def s3_endpoint(path: str, request: Request):
     ):
         # parse the body and update the corresponding headers
         body = chunked_to_non_chunked_body(body)
-        content_len = len(body)
+        content_len = f"{len(body)}".encode()
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if request.headers.get(h):
