@@ -244,8 +244,13 @@ async def s3_endpoint(path: str, request: Request):
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
     ):
+        # parse the body and update the corresponding headers
         body = chunked_to_non_chunked_body(body)
+        content_len = len(body)
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
+        for h in ["content-length", "x-amz-decoded-content-length"]:
+            if request.headers.get(h):
+                headers[h] = content_len
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
