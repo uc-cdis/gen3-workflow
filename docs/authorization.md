@@ -12,19 +12,17 @@ Contents:
 
 ```mermaid
 graph TD;
-    A(services) --> B(workflow);
-    B --> C(gen3-workflow);
-    C --> D(tasks);
-    C --> E(storage);
-    D --> F(_user1_);
-    D --> G(_user2_);
-    E --> M(_user1_);
-    E --> N(_user2_);
-    F --> H(tasks);
-    H --> I(_task1_);
-    H --> J(_task2_);
-    G --> K(tasks);
-    K --> L(_task3_);
+    services --> workflow;
+    workflow --> gen3-workflow;
+    gen3-workflow --> tasks;
+    gen3-workflow --> storage;
+    tasks --> user1t(user1);
+    tasks --> user2t(user2);
+    storage --> user1;
+    storage --> user2;
+    user1t --> task1;
+    user1t --> task2;
+    user2t --> task3;
 ```
 
 ## GA4GH TES
