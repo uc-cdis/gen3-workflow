@@ -171,11 +171,19 @@ async def s3_endpoint(path: str, request: Request):
     if request.method == "GET" and not path:
         return await get_status(request)
 
-    # extract the caller's access token from the request headers, and ensure the caller (user, or
-    # client acting on behalf of the user) has access to run workflows
+    # Extract the caller's access token from the request headers, and ensure the caller (user, or
+    # client acting on behalf of the user) has access to the user's files.
+    # Note: sharing task inputs/output is not supported. Currently, users can only access their own
+    # S3 bucket. It could be supported by hitting the "GET task" endpoint to get the list of
+    # files for a specific task that a user has access to in another user's bucket.
     auth = Auth(api_request=request)
     user_id = await set_access_token_and_get_user_id(auth, request.headers)
-    await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
+    auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
+        request.method, "create"
+    )
+    await auth.authorize(
+        auth_verb, [f"/services/workflow/gen3-workflow/tasks/{user_id}"]
+    )
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
     logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")

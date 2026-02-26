@@ -114,7 +114,7 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
                 200,
                 (
                     {
-                        f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123": [
+                        f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123": [
                             {"service": "gen3-workflow", "method": "read"}
                         ],
                     }
@@ -124,7 +124,8 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
             ),
         },
         # resource, role, policy and user creation:
-        f"/resource/users/{NEW_TEST_USER_ID}/gen3-workflow": {"POST": (200, {})},
+        "/resource/services/workflow/gen3-workflow/tasks": {"POST": (200, {})},
+        "/resource/services/workflow/gen3-workflow/storage": {"POST": (200, {})},
         "/role": {"POST": (200, {})},
         "/policy": {"POST": (200, {})},
         "/user": {"POST": (200, {})},
@@ -152,7 +153,7 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
         if (
             path == "/auth/request"
             and body["requests"][0]["resource"]
-            == f"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks"
+            == f"/services/workflow/gen3-workflow/tasks/{NEW_TEST_USER_ID}"
         ):
             content["auth"] = False
 
@@ -175,7 +176,7 @@ def mock_tes_server_request_function(
         "state": "COMPLETE",
         "logs": [{"system_logs": ["blah"]}],
         "tags": {
-            "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER"
         },
     }
     # paths to reponses: { URL: { METHOD: response body } }
@@ -192,7 +193,7 @@ def mock_tes_server_request_function(
                         "state": "COMPLETE",
                         "logs": [{"system_logs": ["blah"]}],
                         "tags": {
-                            "_AUTHZ": f"/users/OTHER_USER/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+                            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/OTHER_USER/TASK_ID_PLACEHOLDER"
                         },
                     },
                     # test that the app can handle a task with no tags:

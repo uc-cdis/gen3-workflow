@@ -149,7 +149,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         err_msg = f"Tags {sorted(reserved_tags)} are reserved for internal use only and cannot be used."
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-    body["tags"]["_AUTHZ"] = f"/users/{user_id}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER"
+    authz_resource = (
+        f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
+    )
+    body["tags"]["_AUTHZ"] = authz_resource
     # TODO: Test running gen3-workflow locally and document this change
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (

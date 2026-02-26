@@ -1,10 +1,11 @@
+import tempfile
+from unittest.mock import AsyncMock, patch
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-from unittest.mock import AsyncMock, patch
 import pytest
-import tempfile
 
 from conftest import MOCKED_S3_RESPONSE_DICT, TEST_USER_ID, TEST_USER_TOKEN
 from gen3workflow.config import config

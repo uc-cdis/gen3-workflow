@@ -123,38 +123,47 @@ class Auth:
     ) -> None:
         """
         Ensure the specified user exists in Arborist and has a policy granting them access to their
-        own Gen3Workflow tasks ("read" and "delete" access to resource "/users/<user ID>/gen3-workflow/tasks" for service "gen3-workflow").
+        own Gen3Workflow tasks and bucket storage.
         Args:
             username (str): The user's Gen3 username
             user_id (str): The user's unique Gen3 ID
         """
-        logger.info(f"Ensuring user '{user_id}' has access to their own tasks")
-        resource_path = f"/users/{user_id}/gen3-workflow/tasks"
-        if await self.authorize(method="read", resources=[resource_path], throw=False):
+        logger.info(
+            f"Ensuring user '{user_id}' has access to their own tasks and storage"
+        )
+        resource_path1 = f"/services/workflow/gen3-workflow/tasks/{user_id}"
+        if await self.authorize(method="read", resources=[resource_path1], throw=False):
             # if the user already has access to their own tasks, return early
             return
 
-        logger.debug(f"Attempting to create resource '{resource_path}' in Arborist")
-        parent_path = f"/users/{user_id}/gen3-workflow"
+        parent_path = "/services/workflow/gen3-workflow/tasks"
+        logger.debug(f"Attempting to create resource '{resource_path1}' in Arborist")
         resource = {
-            "name": "tasks",
+            "name": user_id,
             "description": f"Represents workflow tasks owned by user '{username}'",
         }
         await self.arborist_client.create_resource(
             parent_path, resource, create_parents=True
         )
 
-        role_id = "gen3-workflow_task_owner"
+        resource_path2 = f"/services/workflow/gen3-workflow/storage/{user_id}"
+        parent_path = "/services/workflow/gen3-workflow/storage"
+        logger.debug(f"Attempting to create resource '{resource_path2}' in Arborist")
+        resource = {
+            "name": user_id,
+            "description": f"Represents task storage owned by user '{username}'",
+        }
+        await self.arborist_client.create_resource(
+            parent_path, resource, create_parents=True
+        )
+
+        role_id = "gen3_workflow_admin"
         role = {
             "id": role_id,
             "permissions": [
                 {
-                    "id": "gen3-workflow-reader",
-                    "action": {"service": "gen3-workflow", "method": "read"},
-                },
-                {
-                    "id": "gen3-workflow-deleter",
-                    "action": {"service": "gen3-workflow", "method": "delete"},
+                    "id": "gen3_workflow_admin_action",
+                    "action": {"service": "gen3-workflow", "method": "*"},
                 },
             ],
         }
@@ -168,13 +177,13 @@ class Auth:
             )
             await self.arborist_client.create_role(role)
 
-        policy_id = f"gen3-workflow_task_owner_sub-{user_id}"
+        policy_id = f"gen3_workflow_user_sub_{user_id}"
         logger.debug(f"Attempting to create policy '{policy_id}' in Arborist")
         policy = {
             "id": policy_id,
             "description": f"policy created by gen3-workflow for user '{username}'",
             "role_ids": [role_id],
-            "resource_paths": [resource_path],
+            "resource_paths": [resource_path1, resource_path2],
         }
         await self.arborist_client.create_policy(policy, skip_if_exists=True)
 
