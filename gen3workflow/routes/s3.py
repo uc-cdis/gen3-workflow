@@ -166,10 +166,14 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    # because this endpoint is exposed at root, if the GET path is empty, assume the user is not
-    # trying to reach the S3 endpoint and redirect to the status endpoint instead
-    if request.method == "GET" and not path:
-        return await get_status(request)
+    # Because this endpoint is exposed at root, if the GET path is empty, the user may not be
+    # trying to reach the S3 endpoint: suggest using the status endpoint.
+    # "All buckets" listing requests also land here and are not supported, since users can only
+    # access their own bucket.
+    if request.method == "GET" and path in ("", "s3"):
+        err_msg = f"If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
     # Extract the caller's access token from the request headers, and ensure the caller (user, or
     # client acting on behalf of the user) has access to the user's files.
