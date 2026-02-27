@@ -169,14 +169,6 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         headers={"Authorization": f"bearer {auth.bearer_token.credentials}"},
     )
 
-    try:
-        await auth.grant_user_access_to_their_own_tasks(
-            username=username, user_id=user_id
-        )
-    except ArboristError as e:
-        logger.error(e.message)
-        raise HTTPException(e.code, e.message)
-
     return res.json()
 
 

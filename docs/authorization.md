@@ -102,5 +102,5 @@ authz:
     - id: gen3_workflow_admin_action
       action:
         service: gen3-workflow
-        method: *
+        method: '*'
 ```

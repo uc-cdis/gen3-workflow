@@ -118,7 +118,7 @@ class Auth:
 
         return authorized
 
-    async def grant_user_access_to_their_own_tasks(
+    async def grant_user_access_to_their_own_data(
         self, username: str, user_id: str
     ) -> None:
         """
@@ -133,7 +133,7 @@ class Auth:
         )
         resource_path1 = f"/services/workflow/gen3-workflow/tasks/{user_id}"
         if await self.authorize(method="read", resources=[resource_path1], throw=False):
-            # if the user already has access to their own tasks, return early
+            # if the user already has access to their own data, return early
             return
 
         parent_path = "/services/workflow/gen3-workflow/tasks"

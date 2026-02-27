@@ -1,8 +1,10 @@
+from gen3authz.client.arborist.errors import ArboristError
 from fastapi import APIRouter, Depends, Request, HTTPException
 from starlette.status import (
     HTTP_200_OK,
     HTTP_202_ACCEPTED,
     HTTP_204_NO_CONTENT,
+    HTTP_401_UNAUTHORIZED,
     HTTP_404_NOT_FOUND,
 )
 
@@ -17,7 +19,9 @@ router = APIRouter(prefix="/storage")
 @router.get("/info/", status_code=HTTP_200_OK, include_in_schema=False)
 async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
     """
-    Get details about the current user's storage setup
+    Get details about the current user's storage setup.
+    This endpoint also serves as a mandatory "first time setup" for the user's bucket
+    and authz.
     """
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
@@ -25,6 +29,20 @@ async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
     bucket_name, bucket_prefix, bucket_region, kms_key_arn = (
         aws_utils.create_user_bucket(user_id)
     )
+
+    username = token_claims.get("context", {}).get("user", {}).get("name")
+    if not username:
+        err_msg = "No context.user.name in token"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+    try:
+        await auth.grant_user_access_to_their_own_data(
+            username=username, user_id=user_id
+        )
+    except ArboristError as e:
+        logger.error(e.message)
+        raise HTTPException(e.code, e.message)
+
     return {
         "bucket": bucket_name,
         "workdir": f"s3://{bucket_name}/{bucket_prefix}",
