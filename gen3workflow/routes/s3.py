@@ -282,7 +282,7 @@ async def s3_endpoint(path: str, request: Request):
     if config["KMS_ENCRYPTION_ENABLED"] and request.method == "PUT":
         _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
-            err_msg = "Bucket misconfigured. Hit the `GET /storage/info` endpoint and try again."
+            err_msg = "Bucket misconfigured. Hit the `GET /storage/setup` endpoint and try again."
             logger.error(
                 f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
             )

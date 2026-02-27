@@ -15,11 +15,14 @@ from gen3workflow.config import config
 router = APIRouter(prefix="/storage")
 
 
+# TODO: remove the /storage/info path once CI has been updated to use /storage/setup
 @router.get("/info", status_code=HTTP_200_OK)
 @router.get("/info/", status_code=HTTP_200_OK, include_in_schema=False)
+@router.get("/setup", status_code=HTTP_200_OK)
+@router.get("/setup/", status_code=HTTP_200_OK, include_in_schema=False)
 async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
     """
-    Get details about the current user's storage setup.
+    Return details about the current user's storage setup.
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
     and authz.
     """

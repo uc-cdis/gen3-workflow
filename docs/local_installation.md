@@ -71,7 +71,7 @@ Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/doc
 
 ## Run Nextflow workflows with Gen3Workflow
 
-- Hit the `/storage/info` endpoint to get your working directory
+- Hit the `/storage/setup` endpoint to get your working directory
 - Configure Nextflow. Example Nextflow configuration:
 ```
 plugins {

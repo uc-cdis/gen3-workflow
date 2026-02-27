@@ -98,7 +98,7 @@ async def test_storage_info(
     client, access_token_patcher, mock_aws_services, trailing_slash
 ):
     """
-    Check that S3 buckets are correctly created and configured by the `/storage/info` endpoint.
+    Check that S3 buckets are correctly created and configured by the `/storage/setup` endpoint.
     When users who does not yet have access to their own data (NEW_TEST_USER_ID) hit this
     endpoint, calls to Arborist should be made to create resources, roles, policies and users, and to grant the users access.
     """
@@ -112,9 +112,9 @@ async def test_storage_info(
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket exists: {e.value}"
 
-    # hit the /storage/info endpoint
+    # hit the /storage/setup endpoint
     res = await client.get(
-        f"/storage/info{'/' if trailing_slash else ''}",
+        f"/storage/setup{'/' if trailing_slash else ''}",
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     assert res.status_code == 200, res.text
@@ -130,7 +130,7 @@ async def test_storage_info(
         "kms_key_arn": kms_key_arn,
     }
 
-    # check that the bucket was created after the call to `/storage/info`
+    # check that the bucket was created after the call to `/storage/setup`
     bucket_exists = aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
     assert bucket_exists, "Bucket does not exist"
 
@@ -242,7 +242,7 @@ async def test_bucket_enforces_encryption(
     the right key.
     """
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     assert res.status_code == 200, res.text
     storage_info = res.json()
@@ -291,7 +291,7 @@ async def test_delete_user_bucket(
 
     # Create the bucket if it doesn't exist
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     bucket_name = res.json()["bucket"]
 
@@ -331,7 +331,7 @@ async def test_delete_user_bucket_with_files(
 
     # Create the bucket if it doesn't exist
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     bucket_name = res.json()["bucket"]
 
@@ -416,7 +416,7 @@ async def test_delete_user_bucket_objects_with_existing_files(
 
     # Create the bucket if it doesn't exist
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     bucket_name = res.json()["bucket"]
 
