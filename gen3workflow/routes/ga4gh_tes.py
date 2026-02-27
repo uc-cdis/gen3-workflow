@@ -74,7 +74,7 @@ def get_non_allowed_images(images: set, username: str) -> set:
     """
 
     def _image_to_regex(image: str) -> str:
-        """
+        r"""
         Update a whitelisted image to a regex: replace {username} with the actual username,
         replace `*` with `.*` to match any sequence of characters, and replace `:.*` with
         `(:.+|\Z)` so that "myimage" is accepted if "myimage:*" is in the whitelist.

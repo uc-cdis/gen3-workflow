@@ -166,10 +166,14 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    # because this endpoint is exposed at root, if the GET path is empty, assume the user is not
-    # trying to reach the S3 endpoint and redirect to the status endpoint instead
-    if request.method == "GET" and not path:
-        return await get_status(request)
+    # Because this endpoint is exposed at root, if the GET path is empty, the user may not be
+    # trying to reach the S3 endpoint: suggest using the status endpoint.
+    # "All buckets" listing requests also land here and are not supported, since users can only
+    # access their own bucket.
+    if request.method == "GET" and path in ("", "s3"):
+        err_msg = f"If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
     # extract the caller's access token from the request headers, and ensure the caller (user, or
     # client acting on behalf of the user) has access to run workflows
@@ -217,27 +221,42 @@ async def s3_endpoint(path: str, request: Request):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
-    # Generate the body hash and the request headers.
-    # Overwrite the original `x-amz-content-sha256` header value with the body hash. When this
-    # header is set to "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" in the original request (payload sent
-    # over multiple chunks), we still replace it with the body hash and we strip the body of the
-    # chunk signatures => protocol translation from a chunk-signed streaming request (SigV4
-    # streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT). We could also
-    # implement chunked signing but it's not straightforward and likely unnecessary.
-    # NOTE: Chunked uploads and multipart uploads are NOT the same thing. Python boto3 does not
-    # generate chunked uploads, but the Minio-go S3 client used by Funnel does.
+    # Generate the request headers. Chunked payload support:
+    # - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
+    #   The body includes chunks and checksums. It can be forwarded to AWS without changes as long
+    #   as the necessary headers are forwarded as well.
+    # - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
+    #   Funnel uses this client.
+    #   We overwrite the original `x-amz-content-sha256` header value with the body hash and we
+    #   strip the body of the chunk signatures => protocol translation from a chunk-signed streaming
+    #   request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT).
+    #   We could also implement chunked signing but it's not straightforward and likely unnecessary.
+    # Note: Chunked uploads != multipart uploads.
     body = await request.body()
+    headers = {
+        "host": f"{user_bucket}.s3.{region}.amazonaws.com",
+        "x-amz-date": timestamp,
+    }
+    for h in [
+        "content-encoding",
+        "content-length",
+        "x-amz-content-sha256",
+        "x-amz-decoded-content-length",
+        "x-amz-trailer",
+    ]:
+        if request.headers.get(h):
+            headers[h] = request.headers[h]
     if (
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
     ):
+        # parse the body and update the corresponding headers
         body = chunked_to_non_chunked_body(body)
-    body_hash = hashlib.sha256(body).hexdigest()
-    headers = {
-        "host": f"{user_bucket}.s3.{region}.amazonaws.com",
-        "x-amz-content-sha256": body_hash,
-        "x-amz-date": timestamp,
-    }
+        content_len = str(len(body))
+        headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
+        for h in ["content-length", "x-amz-decoded-content-length"]:
+            if request.headers.get(h):
+                headers[h] = content_len
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -263,11 +282,12 @@ async def s3_endpoint(path: str, request: Request):
         headers["x-amz-server-side-encryption"] = "aws:kms"
         headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
-    # construct the canonical request
+    # construct the canonical request. All header keys must be lowercase
+    sorted_headers = sorted(list(headers.keys()), key=str.casefold)
     canonical_headers = "".join(
-        f"{key}:{headers[key]}\n" for key in sorted(list(headers.keys()))
+        f"{key.lower()}:{headers[key]}\n" for key in sorted_headers
     )
-    signed_headers = ";".join(sorted([k.lower() for k in headers.keys()]))
+    signed_headers = ";".join([k.lower() for k in sorted_headers])
     query_params = dict(request.query_params)
     # the query params in the canonical request have to be sorted:
     query_params_names = sorted(list(query_params.keys()))
@@ -282,7 +302,7 @@ async def s3_endpoint(path: str, request: Request):
         f"{canonical_headers}"
         f"\n"
         f"{signed_headers}\n"
-        f"{body_hash}"
+        f"{headers['x-amz-content-sha256']}"
     )
 
     # construct the string to sign based on the canonical request
@@ -319,9 +339,7 @@ async def s3_endpoint(path: str, request: Request):
     )
 
     if response.status_code >= 300:
-        logger.debug(
-            f"Received a failure status code from AWS: {response.status_code}. {response.text=}"
-        )
+        logger.debug(f"Received a failure status code from AWS: {response.status_code}")
         # no need to log 404 errors except in debug mode: they are are expected when running
         # workflows (e.g. for Nextflow workflows, error output files may not be present when there
         # were no errors)
