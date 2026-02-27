@@ -83,14 +83,18 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
                 "id": "123",
                 "state": "COMPLETE",
                 "logs": [{"system_logs": ["blah"]}],
-                "tags": {"_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
+                "tags": {
+                    "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
+                },
             }
         else:  # view == None or "MINIMAL"
             assert res.json() == {
                 "id": "123",
                 "state": "COMPLETE",
                 "logs": [{}],
-                "tags": {"_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"},
+                "tags": {
+                    "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
+                },
             }
 
     # check that the appropriate authorization checks were made
@@ -98,7 +102,7 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
         mock_arborist_request.assert_called_with(
             method="POST",
             path=f"/auth/request",
-            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks/123","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+            body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )
 
@@ -137,7 +141,7 @@ async def test_create_task(
         task_body = {
             "name": "test-task",
             "tags": {
-                "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+                "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER",
                 "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
                 "_WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
             },
@@ -156,82 +160,6 @@ async def test_create_task(
         path=f"/auth/request",
         body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks","action":{{"service":"gen3-workflow","method":"create"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
         authorized=client.authorized,
-    )
-    if client.authorized and client.tes_resp_code != 500:
-        mock_arborist_request.assert_any_call(
-            method="POST",
-            path=f"/auth/request",
-            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
-            authorized=client.authorized,
-        )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "access_token_patcher", [{"user_id": NEW_TEST_USER_ID}], indirect=True
-)
-async def test_create_task_new_user(client, access_token_patcher, mock_aws_services):
-    """
-    When a user who does not yet have access to their own tasks creates a task, calls to Arborist
-    should be made to create a resource, role, policy and user, and to grant the user access.
-    """
-    with patch(
-        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
-        lambda _: ("test_kms_key_alias", "*"),
-    ):
-        res = await client.post(
-            "/ga4gh/tes/v1/tasks",
-            json={"name": "test-task"},
-            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
-        )
-    assert res.status_code == 200, res.text
-    assert res.json() == {"id": "123"}
-    test_task_body = {
-        "name": "test-task",
-        "tags": {
-            "_AUTHZ": f"/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
-            "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{NEW_TEST_USER_ID}-funnel-role",
-            "_WORKER_SA": f"gen3wf-localhost-{NEW_TEST_USER_ID}-worker-sa",
-        },
-    }
-    mock_tes_server_request.assert_called_once_with(
-        method="POST",
-        path="/tasks",
-        query_params={},
-        body=json.dumps(test_task_body, separators=(",", ":")),
-        status_code=200,
-    )
-
-    # check arborist calls
-    mock_arborist_request.assert_any_call(
-        method="POST",
-        path=f"/resource/users/{NEW_TEST_USER_ID}/gen3-workflow",
-        body=f'{{"name":"tasks","description":"Represents workflow tasks owned by user \'test-username-{NEW_TEST_USER_ID}\'"}}',
-        authorized=True,
-    )
-    mock_arborist_request.assert_any_call(
-        method="POST",
-        path="/role",
-        body='{"id":"gen3-workflow_task_owner","permissions":[{"id":"gen3-workflow-reader","action":{"service":"gen3-workflow","method":"read"}},{"id":"gen3-workflow-deleter","action":{"service":"gen3-workflow","method":"delete"}}]}',
-        authorized=True,
-    )
-    mock_arborist_request.assert_any_call(
-        method="POST",
-        path="/policy",
-        body=f'{{"id":"gen3-workflow_task_owner_sub-{NEW_TEST_USER_ID}","description":"policy created by gen3-workflow for user \'test-username-{NEW_TEST_USER_ID}\'","role_ids":["gen3-workflow_task_owner"],"resource_paths":["/users/{NEW_TEST_USER_ID}/gen3-workflow/tasks"]}}',
-        authorized=True,
-    )
-    mock_arborist_request.assert_any_call(
-        method="POST",
-        path="/user",
-        body=f'{{"name":"test-username-{NEW_TEST_USER_ID}"}}',
-        authorized=True,
-    )
-    mock_arborist_request.assert_any_call(
-        method="POST",
-        path=f"/user/test-username-{NEW_TEST_USER_ID}/policy",
-        body=f'{{"policy":"gen3-workflow_task_owner_sub-{NEW_TEST_USER_ID}"}}',
-        authorized=True,
     )
 
 
@@ -427,7 +355,7 @@ async def test_create_task_with_whitelist_images(
         result_body = {
             "executors": req_body["executors"],
             "tags": {
-                "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/TASK_ID_PLACEHOLDER",
+                "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER",
                 "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
                 "_WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
             },
@@ -484,7 +412,7 @@ async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
                             "state": "COMPLETE",
                             "logs": [{"system_logs": ["blah"]}],
                             "tags": {
-                                "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"
+                                "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
                             },
                         }
                     ]
@@ -497,7 +425,7 @@ async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
                             "state": "COMPLETE",
                             "logs": [{}],
                             "tags": {
-                                "_AUTHZ": f"/users/{TEST_USER_ID}/gen3-workflow/tasks/123"
+                                "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
                             },
                         }
                     ]
@@ -560,6 +488,6 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
         mock_arborist_request.assert_called_with(
             method="POST",
             path=f"/auth/request",
-            body=f'{{"requests":[{{"resource":"/users/{TEST_USER_ID}/gen3-workflow/tasks/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+            body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )

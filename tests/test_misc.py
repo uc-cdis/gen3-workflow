@@ -6,7 +6,12 @@ from moto import mock_aws
 import pytest
 from unittest.mock import patch, MagicMock
 
-from conftest import TEST_USER_ID, TEST_USER_TOKEN
+from conftest import (
+    TEST_USER_ID,
+    TEST_USER_TOKEN,
+    NEW_TEST_USER_ID,
+    mock_arborist_request,
+)
 from gen3workflow import aws_utils
 from gen3workflow.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
@@ -86,14 +91,19 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher", [{"user_id": NEW_TEST_USER_ID}], indirect=True
+)
 async def test_storage_info(
     client, access_token_patcher, mock_aws_services, trailing_slash
 ):
     """
-    Check that S3 buckets are correctly created and configured by the `/storage/info` endpoint
+    Check that S3 buckets are correctly created and configured by the `/storage/setup` endpoint.
+    When users who does not yet have access to their own data (NEW_TEST_USER_ID) hit this
+    endpoint, calls to Arborist should be made to create resources, roles, policies and users, and to grant the users access.
     """
     # check that the user's storage information is as expected
-    expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{NEW_TEST_USER_ID}"
 
     # Bucket must not exist before this test
     with pytest.raises(ClientError) as e:
@@ -102,8 +112,9 @@ async def test_storage_info(
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket exists: {e.value}"
 
+    # hit the /storage/setup endpoint
     res = await client.get(
-        f"/storage/info{'/' if trailing_slash else ''}",
+        f"/storage/setup{'/' if trailing_slash else ''}",
         headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
     )
     assert res.status_code == 200, res.text
@@ -119,7 +130,7 @@ async def test_storage_info(
         "kms_key_arn": kms_key_arn,
     }
 
-    # check that the bucket was created after the call to `/storage/info`
+    # check that the bucket was created after the call to `/storage/setup`
     bucket_exists = aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
     assert bucket_exists, "Bucket does not exist"
 
@@ -149,7 +160,7 @@ async def test_storage_info(
                 "Effect": "Deny",
                 "Principal": "*",
                 "Action": "s3:PutObject",
-                "Resource": f"arn:aws:s3:::gen3wf-localhost-{TEST_USER_ID}/*",
+                "Resource": f"arn:aws:s3:::gen3wf-localhost-{NEW_TEST_USER_ID}/*",
                 "Condition": {
                     "StringNotEquals": {"s3:x-amz-server-side-encryption": "aws:kms"}
                 },
@@ -159,7 +170,7 @@ async def test_storage_info(
                 "Effect": "Deny",
                 "Principal": "*",
                 "Action": "s3:PutObject",
-                "Resource": f"arn:aws:s3:::gen3wf-localhost-{TEST_USER_ID}/*",
+                "Resource": f"arn:aws:s3:::gen3wf-localhost-{NEW_TEST_USER_ID}/*",
                 "Condition": {
                     "StringNotEquals": {
                         "s3:x-amz-server-side-encryption-aws-kms-key-id": kms_key_arn
@@ -182,6 +193,44 @@ async def test_storage_info(
         }
     ]
 
+    # check that arborist calls to grant the user access to their own data were made
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/resource/services/workflow/gen3-workflow/tasks",
+        body=f'{{"name":"{NEW_TEST_USER_ID}","description":"Represents workflow tasks owned by user \'test-username-{NEW_TEST_USER_ID}\'"}}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/resource/services/workflow/gen3-workflow/storage",
+        body=f'{{"name":"{NEW_TEST_USER_ID}","description":"Represents task storage owned by user \'test-username-{NEW_TEST_USER_ID}\'"}}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path="/role",
+        body='{"id":"gen3_workflow_admin","permissions":[{"id":"gen3_workflow_admin_action","action":{"service":"gen3-workflow","method":"*"}}]}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path="/policy",
+        body=f'{{"id":"gen3_workflow_user_sub_{NEW_TEST_USER_ID}","description":"policy created by gen3-workflow for user \'test-username-{NEW_TEST_USER_ID}\'","role_ids":["gen3_workflow_admin"],"resource_paths":["/services/workflow/gen3-workflow/tasks/{NEW_TEST_USER_ID}","/services/workflow/gen3-workflow/storage/{NEW_TEST_USER_ID}"]}}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path="/user",
+        body=f'{{"name":"test-username-{NEW_TEST_USER_ID}"}}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/user/test-username-{NEW_TEST_USER_ID}/policy",
+        body=f'{{"policy":"gen3_workflow_user_sub_{NEW_TEST_USER_ID}"}}',
+        authorized=True,
+    )
+
 
 @pytest.mark.asyncio
 async def test_bucket_enforces_encryption(
@@ -193,7 +242,7 @@ async def test_bucket_enforces_encryption(
     the right key.
     """
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     assert res.status_code == 200, res.text
     storage_info = res.json()
@@ -242,7 +291,7 @@ async def test_delete_user_bucket(
 
     # Create the bucket if it doesn't exist
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     bucket_name = res.json()["bucket"]
 
@@ -282,7 +331,7 @@ async def test_delete_user_bucket_with_files(
 
     # Create the bucket if it doesn't exist
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     bucket_name = res.json()["bucket"]
 
@@ -367,7 +416,7 @@ async def test_delete_user_bucket_objects_with_existing_files(
 
     # Create the bucket if it doesn't exist
     res = await client.get(
-        "/storage/info", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
     bucket_name = res.json()["bucket"]
 
