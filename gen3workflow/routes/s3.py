@@ -182,7 +182,7 @@ async def s3_endpoint(path: str, request: Request):
         request.method, "create"
     )
     await auth.authorize(
-        auth_verb, [f"/services/workflow/gen3-workflow/tasks/{user_id}"]
+        auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
