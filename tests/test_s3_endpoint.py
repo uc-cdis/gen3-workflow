@@ -1,10 +1,12 @@
+import re
+import tempfile
+from unittest.mock import AsyncMock, patch
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-from unittest.mock import AsyncMock, patch
 import pytest
-import tempfile
 
 from conftest import MOCKED_S3_RESPONSE_DICT, TEST_USER_ID, TEST_USER_TOKEN
 from gen3workflow.config import config
@@ -207,6 +209,21 @@ def test_s3_endpoint_wrong_bucket(s3_client, access_token_patcher, bucket_name):
         s3_client.list_objects(Bucket=bucket_name)
 
 
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+def test_s3_endpoint_list_buckets(s3_client):
+    """
+    Listing all the buckets the user can access is not supported, since users can only access
+    their own bucket.
+    """
+    with pytest.raises(
+        ClientError,
+        match=re.escape(
+            "An error occurred (400) when calling the ListBuckets operation: Bad Request"
+        ),
+    ):
+        s3_client.list_buckets()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["s3", ""], ids=["s3 path", "root path"])
 async def test_s3_endpoint_with_bearer_token(client, path):
@@ -331,7 +348,7 @@ async def test_set_access_token_and_get_user_id_invalid_auth():
 def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     """
     Test that the boto3 `upload_file` function works with the `/s3` endpoint, both for a small
-    file uploaded in 1 chunk and for a large file uploaded in multiple chunks.
+    file uploaded in 1 part and for a large file uploaded in multiple parts.
     """
     with patch(
         "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",

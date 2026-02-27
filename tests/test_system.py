@@ -2,7 +2,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("endpoint", ["/", "/_status", "/_status/"])
+@pytest.mark.parametrize("endpoint", ["/_status", "/_status/"])
 @pytest.mark.parametrize(
     "client",
     [
