@@ -20,7 +20,7 @@ router = APIRouter(prefix="/storage")
 @router.get("/info/", status_code=HTTP_200_OK, include_in_schema=False)
 @router.get("/setup", status_code=HTTP_200_OK)
 @router.get("/setup/", status_code=HTTP_200_OK, include_in_schema=False)
-async def get_storage_info(request: Request, auth=Depends(Auth)) -> dict:
+async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     """
     Return details about the current user's storage setup.
     This endpoint also serves as a mandatory "first time setup" for the user's bucket

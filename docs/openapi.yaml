@@ -504,19 +504,19 @@ paths:
         bucket
 
         and authz.'
-      operationId: get_storage_info_2
+      operationId: storage_setup_2
       responses:
         '200':
           content:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Get Storage Info 2
+                title: Response Storage Setup 2
                 type: object
           description: Successful Response
       security:
       - HTTPBearer: []
-      summary: Get Storage Info
+      summary: Storage Setup
       tags:
       - Storage
   /storage/setup:
@@ -527,19 +527,19 @@ paths:
         bucket
 
         and authz.'
-      operationId: get_storage_info
+      operationId: storage_setup
       responses:
         '200':
           content:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Get Storage Info
+                title: Response Storage Setup
                 type: object
           description: Successful Response
       security:
       - HTTPBearer: []
-      summary: Get Storage Info
+      summary: Storage Setup
       tags:
       - Storage
   /storage/user-bucket:

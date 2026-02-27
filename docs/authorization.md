@@ -63,6 +63,7 @@ authz:
       - name: gen3-workflow
         subresources:
         - name: tasks
+        - name: storage
 
   policies:
   - id: gen3_workflow_user
