@@ -15,7 +15,7 @@ from gen3workflow.config import config
 router = APIRouter(prefix="/storage")
 
 
-# TODO: remove the /storage/info path once CI has been updated to use /storage/setup
+# TODO: remove the /storage/info path once the CI and plugin use /storage/setup
 @router.get("/info", status_code=HTTP_200_OK)
 @router.get("/info/", status_code=HTTP_200_OK, include_in_schema=False)
 @router.get("/setup", status_code=HTTP_200_OK)
@@ -69,7 +69,7 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     await auth.authorize(
-        "delete", [f"/services/workflow/gen3-workflow/tasks/{user_id}"]
+        "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
     logger.info(f"User '{user_id}' deleting their storage bucket")
     deleted_bucket_name = aws_utils.cleanup_user_bucket(user_id, delete_bucket=True)
@@ -105,7 +105,7 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     await auth.authorize(
-        "delete", [f"/services/workflow/gen3-workflow/tasks/{user_id}"]
+        "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
     logger.info(f"User '{user_id}' emptying their storage bucket")
     deleted_bucket_name = aws_utils.cleanup_user_bucket(user_id)

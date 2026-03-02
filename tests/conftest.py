@@ -193,7 +193,7 @@ def mock_tes_server_request_function(
                         "state": "COMPLETE",
                         "logs": [{"system_logs": ["blah"]}],
                         "tags": {
-                            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/OTHER_USER/TASK_ID_PLACEHOLDER"
+                            "_AUTHZ": "/services/workflow/gen3-workflow/tasks/OTHER_USER/TASK_ID_PLACEHOLDER"
                         },
                     },
                     # test that the app can handle a task with no tags:

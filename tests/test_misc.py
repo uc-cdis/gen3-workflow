@@ -94,7 +94,7 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
 @pytest.mark.parametrize(
     "access_token_patcher", [{"user_id": NEW_TEST_USER_ID}], indirect=True
 )
-async def test_storage_info(
+async def test_storage_setup(
     client, access_token_patcher, mock_aws_services, trailing_slash
 ):
     """
@@ -312,6 +312,14 @@ async def test_delete_user_bucket(
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket still exists: {e.value}"
+
+    # An authz check should have been made
+    mock_arborist_request.assert_called_with(
+        method="POST",
+        path=f"/auth/request",
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/storage/{TEST_USER_ID}","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+        authorized=client.authorized,
+    )
 
     # Attempt to Delete the bucket again, must receive a 404, since bucket not found.
     res = await client.delete(

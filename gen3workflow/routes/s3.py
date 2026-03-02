@@ -178,8 +178,8 @@ async def s3_endpoint(path: str, request: Request):
     # Extract the caller's access token from the request headers, and ensure the caller (user, or
     # client acting on behalf of the user) has access to the user's files.
     # Note: sharing task inputs/output is not supported. Currently, users can only access their own
-    # S3 bucket. It could be supported by hitting the "GET task" endpoint to get the list of
-    # files for a specific task that a user has access to in another user's bucket.
+    # S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
+    # the list of files for a specific task.
     auth = Auth(api_request=request)
     user_id = await set_access_token_and_get_user_id(auth, request.headers)
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
