@@ -8,7 +8,7 @@ The Gen3 Workflow helm chart is [here](https://github.com/uc-cdis/gen3-helm/tree
 
 ```mermaid
 graph TD;
-    A[Gen3 chart] --> B(Gen3 Workflow chart);
+    A(Gen3 chart) --> B(Gen3 Workflow chart);
     A --> C(Gen3 Funnel chart);
     C --> D(OHSU Funnel chart);
 ```

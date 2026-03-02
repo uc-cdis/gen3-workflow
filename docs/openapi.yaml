@@ -498,20 +498,48 @@ paths:
       - S3
   /storage/info:
     get:
-      description: Get details about the current user's storage setup
-      operationId: get_storage_info
+      description: 'Return details about the current user''s storage setup.
+
+        This endpoint also serves as a mandatory "first time setup" for the user''s
+        bucket
+
+        and authz.'
+      operationId: storage_setup_2
       responses:
         '200':
           content:
             application/json:
               schema:
                 additionalProperties: true
-                title: Response Get Storage Info
+                title: Response Storage Setup 2
                 type: object
           description: Successful Response
       security:
       - HTTPBearer: []
-      summary: Get Storage Info
+      summary: Storage Setup
+      tags:
+      - Storage
+  /storage/setup:
+    get:
+      description: 'Return details about the current user''s storage setup.
+
+        This endpoint also serves as a mandatory "first time setup" for the user''s
+        bucket
+
+        and authz.'
+      operationId: storage_setup
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Storage Setup
+                type: object
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Storage Setup
       tags:
       - Storage
   /storage/user-bucket:
