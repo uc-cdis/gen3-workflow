@@ -349,7 +349,7 @@ async def client(request):
             httpx_client_function = getattr(httpx.AsyncClient(), request.method.lower())
             return await httpx_client_function(url)
 
-    # set the httpx clients used by the app and by the Arborist client to mock clients that
+    # the httpx clients used by the app and by gen3authz are set to mock clients that
     # call `handle_request`
     mock_httpx_client = httpx.AsyncClient(transport=httpx.MockTransport(handle_request))
     app = get_app(httpx_client=mock_httpx_client)
