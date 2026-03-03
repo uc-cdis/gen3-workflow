@@ -284,8 +284,6 @@ async def s3_endpoint(path: str, request: Request):
     # We know this is an UploadPart or CompleteMultipartUpload request if it includes the
     # uploadId query parameter.
     query_params = dict(request.query_params)
-    if "uploadId" in query_params:
-        raise Exception("multipart")
     if (
         config["KMS_ENCRYPTION_ENABLED"]
         and request.method in ["PUT", "POST"]
