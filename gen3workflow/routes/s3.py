@@ -192,10 +192,6 @@ async def s3_endpoint(path: str, request: Request):
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
     logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
-    if request.method == "GET" and path == "s3":
-        err_msg = f"'ls' not supported, use 'ls s3://{user_bucket}' instead"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
@@ -282,8 +278,19 @@ async def s3_endpoint(path: str, request: Request):
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
 
-    # if this is a PUT request, we need the KMS key ID to use for encryption
-    if config["KMS_ENCRYPTION_ENABLED"] and request.method == "PUT":
+    # If this is a PUT or POST request, specify the KMS key to use for encryption.
+    # For multipart uploads, the initial CreateMultipartUpload request includes the KMS
+    # configuration, and the following UploadPart and CompleteMultipartUpload requests do not.
+    # We know this is an UploadPart or CompleteMultipartUpload request if it includes the
+    # uploadId query parameter.
+    query_params = dict(request.query_params)
+    if "uploadId" in query_params:
+        raise Exception("multipart")
+    if (
+        config["KMS_ENCRYPTION_ENABLED"]
+        and request.method in ["PUT", "POST"]
+        and "uploadId" not in query_params
+    ):
         _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
             err_msg = "Bucket misconfigured. Hit the `GET /storage/setup` endpoint and try again."
@@ -300,7 +307,6 @@ async def s3_endpoint(path: str, request: Request):
         f"{key.lower()}:{headers[key]}\n" for key in sorted_headers
     )
     signed_headers = ";".join([k.lower() for k in sorted_headers])
-    query_params = dict(request.query_params)
     # the query params in the canonical request have to be sorted:
     query_params_names = sorted(list(query_params.keys()))
     canonical_query_params = "&".join(

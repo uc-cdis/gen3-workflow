@@ -360,8 +360,9 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
                 file_to_upload.name,
                 f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
                 f"test_s3_upload_file{'_multipart' if multipart else ''}.txt",
-                # to test a multipart upload, set the chunk size to 1 to force splitting the file
-                # into multiple chunks:
+                # to test a multipart upload, set the part size to 1 to force splitting the file
+                # into multiple parts:
+                # TODO this doesn't work
                 Config=boto3.s3.transfer.TransferConfig(
                     multipart_threshold=1 if multipart else 9999
                 ),

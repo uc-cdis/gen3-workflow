@@ -66,7 +66,8 @@ def get_app(httpx_client=None) -> FastAPI:
         root_path=config["DOCS_URL_PREFIX"],
         generate_unique_id_function=generate_unique_route_id,
     )
-    app.async_client = httpx_client or httpx.AsyncClient()
+    # TODO check ideal timeout for AWS calls
+    app.async_client = httpx_client or httpx.AsyncClient(timeout=300)
     app.include_router(ga4gh_tes_router, tags=["GA4GH TES"])
     app.include_router(s3_router, tags=["S3"])
     app.include_router(storage_router, tags=["Storage"])
