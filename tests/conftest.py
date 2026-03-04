@@ -226,10 +226,33 @@ def mock_tes_server_request_function(
     return httpx.Response(status_code=status_code, json=out, text=text)
 
 
+def mock_aws_s3_request_function(url: str):
+    """
+    Mock responses from AWS S3
+    """
+    resp_xml = MOCKED_S3_RESPONSE_XML
+    headers = {"content-type": "application/xml"}
+
+    # multipart upload special case:
+    if "test_s3_upload_file_multipart.txt" in url:
+        upload_id = "test-upload-id"
+        # "InitiateMultipartUploadResult" with "UploadId"
+        resp_xml = f"""<?xml version="1.0" encoding="UTF-8"?>\n<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Bucket><Key>test_s3_chunk_upload.txt</Key><UploadId>{upload_id}</UploadId></InitiateMultipartUploadResult>"""
+        if f"?uploadId={upload_id}&partNumber=" in url:
+            headers["etag"] = "test-etag"
+
+    return httpx.Response(
+        status_code=200,
+        text=resp_xml,
+        headers=headers,
+    )
+
+
 # making these functions into mocks allows tests to check the requests that were made, for
 # example: `mock_tes_server_request.assert_called_with(...)`
 mock_tes_server_request = MagicMock(side_effect=mock_tes_server_request_function)
 mock_arborist_request = MagicMock(side_effect=mock_arborist_request_function)
+mock_aws_s3_request = MagicMock(side_effect=mock_aws_s3_request_function)
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -316,20 +339,7 @@ async def client(request):
             f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
         ):
             # mock calls to AWS S3
-            resp_xml = MOCKED_S3_RESPONSE_XML
-            headers = {"content-type": "application/xml"}
-            # multipart upload special case:
-            if "test_s3_upload_file_multipart.txt" in url:
-                upload_id = "test-upload-id"
-                # "InitiateMultipartUploadResult" with "UploadId"
-                resp_xml = f"""<?xml version="1.0" encoding="UTF-8"?>\n<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Bucket><Key>test_s3_chunk_upload.txt</Key><UploadId>{upload_id}</UploadId></InitiateMultipartUploadResult>"""
-                if f"?uploadId={upload_id}&partNumber=" in url:
-                    headers["etag"] = "test-etag"
-            mocked_response = httpx.Response(
-                status_code=200,
-                text=resp_xml,
-                headers=headers,
-            )
+            mocked_response = mock_aws_s3_request(url)
 
         if mocked_response is not None:
             print(f"Mocking request '{request.method} {url}'")
@@ -339,7 +349,7 @@ async def client(request):
             httpx_client_function = getattr(httpx.AsyncClient(), request.method.lower())
             return await httpx_client_function(url)
 
-    # set the httpx clients used by the app and by the Arborist client to mock clients that
+    # the httpx clients used by the app and by gen3authz are set to mock clients that
     # call `handle_request`
     mock_httpx_client = httpx.AsyncClient(transport=httpx.MockTransport(handle_request))
     app = get_app(httpx_client=mock_httpx_client)

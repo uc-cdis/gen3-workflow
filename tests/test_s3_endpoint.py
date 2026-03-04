@@ -8,7 +8,12 @@ from botocore.exceptions import ClientError
 from fastapi import HTTPException
 import pytest
 
-from conftest import MOCKED_S3_RESPONSE_DICT, TEST_USER_ID, TEST_USER_TOKEN
+from conftest import (
+    MOCKED_S3_RESPONSE_DICT,
+    TEST_USER_ID,
+    TEST_USER_TOKEN,
+    mock_aws_s3_request,
+)
 from gen3workflow.config import config
 from gen3workflow.routes.s3 import (
     set_access_token_and_get_user_id,
@@ -350,22 +355,32 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     Test that the boto3 `upload_file` function works with the `/s3` endpoint, both for a small
     file uploaded in 1 part and for a large file uploaded in multiple parts.
     """
+    bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    object_key = f"test_s3_upload_file{'_multipart' if multipart else ''}.txt"
+
     with patch(
         "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "test_kms_key_arn"),
     ):
-        with tempfile.NamedTemporaryFile(mode="w+t", delete=True) as file_to_upload:
-            file_to_upload.write("Test file contents\n")
+        with tempfile.NamedTemporaryFile(delete=True) as file_to_upload:
+            file_to_upload.write(b"A" * (6 * 1024 * 1024))  # create a 6MB file
+            file_to_upload.flush()
             s3_client.upload_file(
                 file_to_upload.name,
-                f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
-                f"test_s3_upload_file{'_multipart' if multipart else ''}.txt",
-                # to test a multipart upload, set the chunk size to 1 to force splitting the file
-                # into multiple chunks:
-                Config=boto3.s3.transfer.TransferConfig(
-                    multipart_threshold=1 if multipart else 9999
+                bucket_name,
+                object_key,
+                # to test a multipart upload, set the part size to 1 to force splitting the file
+                # into multiple parts:
+                Config=(
+                    boto3.s3.transfer.TransferConfig(multipart_threshold=1)
+                    if multipart
+                    else None
                 ),
             )
+
+    mock_aws_s3_request.assert_called_with(
+        f"https://{bucket_name}.s3.us-east-1.amazonaws.com/{object_key}{'?uploadId=test-upload-id' if multipart else ''}"
+    )
 
 
 def test_chunked_to_non_chunked_body():
