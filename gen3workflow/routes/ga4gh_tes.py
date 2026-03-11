@@ -208,6 +208,8 @@ def apply_view_to_task(view: str, task: dict) -> dict:
         task["inputs"][i].pop("content", None)
     for i in range(len(task.get("logs", []))):
         task["logs"][i].pop("system_logs", None)
+        # TODO if the TES server returns a SYSTEM_ERROR, we may want to keep the system_logs, or at
+        # least log them before removing them
 
     return task
 
