@@ -67,14 +67,12 @@ def get_app(httpx_client=None) -> FastAPI:
         generate_unique_id_function=generate_unique_route_id,
     )
 
-    # `async_client` is used to hit the TES API, the Arborist service and AWS S3.
-    # Calls to S3 tend to timeout when uploading large files (and we might also be rate-limited).
-    # AsyncHTTPTransport supports retrying on httpx.ConnectError or httpx.ConnectTimeout.
+    # `async_client` is used to hit the TES API and AWS S3.
+    # Calls to AWS S3 tend to timeout when uploading large files, so we increase the timeout.
+    # We may also be rate-limited, so calls are retried (see routes/s3.py).
     # The `httpx_client` parameter is not meant to be used in production. It allows mocking
     # external calls when testing.
-    app.async_client = httpx_client or httpx.AsyncClient(
-        transport=httpx.AsyncHTTPTransport(retries=3), timeout=120
-    )
+    app.async_client = httpx_client or httpx.AsyncClient(timeout=120)
 
     app.include_router(ga4gh_tes_router, tags=["GA4GH TES"])
     app.include_router(s3_router, tags=["S3"])
