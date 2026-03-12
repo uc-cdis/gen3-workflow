@@ -27,9 +27,9 @@ s3_root_router = APIRouter(include_in_schema=False)
 s3_router = APIRouter(prefix="/s3")
 
 
-s3_max_retries = 3
-s3_retry_base_delay = 0.5
-s3_retry_backoff_factor = 2
+S3_MAX_RETRIES = 3
+S3_RETRY_BASE_DELAY = 0.5
+S3_RETRY_BACKOFF_FACTOR = 2
 
 
 async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
@@ -351,8 +351,7 @@ async def s3_endpoint(path: str, request: Request):
 
     # forward the call to AWS S3 with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
-    attempt = 1
-    while True:
+    for attempt in range(1, S3_MAX_RETRIES + 1):
         proceed = True
         exception = None
         try:
@@ -367,7 +366,7 @@ async def s3_endpoint(path: str, request: Request):
             if response.status_code >= 300:
                 # no need to log details (unless in debug mode) or retry in the case of a 404
                 # error: 404s are are expected when running workflows (e.g. for Nextflow workflows,
-                # error output files may not be present when there were no errors)
+                # stderr output files may not be present when there were no errors)
                 if response.status_code != HTTP_404_NOT_FOUND:
                     logger.error(
                         f"Error from S3: {response.status_code} {response.text}"
@@ -387,22 +386,21 @@ async def s3_endpoint(path: str, request: Request):
         # retries
         if proceed:
             break
-        if attempt == s3_max_retries:
+        if attempt == S3_MAX_RETRIES:
             logger.error(
-                f"Outgoing S3 request failed (attempt {attempt}/{s3_max_retries}). Giving up"
+                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_RETRIES}). Giving up"
             )
             if exception:
                 raise exception
             break
 
         # retry with exponential backoff
-        delay = s3_retry_base_delay * (s3_retry_backoff_factor**attempt)
+        delay = S3_RETRY_BASE_DELAY * (S3_RETRY_BACKOFF_FACTOR**attempt)
         delay += delay * 0.1 * random.uniform(-1, 1)  # add jitter
         logger.warning(
-            f"Outgoing S3 request failed (attempt {attempt}/{s3_max_retries}). Retrying in {delay:.2f} seconds"
+            f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_RETRIES}). Retrying in {delay:.2f} seconds"
         )
         await asyncio.sleep(delay)
-        attempt += 1
 
     # return the response from AWS S3.
     # - mask the details of 403 errors from the end user: authentication is done internally by this
