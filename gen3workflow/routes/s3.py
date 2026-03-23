@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from botocore.credentials import Credentials
 import hmac
 from starlette.datastructures import Headers
+from starlette.requests import ClientDisconnect
 from starlette.responses import Response
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
@@ -246,7 +247,12 @@ async def s3_endpoint(path: str, request: Request):
     #   request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT).
     #   We could also implement chunked signing but it's not straightforward and likely unnecessary.
     # Note: Chunked uploads != multipart uploads.
-    body = await request.body()
+    try:
+        body = await request.body()
+    except ClientDisconnect:  # catch this to avoid throwing 500 errors
+        raise HTTPException(
+            499, "Client disconnected before request body was fully received"
+        )
     headers = {
         "host": f"{user_bucket}.s3.{region}.amazonaws.com",
         "x-amz-date": timestamp,
