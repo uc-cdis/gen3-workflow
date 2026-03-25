@@ -360,7 +360,7 @@ async def s3_endpoint(path: str, request: Request):
             logger.error(f"Error from AWS: {response.status_code} {response.text}")
     if request.method in ["PUT", "POST", "DELETE"]:
         logger.debug(
-            f"Response from AWS S3 for '{request.method} {path}': {response.status_code=} {response.text=} {response.content=}"
+            f"Response from AWS S3 for '{request.method} {path}': {response.status_code=} request_{headers=} {response.headers=} {response.text=} {response.content=}"
         )
     # return the response from AWS S3.
     # - mask the details of 403 errors from the end user: authentication is done internally by this
