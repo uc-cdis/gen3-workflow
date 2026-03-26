@@ -253,6 +253,7 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-content-sha256",
         "x-amz-decoded-content-length",
         "x-amz-trailer",
+        "x-amz-copy-source",
     ]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
