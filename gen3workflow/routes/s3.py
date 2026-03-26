@@ -241,6 +241,8 @@ async def s3_endpoint(path: str, request: Request):
     #   We could also implement chunked signing but it's not straightforward and likely unnecessary.
     # Note: Chunked uploads != multipart uploads.
     body = await request.body()
+    if request.method in ["PUT", "DELETE", "POST"]:
+        logger.debug(f"Incoming request headers  {request.headers=}, {body=}")
     headers = {
         "host": f"{user_bucket}.s3.{region}.amazonaws.com",
         "x-amz-date": timestamp,
