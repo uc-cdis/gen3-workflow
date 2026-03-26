@@ -359,6 +359,7 @@ async def s3_endpoint(path: str, request: Request):
         # were no errors)
         if response.status_code != 404:
             logger.error(f"Error from AWS: {response.status_code} {response.text}")
+
     # return the response from AWS S3.
     # - mask the details of 403 errors from the end user: authentication is done internally by this
     # function, so 403 errors are internal service errors
