@@ -241,6 +241,8 @@ async def s3_endpoint(path: str, request: Request):
     #   We could also implement chunked signing but it's not straightforward and likely unnecessary.
     # Note: Chunked uploads != multipart uploads.
     body = await request.body()
+    if request.method in ["PUT", "POST", "DELETE"] and not body:
+        logger.debug(f"Headers for request to {path}: {request.headers=}")
     headers = {
         "host": f"{user_bucket}.s3.{region}.amazonaws.com",
         "x-amz-date": timestamp,
@@ -360,6 +362,8 @@ async def s3_endpoint(path: str, request: Request):
         if response.status_code != 404:
             logger.error(f"Error from AWS: {response.status_code} {response.text}")
 
+    if request.method in ["PUT", "POST", "DELETE"]:
+        logger.debug(f"Final canonical headers for request to {path}: {headers=}")
     # return the response from AWS S3.
     # - mask the details of 403 errors from the end user: authentication is done internally by this
     # function, so 403 errors are internal service errors
