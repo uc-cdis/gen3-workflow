@@ -6,7 +6,7 @@ from moto import mock_aws
 import pytest
 from unittest.mock import patch, MagicMock
 
-from conftest import (
+from tests.conftest import (
     TEST_USER_ID,
     TEST_USER_TOKEN,
     NEW_TEST_USER_ID,

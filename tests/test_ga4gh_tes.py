@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from conftest import (
+from tests.conftest import (
     mock_arborist_request,
     mock_tes_server_request,
     TEST_USER_ID,
@@ -11,7 +11,7 @@ from conftest import (
     TEST_USER_TOKEN,
 )
 
-from test_misc import mock_aws_services
+from tests.test_misc import mock_aws_services
 
 client_parameters = [
     pytest.param({"authorized": True, "tes_resp_code": 200}, id="success"),
