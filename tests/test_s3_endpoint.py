@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 from fastapi import HTTPException
 import pytest
 
-from conftest import (
+from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
     TEST_USER_ID,
     TEST_USER_TOKEN,
@@ -19,7 +19,6 @@ from gen3workflow.routes.s3 import (
     set_access_token_and_get_user_id,
     chunked_to_non_chunked_body,
 )
-
 
 TEST_CLIENT_ID = "client-azp"
 

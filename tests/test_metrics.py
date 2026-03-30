@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch
-from conftest import trailing_slash, TEST_USER_TOKEN
+from tests.conftest import trailing_slash, TEST_USER_TOKEN
 
 
 @pytest.mark.asyncio

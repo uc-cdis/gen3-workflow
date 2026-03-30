@@ -30,7 +30,6 @@ config.validate()
 
 from gen3workflow.app import get_app
 
-
 TEST_USER_ID = "user-64"
 NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
 TEST_USER_TOKEN = "user-token-23985xyz"

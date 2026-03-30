@@ -14,7 +14,6 @@ from gen3authz.client.arborist.errors import ArboristError
 from gen3workflow import logger
 from gen3workflow.config import config
 
-
 # auto_error=False prevents FastAPI from raising a 403 when the request
 # is missing an Authorization header. Instead, we want to return a 401
 # to signify that we did not receive valid credentials

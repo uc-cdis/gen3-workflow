@@ -1,10 +1,10 @@
 import json
 from unittest.mock import patch
 
-from conftest import TEST_USER_ID
+from tests.conftest import TEST_USER_ID
 from gen3workflow import aws_utils
 from gen3workflow.config import config
-from test_misc import mock_aws_services
+from tests.test_misc import mock_aws_services
 
 
 def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_services):

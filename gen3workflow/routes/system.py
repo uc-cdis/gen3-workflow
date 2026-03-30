@@ -6,7 +6,6 @@ from gen3workflow import logger
 from gen3workflow.config import config
 from gen3workflow.routes.utils import make_tes_server_request
 
-
 router = APIRouter()
 
 

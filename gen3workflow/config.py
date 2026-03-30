@@ -5,7 +5,6 @@ from jsonschema import validate
 
 from gen3workflow import logger
 
-
 DEFAULT_CFG_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "config-default.yaml"
 )

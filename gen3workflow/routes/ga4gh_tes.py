@@ -23,7 +23,6 @@ from gen3workflow.config import config
 from gen3workflow.routes.utils import make_tes_server_request
 from gen3workflow import aws_utils
 
-
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
 
