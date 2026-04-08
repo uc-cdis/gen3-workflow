@@ -34,6 +34,7 @@ def get_boto3_client(service_name: str, **kwargs):
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"
             ]
 
+    print(f"DEBUG: {kwargs}")
     return boto3.client(service_name, **kwargs)
 
 
