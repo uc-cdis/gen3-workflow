@@ -253,7 +253,7 @@ async def s3_endpoint(path: str, request: Request):
             499, "Client disconnected before request body was fully received"
         )
     # host = f"{user_bucket}.s3.{region}.amazonaws.com"
-    host = f"{config['S3_UPSTREAM_ENDPOINT']}".lstrip("http://") # TODO remove the protocol better
+    host = config['S3_UPSTREAM_ENDPOINT'].lstrip("http://") # TODO remove the protocol better
     headers = {
         "host": host,
         "x-amz-date": timestamp,
@@ -268,13 +268,18 @@ async def s3_endpoint(path: str, request: Request):
     ]:
         if request.headers.get(h):
             headers[h] = request.headers[h]
+    for h, v in headers.items():
+        print(f"header '{h}' = '{v}'")
     if (
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
     ):
         # parse the body and update the corresponding headers
+        print("body1", body)
         body = chunked_to_non_chunked_body(body)
+        print("body2", body)
         content_len = str(len(body))
+        print("content_len", content_len)
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if request.headers.get(h):
