@@ -252,8 +252,10 @@ async def s3_endpoint(path: str, request: Request):
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
+    # host = f"{user_bucket}.s3.{region}.amazonaws.com"
+    host = f"{config['S3_UPSTREAM_ENDPOINT']}".lstrip("http://") # TODO remove the protocol better
     headers = {
-        "host": f"{user_bucket}.s3.{region}.amazonaws.com",
+        "host": host,
         "x-amz-date": timestamp,
     }
     for h in [
@@ -352,7 +354,8 @@ async def s3_endpoint(path: str, request: Request):
     headers["authorization"] = (
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
-    s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
+    # s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
+    s3_api_url = f"{config['S3_UPSTREAM_ENDPOINT']}/{user_bucket}/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to AWS S3 with the new Authorization header.
