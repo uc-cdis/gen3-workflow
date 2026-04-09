@@ -334,10 +334,8 @@ async def client(request):
                 body=request.content.decode(),
                 authorized=authorized,
             )
-        elif url.startswith(
-            f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
-        ):
-            # mock calls to AWS S3
+        elif url.startswith(f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com") or url.startswith("http://minio:9000"):
+            # mock calls to AWS S3 (or minio if using path-style addressing)
             mocked_response = mock_aws_s3_request(url)
 
         if mocked_response is not None:

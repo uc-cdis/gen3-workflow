@@ -7,6 +7,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
 import pytest
+import pytest_asyncio
 
 from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
@@ -85,6 +86,22 @@ def s3_client(client, request):
     )
 
 
+@pytest_asyncio.fixture(params=["virtual hosted style", "path style"])
+def s3_addressing_style(request):
+    """
+    Fixture used to run some tests twice, with no configured S3_UPSTREAM_ENDPOINT (defaults to
+    AWS S3, which uses virtual-hosted style addressing) and with a configured S3_UPSTREAM_ENDPOINT
+    (which typically uses path-style addressing).
+    """
+    if request.param == "path-style":
+        prev_val = config["S3_UPSTREAM_ENDPOINT"]
+        config["S3_UPSTREAM_ENDPOINT"] = "http://minio:9000"
+        yield
+        config["S3_UPSTREAM_ENDPOINT"] = prev_val
+    else:
+        yield
+
+
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
 @pytest.mark.parametrize(
     "s3_client, access_token_patcher",
@@ -92,7 +109,7 @@ def s3_client(client, request):
     ids=s3_client_and_token_test_ids,
     indirect=True,
 )
-def test_s3_endpoint(s3_client, access_token_patcher):
+def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
     """
     Hitting the `/s3` endpoint should result in the request being forwarded to AWS S3.
 

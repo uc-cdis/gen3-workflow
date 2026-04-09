@@ -204,6 +204,10 @@ async def s3_endpoint(path: str, request: Request):
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
+    # assume any configured S3 endpoint is not AWS, and so uses path-style and not virtual-hosted
+    # style addressing
+    path_style = bool(config['S3_UPSTREAM_ENDPOINT'])
+
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
     # Examples of use cases we need to handle:
@@ -219,8 +223,10 @@ async def s3_endpoint(path: str, request: Request):
     # - path = my-bucket/pre/fix/file.txt
     #   request_path = /pre/fix/file.txt
     #   api_endpoint = pre/fix/file.txt
-    # request_path = path.split(user_bucket)[1] or "/"
-    request_path = "/" + path
+    if path_style:
+        request_path = "/" + path.lstrip("/")
+    else:
+        request_path = path.split(user_bucket)[1] or "/"
     api_endpoint = "/".join(request_path.split("/")[1:])
 
     region = config["USER_BUCKETS_REGION"]
@@ -253,8 +259,10 @@ async def s3_endpoint(path: str, request: Request):
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
-    # host = f"{user_bucket}.s3.{region}.amazonaws.com"
-    host = config['S3_UPSTREAM_ENDPOINT'].lstrip("http://") # TODO remove the protocol better
+    if path_style:
+        host = config['S3_UPSTREAM_ENDPOINT'].split("://")[1]  # remove the protocol
+    else:
+        host = f"{user_bucket}.s3.{region}.amazonaws.com"
     headers = {
         "host": host,
         "x-amz-date": timestamp,
@@ -269,24 +277,17 @@ async def s3_endpoint(path: str, request: Request):
     ]:
         if h in request.headers:
             headers[h] = request.headers[h]
-    for h, v in headers.items():
-        print(f"I set header '{h}' to '{v}'")
     if (
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
     ):
         # parse the body and update the corresponding headers
-        print("body1", body)
         body = chunked_to_non_chunked_body(body)
-        print("body2", body)
         content_len = str(len(body))
-        print("content_len", content_len)
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if h in request.headers:
                 headers[h] = content_len
-
-    print('body:', body)
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -342,7 +343,6 @@ async def s3_endpoint(path: str, request: Request):
         f"{signed_headers}\n"
         f"{headers['x-amz-content-sha256']}"
     )
-    print('\n--- canonical_request:\n', canonical_request)
 
     # construct the string to sign based on the canonical request
     string_to_sign = (
@@ -351,7 +351,6 @@ async def s3_endpoint(path: str, request: Request):
         f"{date}/{region}/{service}/aws4_request\n"  # credential scope
         f"{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"  # canonical request hash
     )
-    print('\n--- string_to_sign:\n', string_to_sign)
 
     # generate the signing key, and generate the signature by signing the string to sign with the
     # signing key
@@ -364,9 +363,10 @@ async def s3_endpoint(path: str, request: Request):
     headers["authorization"] = (
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
-    # s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
-    s3_api_url = f"{config['S3_UPSTREAM_ENDPOINT']}/{api_endpoint}"
-    print('s3_api_url', s3_api_url)
+    if path_style:
+        s3_api_url = f"{config['S3_UPSTREAM_ENDPOINT'].rstrip('/')}/{api_endpoint}"
+    else:
+        s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to AWS S3 with the new Authorization header.
