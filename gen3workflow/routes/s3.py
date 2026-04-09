@@ -206,7 +206,7 @@ async def s3_endpoint(path: str, request: Request):
 
     # assume any configured S3 endpoint is not AWS, and so uses path-style and not virtual-hosted
     # style addressing
-    path_style = bool(config['S3_UPSTREAM_ENDPOINT'])
+    path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
@@ -260,7 +260,7 @@ async def s3_endpoint(path: str, request: Request):
             499, "Client disconnected before request body was fully received"
         )
     if path_style:
-        host = config['S3_UPSTREAM_ENDPOINT'].split("://")[1]  # remove the protocol
+        host = config["S3_UPSTREAM_ENDPOINT"].split("://")[1]  # remove the protocol
     else:
         host = f"{user_bucket}.s3.{region}.amazonaws.com"
     headers = {
