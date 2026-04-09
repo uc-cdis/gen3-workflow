@@ -266,7 +266,7 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-trailer",
         "x-amz-copy-source",
     ]:
-        if request.headers.get(h):
+        if h in request.headers:
             headers[h] = request.headers[h]
     for h, v in headers.items():
         print(f"header '{h}' = '{v}'")
@@ -282,7 +282,7 @@ async def s3_endpoint(path: str, request: Request):
         print("content_len", content_len)
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
-            if request.headers.get(h):
+            if h in request.headers:
                 headers[h] = content_len
 
     # get AWS credentials from the configuration or the current assumed role session
@@ -422,6 +422,10 @@ async def s3_endpoint(path: str, request: Request):
     # - return all the headers from the AWS response, except `x-amz-bucket-region` which for some
     # reason causes this error for tasks ran through Nextflow: `The AWS Access Key Id you provided
     # does not exist in our records`
+    if response.status_code == HTTP_403_FORBIDDEN:
+        for h in ["content-length", "x-amz-decoded-content-length"]:
+            if h in response.headers:
+                response.headers[h] = "0"
     return Response(
         content=(
             response.content if response.status_code != HTTP_403_FORBIDDEN else None
