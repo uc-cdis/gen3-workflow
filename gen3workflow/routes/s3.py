@@ -32,7 +32,7 @@ S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
 
-async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
+async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> (str, str):
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
     provided as the access key ID, from the Authorization header.
@@ -54,7 +54,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         headers (Headers): request headers
 
     Returns:
-        str: the user's ID
+        tuple(str, str): the user's ID and (if relevant) the client's ID
     """
     auth_header = headers.get("authorization")
     if not auth_header:
@@ -92,10 +92,10 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     # ensure token validity
     token_claims = await auth.get_token_claims()
     sub = token_claims.get("sub")
+    client_id = token_claims.get("azp")
     if is_user_token:
         user_id = sub
     else:
-        client_id = token_claims.get("azp")
         if not client_id:
             # Format B (see docstring) should only be used by clients acting on behalf of a user.
             # It is not a valid format if the token is not linked to a client.
@@ -119,7 +119,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         logger.error(f"{err_msg}. Debug: {is_user_token=} {token_claims=}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    return user_id
+    return user_id, client_id
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -187,7 +187,7 @@ async def s3_endpoint(path: str, request: Request):
     # S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
     # the list of files for a specific task.
     auth = Auth(api_request=request)
-    user_id = await set_access_token_and_get_user_id(auth, request.headers)
+    user_id, client_id = await set_access_token_and_get_user_id(auth, request.headers)
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )
@@ -196,7 +196,9 @@ async def s3_endpoint(path: str, request: Request):
     )
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
-    logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
+    logger.info(
+        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
+    )
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:

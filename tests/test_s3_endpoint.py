@@ -330,7 +330,7 @@ async def test_set_access_token_and_get_user_id(
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
     else:
-        user_id = await set_access_token_and_get_user_id(
+        user_id, _ = await set_access_token_and_get_user_id(
             auth, {"authorization": auth_header}
         )
         assert user_id == TEST_USER_ID
