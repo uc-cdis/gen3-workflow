@@ -26,6 +26,11 @@ from gen3workflow import aws_utils
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
 
+RESERVED_TAGS = {"_AUTHZ", "_FUNNEL_WORKER_ROLE_ARN", "_WORKER_SA", "_NODE_SELECTOR", "_TOLERATIONS"}
+TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
+TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
+
+
 async def get_request_body(request: Request) -> dict:
     """
     Extract the body from a FastAPI request
@@ -139,11 +144,11 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(f"{err_msg}. Allowed images: {config['TASK_IMAGE_WHITELIST']}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
+    # Add internal tags
     if "tags" not in body:
         body["tags"] = {}
     task_tags = set(t.lower() for t in body["tags"])
-    reserved_tags = {"_AUTHZ", "_FUNNEL_WORKER_ROLE_ARN", "_WORKER_SA"}
-    conflicts = task_tags & {tag.lower() for tag in reserved_tags}
+    conflicts = task_tags & {tag.lower() for tag in RESERVED_TAGS}
     if conflicts:
         err_msg = f"Tags {conflicts} are reserved for internal use only and cannot be used."
         logger.error(err_msg)
@@ -152,12 +157,23 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
     )
     body["tags"]["_AUTHZ"] = authz_resource
+
     # TODO: Test running gen3-workflow locally and document this change
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
             aws_utils.create_iam_role_for_bucket_access(user_id)
         )
         body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
+
+    is_gpu_task = body["tags"].get("_GPU")
+    if is_gpu_task.lower() in ("yes", "y", "true", "t", "1"):
+        body["tags"]["_NODE_SELECTOR"] = "role:workflow"
+        body["tags"]["_TOLERATIONS"] = "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule"
+    else:
+        body["tags"]["_NODE_SELECTOR"] = "role:gpu"
+        body["tags"]["_TOLERATIONS"] = "Key:nvidia.com/gpu,Operator:Equal,Value:present,Effect:NoSchedule"
+
+    logger.debug(f"Task tags: {body["tags"]}")
 
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
@@ -183,21 +199,16 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     Returns:
         dict: TES task with applied view
     """
+    if view == "BASIC":
+        return {"id": task.get("id"), "state": task.get("state")}
 
-    # Eliminate fields not needed to the end user
-    tags_not_meant_for_user = [
-        "_FUNNEL_WORKER_ROLE_ARN",
-        "_WORKER_SA",
-    ]
-    for field in tags_not_meant_for_user:
+    # Eliminate fields not exposed to the end user
+    for field in TAGS_HIDDEN_FROM_USER:
         if field in task.get("tags", {}):
             del task["tags"][field]
 
     if view == "FULL":
         return task
-
-    if view == "BASIC":
-        return {"id": task.get("id"), "state": task.get("state")}
 
     # otherwise, view == None or "MINIMAL", which is the default according to the TES spec
     for i in range(len(task.get("executors", []))):
@@ -207,8 +218,6 @@ def apply_view_to_task(view: str, task: dict) -> dict:
         task["inputs"][i].pop("content", None)
     for i in range(len(task.get("logs", []))):
         task["logs"][i].pop("system_logs", None)
-        # TODO if the TES server returns a SYSTEM_ERROR, we may want to keep the system_logs, or at
-        # least log them before removing them
 
     return task
 
