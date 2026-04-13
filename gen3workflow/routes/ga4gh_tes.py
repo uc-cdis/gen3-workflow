@@ -175,6 +175,8 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     is_gpu_task = body["tags"].get("_GPU", body["tags"].get("_gpu", ""))
     if is_gpu_task.lower() in ("yes", "y", "true", "t", "1"):
+        # Note: this is not made configurable because it will be replaced by per-user nodepools
+        # in the near future to support cost-tracking
         body["tags"]["_NODE_SELECTOR"] = "role:gpu"
         body["tags"][
             "_TOLERATIONS"
