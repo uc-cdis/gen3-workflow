@@ -189,7 +189,7 @@ async def test_create_task_with_reserved_tags(client, access_token_patcher):
     mock_tes_server_request.assert_not_called()
     reserved_tags = {"_WORKER_SA", "_FUNNEL_WORKER_ROLE_ARN", "_AUTHZ"}
     assert res.json() == {
-        "detail": f"Tags {sorted(reserved_tags)} are reserved for internal use only and cannot be used."
+        "detail": "Tags {'_authz'} are reserved for internal use only and cannot be used."
     }
 
 
