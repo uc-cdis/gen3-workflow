@@ -26,7 +26,13 @@ from gen3workflow import aws_utils
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
 
-RESERVED_TAGS = {"_AUTHZ", "_FUNNEL_WORKER_ROLE_ARN", "_WORKER_SA", "_NODE_SELECTOR", "_TOLERATIONS"}
+RESERVED_TAGS = {
+    "_AUTHZ",
+    "_FUNNEL_WORKER_ROLE_ARN",
+    "_WORKER_SA",
+    "_NODE_SELECTOR",
+    "_TOLERATIONS",
+}
 TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
 TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
 
@@ -150,7 +156,9 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     task_tags = set(t.lower() for t in body["tags"])
     conflicts = task_tags & {tag.lower() for tag in RESERVED_TAGS}
     if conflicts:
-        err_msg = f"Tags {conflicts} are reserved for internal use only and cannot be used."
+        err_msg = (
+            f"Tags {conflicts} are reserved for internal use only and cannot be used."
+        )
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     authz_resource = (
@@ -165,14 +173,19 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         )
         body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
 
-    is_gpu_task = body["tags"].get("_GPU")
+    is_gpu_task = body["tags"].get("_GPU", body["tags"].get("_gpu", ""))
     if is_gpu_task.lower() in ("yes", "y", "true", "t", "1"):
-        body["tags"]["_NODE_SELECTOR"] = "role:workflow"
-        body["tags"]["_TOLERATIONS"] = "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule"
-    else:
         body["tags"]["_NODE_SELECTOR"] = "role:gpu"
-        body["tags"]["_TOLERATIONS"] = "Key:nvidia.com/gpu,Operator:Equal,Value:present,Effect:NoSchedule"
+        body["tags"][
+            "_TOLERATIONS"
+        ] = "Key:nvidia.com/gpu,Operator:Equal,Value:present,Effect:NoSchedule"
+    else:
+        body["tags"]["_NODE_SELECTOR"] = "role:workflow"
+        body["tags"][
+            "_TOLERATIONS"
+        ] = "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule"
 
+    body["tags"] = dict(sorted(body["tags"].items()))
     logger.debug(f"Task tags: {body["tags"]}")
 
     url = f"{config['TES_SERVER_URL']}/tasks"

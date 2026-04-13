@@ -138,19 +138,22 @@ async def test_create_task(
             assert res.json() == {"detail": "TES server error"}
         else:
             assert res.json() == {"id": "123"}
-        task_body = {
+        expected_body = {
             "name": "test-task",
             "tags": {
                 "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER",
                 "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
                 "_WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+                "_NODE_SELECTOR": "role:workflow",
+                "_TOLERATIONS": "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule",
             },
         }
+        expected_body["tags"] = dict(sorted(expected_body["tags"].items()))
         mock_tes_server_request.assert_called_once_with(
             method="POST",
             path="/tasks",
             query_params={},
-            body=json.dumps(task_body, separators=(",", ":")),
+            body=json.dumps(expected_body, separators=(",", ":")),
             status_code=client.tes_resp_code,
         )
 
@@ -187,10 +190,60 @@ async def test_create_task_with_reserved_tags(client, access_token_patcher):
     )
     assert res.status_code == 400, res.text
     mock_tes_server_request.assert_not_called()
-    reserved_tags = {"_WORKER_SA", "_FUNNEL_WORKER_ROLE_ARN", "_AUTHZ"}
     assert res.json() == {
         "detail": "Tags {'_authz'} are reserved for internal use only and cannot be used."
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_gpu_task", ["yes", "not-truthy", None])
+async def test_create_gpu_task(
+    client,
+    access_token_patcher,
+    mock_aws_services,
+    is_gpu_task,
+):
+    """
+    Requests to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server along with the request body.
+    Ensure that any image sent to the TES server belongs exclusively to whitelisted repositories specified in the configuration. TODO
+    """
+    tags = {"_GPU": is_gpu_task} if is_gpu_task else {}
+    print("TAG", tags)
+    with patch(
+        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        lambda _: ("test_kms_key_alias", "*"),
+    ):
+        res = await client.post(
+            "/ga4gh/tes/v1/tasks",
+            json={"name": "test-task", "tags": tags},
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        )
+
+    assert res.status_code == 200, res.text
+    expected_body = {
+        "name": "test-task",
+        "tags": {
+            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER",
+            "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
+            "_WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+            "_NODE_SELECTOR": "role:gpu" if is_gpu_task == "yes" else "role:workflow",
+            "_TOLERATIONS": (
+                "Key:nvidia.com/gpu,Operator:Equal,Value:present,Effect:NoSchedule"
+                if is_gpu_task == "yes"
+                else "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule"
+            ),
+        },
+    }
+    if is_gpu_task:
+        expected_body["tags"]["_GPU"] = is_gpu_task
+    expected_body["tags"] = dict(sorted(expected_body["tags"].items()))
+    mock_tes_server_request.assert_called_once_with(
+        method="POST",
+        path="/tasks",
+        query_params={},
+        body=json.dumps(expected_body, separators=(",", ":")),
+        status_code=200,
+    )
 
 
 @pytest.mark.asyncio
@@ -352,19 +405,22 @@ async def test_create_task_with_whitelist_images(
     if status_code == 403:
         assert error_message == json.loads(res.text).get("detail"), res.text
     elif status_code == 200:
-        result_body = {
+        expected_body = {
             "executors": req_body["executors"],
             "tags": {
                 "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER",
                 "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
                 "_WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+                "_NODE_SELECTOR": "role:workflow",
+                "_TOLERATIONS": "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule",
             },
         }
+        expected_body["tags"] = dict(sorted(expected_body["tags"].items()))
         mock_tes_server_request.assert_called_once_with(
             method="POST",
             path="/tasks",
             query_params={},
-            body=json.dumps(result_body, separators=(",", ":")),
+            body=json.dumps(expected_body, separators=(",", ":")),
             status_code=200,
         )
 
