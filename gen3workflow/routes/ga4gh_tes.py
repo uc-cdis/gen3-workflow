@@ -173,7 +173,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         )
         body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
 
-    is_gpu_task = body["tags"].get("_GPU", body["tags"].get("_gpu", ""))
+    is_gpu_task = str(body["tags"].get("_GPU", body["tags"].get("_gpu", "")))
     if is_gpu_task.lower() in ("yes", "y", "true", "t", "1"):
         # Note: this is not made configurable because it will be replaced by per-user nodepools
         # in the near future to support cost-tracking
