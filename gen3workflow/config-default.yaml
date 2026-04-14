@@ -20,7 +20,7 @@ MOCK_AUTH: false
 
 USER_BUCKETS_REGION: us-east-1
 
-# to connect to a local S3-compatible service (default: AWS S3)
+# connect to another S3-compatible service than AWS S3 (default: AWS S3)
 S3_UPSTREAM_ENDPOINT:
 
 # objects created in S3 for/by workflows are deleted after the specified number of days
