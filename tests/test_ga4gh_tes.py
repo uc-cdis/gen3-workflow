@@ -204,11 +204,10 @@ async def test_create_gpu_task(
     is_gpu_task,
 ):
     """
-    Requests to `POST /ga4gh-tes/v1/tasks` should be forwarded to the TES server along with the request body.
-    Ensure that any image sent to the TES server belongs exclusively to whitelisted repositories specified in the configuration. TODO
+    Check that the special `_GPU` tag is being read and correctly translated to `_NODE_SELECTOR`
+    and `_TOLERATIONS` internal tags.
     """
     tags = {"_GPU": is_gpu_task} if is_gpu_task else {}
-    print("TAG", tags)
     with patch(
         "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "*"),

@@ -21,7 +21,6 @@ MOCK_AUTH: false
 USER_BUCKETS_REGION: us-east-1
 
 # to connect to a local S3-compatible service (default: AWS S3)
-# TODO: remove hardcoded value and add setting to helm chart
 S3_UPSTREAM_ENDPOINT:
 
 # objects created in S3 for/by workflows are deleted after the specified number of days
