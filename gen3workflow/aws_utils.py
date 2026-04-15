@@ -1,6 +1,5 @@
 import json
-import os
-from typing import Optional, Tuple, Union
+from typing import Tuple, Union
 
 from fastapi import HTTPException
 import boto3

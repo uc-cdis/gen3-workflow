@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 import hashlib
 import random
+from typing import Tuple
 import urllib.parse
 
 import boto3
@@ -32,7 +33,7 @@ S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
 
-async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> Tuple[str, str]
+async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
     provided as the access key ID, from the Authorization header.
