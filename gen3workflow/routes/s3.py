@@ -206,8 +206,8 @@ async def s3_endpoint(path: str, request: Request):
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
-    # assume any configured S3 endpoint is not AWS, and so uses path-style and not virtual-hosted
-    # style addressing
+     # If a custom S3 endpoint is configured, assume it is non-AWS and use path-style addressing
+
     path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
