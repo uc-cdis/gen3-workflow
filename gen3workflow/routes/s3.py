@@ -33,7 +33,9 @@ S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
 
-async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> Tuple[str, str]:
+async def set_access_token_and_get_user_id(
+    auth: Auth, headers: Headers
+) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
     provided as the access key ID, from the Authorization header.
@@ -207,8 +209,8 @@ async def s3_endpoint(path: str, request: Request):
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
-     # If a custom S3 endpoint is configured, assume it is non-AWS and use path-style addressing
-
+    # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
+    # (as opposed to virtual-hosted style addressing)
     path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
