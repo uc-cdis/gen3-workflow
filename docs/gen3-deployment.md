@@ -19,7 +19,9 @@ global:
     externalSecret: "<name of master Postgres secret in AWS Secrets Manager>"
   clusterName: "<name of the eks cluster where the gen3 instance is deployed>"
   kubeapi_endpoints:
-    # Enable for Argo based deployments. 
+    # Enable for Argo CD based deployments.
+    # This lets funnel worker pods access the kube api to create executor jobs.
+    # If disabled, an automatic lookup will be performed to get the IPs.
     enabled: true
     ip : 
     # -- <list of ip ranges of kubeapi> can be fetched by running `kubectl get endpoints --namespace default kubernetes` in your cluster.
