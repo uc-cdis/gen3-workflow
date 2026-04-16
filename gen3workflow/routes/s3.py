@@ -246,8 +246,15 @@ async def s3_endpoint(path: str, request: Request):
     #   request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT).
     #   We could also implement chunked signing but it's not straightforward and likely unnecessary.
     # Note: Chunked uploads != multipart uploads.
+    # Debugging version
+    logger.debug(f"DEBUG: Headers: {request.headers}")
+    chunks = []
     try:
-        body = await request.body()
+        async for chunk in request.stream():
+            logger.debug(f"Received chunk of size: {len(chunk)}")
+            chunks.append(chunk)
+            logger.debug(f"Got chunk: {len(chunk)} bytes")
+        body = b"".join(chunks)
     except ClientDisconnect as e:  # catch this to avoid throwing 500 errors
         logger.error(f"Client disconnected before request body was fully received, throwing a 499 error: {e}")
         raise HTTPException(
