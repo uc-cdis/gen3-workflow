@@ -248,7 +248,8 @@ async def s3_endpoint(path: str, request: Request):
     # Note: Chunked uploads != multipart uploads.
     try:
         body = await request.body()
-    except ClientDisconnect:  # catch this to avoid throwing 500 errors
+    except ClientDisconnect as e:  # catch this to avoid throwing 500 errors
+        logger.error(f"Client disconnected before request body was fully received, throwing a 499 error: {e}")
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
