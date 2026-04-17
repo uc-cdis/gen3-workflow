@@ -13,6 +13,7 @@ from cdislogging import get_logger
 
 VERBOSE = True
 N_SEQ_RUNS = 3
+ENDPOINT = "https://brhstaging.data-commons.org"
 
 # TODO GPU TES
 TESTS = [
@@ -233,6 +234,7 @@ async def run_tes_task(run_id: int, config: dict) -> RunStats:
         "run",
         "python",
         "run_tes_task.py",
+        ENDPOINT,
         json.dumps(body),
     ]
 

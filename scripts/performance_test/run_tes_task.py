@@ -5,15 +5,7 @@ import requests
 import sys
 import time
 
-# ROOT = "https://brhstaging.data-commons.org"
-ROOT = "https://pauline.planx-pla.net"
 VERBOSE = True
-
-
-# body = {
-#     "name": "Hello-World",
-#     "executors": [{"image": "quay.io/nextflow/bash", "command": ["echo hello world!"]}],
-# }
 
 
 def log(msg):
@@ -22,9 +14,9 @@ def log(msg):
     print(msg)
 
 
-def create_task(body):
+def create_task(endpoint, body):
     response = requests.post(
-        f"{ROOT}/workflows/ga4gh/tes/v1/tasks",
+        f"{endpoint}/workflows/ga4gh/tes/v1/tasks",
         json=body,
         headers={"authorization": f"bearer {os.environ['GEN3_TOKEN']}"},
     )
@@ -33,13 +25,13 @@ def create_task(body):
     return data["id"]
 
 
-def monitor_task(task_id):
+def monitor_task(endpoint, task_id):
     max_i = 60  # wait up to 5 min
     status = None
     data = {}
     for i in range(max_i):
         response = requests.get(
-            f"{ROOT}/workflows/ga4gh/tes/v1/tasks/{task_id}?view=FULL",
+            f"{endpoint}/workflows/ga4gh/tes/v1/tasks/{task_id}?view=FULL",
             headers={"authorization": f"bearer {os.environ['GEN3_TOKEN']}"},
         )
         assert response.status_code == 200, response.text
@@ -59,9 +51,9 @@ def monitor_task(task_id):
     return status, data
 
 
-def main(body):
-    task_id = create_task(body)
-    status, task_data = monitor_task(task_id)
+def main(endpoint, body):
+    task_id = create_task(endpoint, body)
+    status, task_data = monitor_task(endpoint, task_id)
     if status == "COMPLETE":
         start_time = task_data.get("logs", [{}])[0].get("start_time")
         end_time = task_data.get("logs", [{}])[0].get("end_time")
@@ -77,8 +69,8 @@ def main(body):
 
 if __name__ == "__main__":
     try:
-        assert len(sys.argv) == 2, "Incorrect number of arguments"
-        main(json.loads(sys.argv[1]))
+        assert len(sys.argv) == 3, "Incorrect number of arguments"
+        main(sys.argv[1], json.loads(sys.argv[2]))
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
