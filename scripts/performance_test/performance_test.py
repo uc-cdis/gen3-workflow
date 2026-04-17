@@ -128,7 +128,7 @@ def compute_stats(metrics_list, total_run_time=None):
     logger.info(f"Number of runs: {n_runs}")
     logger.info(f"Successful runs: {n_successful_runs}")
     if n_runs:
-        logger.info(f"Success Rate: {n_successful_runs / n_runs * 100:.2f}%")
+        logger.info(f"Success rate: {n_successful_runs / n_runs * 100:.2f}%")
     if total_run_time:
         logger.info(f"Total run time: {total_run_time:.2f}s")
     logger.info(f"Average run time (all runs): {avg_run_time:.2f}s")

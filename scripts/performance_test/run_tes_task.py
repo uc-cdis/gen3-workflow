@@ -1,4 +1,4 @@
-from datetime import datetime
+from dateutil import parser
 import json
 import os
 import requests
@@ -65,9 +65,7 @@ def main(body):
     if status == "COMPLETE":
         start_time = task_data.get("logs", [{}])[0].get("start_time")
         end_time = task_data.get("logs", [{}])[0].get("end_time")
-        duration = datetime.fromisoformat(end_time) - datetime.fromisoformat(start_time)
-        print(f"Duration: {duration}")
-
+        duration = parser.parse(end_time) - parser.parse(start_time)
         total_seconds = int(duration.total_seconds())
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
