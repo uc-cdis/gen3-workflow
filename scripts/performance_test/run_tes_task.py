@@ -5,7 +5,6 @@ import requests
 import sys
 import time
 
-
 # ROOT = "https://brhstaging.data-commons.org"
 ROOT = "https://pauline.planx-pla.net"
 VERBOSE = True

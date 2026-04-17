@@ -1,0 +1,29 @@
+#!/usr/bin/env nextflow
+
+process TEST_GPU {
+    container 'pytorch/pytorch:latest'
+    conda 'pytorch::pytorch=2.5.1 pytorch::torchvision=0.20.1 nvidia::cuda=12.1'
+    accelerator 1
+    memory '1G'
+
+    output:
+        stdout
+
+    script:
+    """
+    #!/usr/bin/env python
+    import torch
+
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        cuda_version = torch.version.cuda
+        print(f"GPU: {gpu_name}")
+        print(f"CUDA Version: {cuda_version}")
+    else:
+        raise Exception("CUDA is not available on this system.")
+    """
+}
+
+workflow {
+    TEST_GPU()
+}

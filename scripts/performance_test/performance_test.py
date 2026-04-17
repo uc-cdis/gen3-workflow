@@ -11,7 +11,6 @@ from typing import List
 
 from cdislogging import get_logger
 
-
 VERBOSE = True
 N_SEQ_RUNS = 3
 
@@ -209,13 +208,14 @@ async def run_random_failures(run_id: int, config: dict) -> RunStats:
 
 async def run_nextflow_workflow(run_id: int, config: dict) -> RunStats:
     cmd = [
-        f"GPU={'yes' if config["gpu"] else 'no'}",
+        f"GPU={'yes' if config['gpu'] else 'no'}",
         "gen3",
         "run",
         "nextflow",
         "run",
         os.path.join(CURRENT_DIR, config["workflow_file"]),
         "-c",
+        # TODO env var for endpoint
         os.path.join(CURRENT_DIR, "base_nextflow.config"),
     ]
 
