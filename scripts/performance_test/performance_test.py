@@ -13,27 +13,86 @@ from cdislogging import get_logger
 
 
 VERBOSE = True
+N_SEQ_RUNS = 3
 
+# TODO GPU TES
 TESTS = [
     # {
     #     "name": "Random failures",
     #     "type": "Random",
-    #     "n_sequential_runs": 1,
-    #     "n_concurrent_runs": 2,
+    #     "n_sequential_runs": N_SEQ_RUNS,
+    #     "n_concurrent_runs": 5,
     # },
-    # {
-    #     "name": "Nextflow test",
-    #     "type": "Nextflow",
-    #     "n_sequential_runs": 1,
-    #     "n_concurrent_runs": 1,
-    # },
-    {
-        "name": "TES test",
-        "type": "TES",
-        "n_sequential_runs": 1,
-        "n_concurrent_runs": 1,
-    }
 ]
+for concurrency in [5, 10, 15]:
+    TESTS.append(
+        {
+            "name": f"TES test (concurrency: {concurrency})",
+            "type": "TES",
+            "n_sequential_runs": N_SEQ_RUNS,
+            "n_concurrent_runs": concurrency,
+            "body": {
+                "name": "Hello-World",
+                "executors": [
+                    {"image": "quay.io/nextflow/bash", "command": ["echo hello world!"]}
+                ],
+            },
+        }
+    )
+    TESTS.append(
+        {
+            "name": f"TES test with inputs/outputs (concurrency: {concurrency})",
+            "type": "TES",
+            "n_sequential_runs": N_SEQ_RUNS,
+            "n_concurrent_runs": concurrency,
+            "body": {
+                "name": "Input-Output-Test",
+                "inputs": [
+                    {
+                        "url": f"s3://{os.environ.get('BUCKET')}/inputs/test-file.txt",
+                        "path": "/work/test-file.txt",
+                        "type": "FILE",
+                    }
+                ],
+                "outputs": [
+                    {
+                        "url": f"s3://{os.environ.get('BUCKET')}/outputs/output.txt",
+                        "path": "/work/output.txt",
+                        "type": "FILE",
+                    }
+                ],
+                "executors": [
+                    {
+                        "image": "quay.io/nextflow/bash",
+                        "workdir": "/work",
+                        "command": ["cat test-file.txt && echo hello > output.txt"],
+                    }
+                ],
+            },
+        }
+    )
+for concurrency in [5, 10]:
+    # Note: Nextflow tests always include inputs/outputs
+    TESTS.append(
+        {
+            "name": f"Nextflow CPU test (concurrency: {concurrency})",
+            "type": "Nextflow",
+            "n_sequential_runs": N_SEQ_RUNS,
+            "n_concurrent_runs": concurrency,
+            "gpu": False,
+            "workflow_file": "hello.nf",
+        }
+    )
+    # TESTS.append(
+    #     {
+    #         "name": f"Nextflow GPU test (concurrency: {concurrency})",
+    #         "type": "Nextflow",
+    #         "n_sequential_runs": N_SEQ_RUNS,
+    #         "n_concurrent_runs": concurrency,
+    #         "gpu": True,
+    #         "workflow_file": "gpu.nf",
+    #     }
+    # )
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 logger = get_logger("tes-perf", log_level="debug" if VERBOSE else "info")
@@ -150,11 +209,12 @@ async def run_random_failures(run_id: int, config: dict) -> RunStats:
 
 async def run_nextflow_workflow(run_id: int, config: dict) -> RunStats:
     cmd = [
+        f"GPU={'yes' if config["gpu"] else 'no'}",
         "gen3",
         "run",
         "nextflow",
         "run",
-        os.path.join(CURRENT_DIR, "hello.nf"),
+        os.path.join(CURRENT_DIR, config["workflow_file"]),
         "-c",
         os.path.join(CURRENT_DIR, "base_nextflow.config"),
     ]
@@ -167,12 +227,7 @@ async def run_nextflow_workflow(run_id: int, config: dict) -> RunStats:
 
 
 async def run_tes_task(run_id: int, config: dict) -> RunStats:
-    body = {
-        "name": "Hello-World",
-        "executors": [
-            {"image": "quay.io/nextflow/bash", "command": ["echo hello world!"]}
-        ],
-    }
+    body = config["body"]
     cmd = [
         "gen3",
         "run",
