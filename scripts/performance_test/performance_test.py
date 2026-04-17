@@ -1,5 +1,8 @@
 import asyncio
 from dataclasses import dataclass
+import json
+import os
+import random
 from statistics import stdev
 import subprocess
 import sys
@@ -12,16 +15,27 @@ from cdislogging import get_logger
 VERBOSE = True
 
 TESTS = [
+    # {
+    #     "name": "Random failures",
+    #     "type": "Random",
+    #     "n_sequential_runs": 1,
+    #     "n_concurrent_runs": 2,
+    # },
+    # {
+    #     "name": "Nextflow test",
+    #     "type": "Nextflow",
+    #     "n_sequential_runs": 1,
+    #     "n_concurrent_runs": 1,
+    # },
     {
         "name": "TES test",
-        "type": "TES",  # / Nextflow
-        "jobs": 1,
-        "n_sequential_runs": 2,
-        "n_concurrent_runs": 4,
+        "type": "TES",
+        "n_sequential_runs": 1,
+        "n_concurrent_runs": 1,
     }
 ]
 
-
+CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 logger = get_logger("tes-perf", log_level="debug" if VERBOSE else "info")
 
 
@@ -83,6 +97,7 @@ async def run_command(cmd: List[str], run_id: int, config: dict) -> RunStats:
 
     try:
         loop = asyncio.get_event_loop()
+        # TODO add a timeout
         result = await loop.run_in_executor(
             None,  # uses default ThreadPoolExecutor
             lambda: subprocess.run(cmd, capture_output=True, text=True),
@@ -123,25 +138,47 @@ async def run_command(cmd: List[str], run_id: int, config: dict) -> RunStats:
         )
 
 
-async def run_tes_task(run_id: int, config: dict) -> RunStats:
-    import random
-
+async def run_random_failures(run_id: int, config: dict) -> RunStats:
     r = random.randint(-2, 3)
-    # r = random.randint(-1, 0)
-    # print('   r', r)
+    cmd = ["sleep", str(r)]
+    return await run_command(
+        cmd,
+        run_id,
+        config,
+    )
 
+
+async def run_nextflow_workflow(run_id: int, config: dict) -> RunStats:
     cmd = [
-        "sleep",
-        f"{r}",
-        # "&&",
-        # "gen3",
-        # "run",
-        # "nextflow",
-        # "run",
-        # "/Users/paulineribeyre/Projects/nextflow-api/hello.nf",
-        # "-c",
-        # # "/Users/paulineribeyre/Projects/gen3-workflow/scripts/nextflow.config",
-        # "/Users/paulineribeyre/Projects/nextflow-api/devenv_nextflow.config",
+        "gen3",
+        "run",
+        "nextflow",
+        "run",
+        os.path.join(CURRENT_DIR, "hello.nf"),
+        "-c",
+        os.path.join(CURRENT_DIR, "base_nextflow.config"),
+    ]
+
+    return await run_command(
+        cmd,
+        run_id,
+        config,
+    )
+
+
+async def run_tes_task(run_id: int, config: dict) -> RunStats:
+    body = {
+        "name": "Hello-World",
+        "executors": [
+            {"image": "quay.io/nextflow/bash", "command": ["echo hello world!"]}
+        ],
+    }
+    cmd = [
+        "gen3",
+        "run",
+        "python",
+        "run_tes_task.py",
+        json.dumps(body),
     ]
 
     return await run_command(
@@ -159,7 +196,11 @@ async def run_tests():
         )
         for seq_run in range(1, config["n_sequential_runs"] + 1):
             _type = config["type"]
-            if _type == "TES":
+            if _type == "Random":
+                method = run_random_failures
+            elif _type == "Nextflow":
+                method = run_nextflow_workflow
+            elif _type == "TES":
                 method = run_tes_task
             else:
                 raise Exception(f"Unknown test type '{_type}'")
