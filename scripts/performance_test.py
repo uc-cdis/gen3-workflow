@@ -1,320 +1,198 @@
-import logging
-import os
-import subprocess
-import time
-import threading
 import asyncio
+from dataclasses import dataclass
+from statistics import stdev
+import subprocess
 import sys
-from typing import Dict, List, Any
-from dataclasses import dataclass, field
-from statistics import mean, stdev
+import time
+from typing import List
+
+from cdislogging import get_logger
 
 
-VERBOSE = False
+VERBOSE = True
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("download_performance_results/test_run.log"),
-        logging.StreamHandler(),
-    ],
-)
-logger = logging.getLogger(__name__)
+TESTS = [
+    {
+        "name": "TES test",
+        "type": "TES",  # / Nextflow
+        "jobs": 1,
+        "n_sequential_runs": 2,
+        "n_concurrent_runs": 4,
+    }
+]
+
+
+logger = get_logger("tes-perf", log_level="debug" if VERBOSE else "info")
+
 
 @dataclass
-class PerformanceMetrics:
+class RunStats:
     tool_name: str
-    run_number: int
+    run_id: int
     successful: float
-    total_time: float
-    return_code: int = 0
-    error_count: int = 0
-    error_details: List[str] = field(default_factory=list)
+    run_time: float
+    return_code: int
+    error_details: str = ""
 
 
-@dataclass
-class TestResult:
-    method_name: str
-    metrics: PerformanceMetrics
-    timing_breakdown: Dict[str, Dict[str, float]] = field(default_factory=dict)
-
-
-class RealTimeMonitor:
-    def __init__(self, interval: float):
-        self.interval = interval
-        self.monitoring = False
-        self.metrics = []
-        self.thread = None
-
-    def start_monitoring(self):
-        """Start real-time monitoring."""
-        self.monitoring = True
-        self.metrics = []
-        self.thread = threading.Thread(target=self._monitor_loop)
-        self.thread.daemon = True
-        self.thread.start()
-
-    def stop_monitoring(self) -> Dict[str, Any]:
-        """Stop monitoring and return aggregated metrics."""
-        self.monitoring = False
-        if self.thread:
-            self.thread.join(timeout=2.0)
-
-        if not self.metrics:
-            return {}
-
-        cpu_values = [m["cpu_percent"] for m in self.metrics]
-        memory_values = [m["memory_mb"] for m in self.metrics]
-
-        return {
-            "peak_memory_mb": max(memory_values),
-            "avg_memory_mb": mean(memory_values),
-            "peak_cpu_percent": max(cpu_values),
-            "avg_cpu_percent": mean(cpu_values),
-            "sample_count": len(self.metrics),
-            "duration": len(self.metrics) * self.interval,
-        }
-
-    def _monitor_loop(self):
-        """Internal monitoring loop."""
-        while self.monitoring:
-            try:
-                memory_info = type("obj", (object,), {"used": 0})()
-                cpu_percent = 0
-
-                self.metrics.append(
-                    {
-                        "timestamp": time.time(),
-                        "cpu_percent": cpu_percent,
-                        "memory_mb": memory_info.used / (1024 * 1024)
-                        if hasattr(memory_info, "used")
-                        else 0,
-                        "memory_percent": getattr(memory_info, "percent", 0),
-                    }
-                )
-                time.sleep(self.interval)
-            except Exception:
-                break
-
-
-def calculate_aggregated_metrics(metrics_list):
+def compute_stats(metrics_list, total_run_time=None):
     n_runs = len(metrics_list)
     n_successful_runs = 0
-    total_time = 0
-    total_time_successful = 0
-    successful_times = []
-    # print('calculate_aggregated_metrics')
+    avg_run_time = 0
+    total_time_failed = 0
+    successful_run_times = []
+
     for m in metrics_list:
-        # print(f'm {m}')
-        total_time += m.total_time
+        avg_run_time += m.run_time
         if not m.successful:
+            total_time_failed += m.run_time
             continue
         n_successful_runs += 1
-        total_time_successful += m.total_time
-        successful_times.append(m.total_time)
+        successful_run_times.append(m.run_time)
 
-    return {
-        "total_runs": n_runs,
-        "successful_runs": n_successful_runs,
-        "success_percent": n_successful_runs / n_runs * 100,
-        "avg_run_time": total_time / n_runs,
-        "successful_avg_run_time": total_time_successful / n_successful_runs if n_successful_runs else None,
-        "min_successful_run_time": min(successful_times) if successful_times else None,
-        "max_successful_run_time": max(successful_times) if successful_times else None,
-        "stdev_successful_run_time": stdev(successful_times) if len(successful_times) > 1 else None,
-    }
+    avg_run_time = avg_run_time / n_runs
+    n_failed_runs = n_runs - n_successful_runs
+
+    logger.info(f"Number of runs: {n_runs}")
+    logger.info(f"Successful runs: {n_successful_runs}")
+    if n_runs:
+        logger.info(f"Success Rate: {n_successful_runs / n_runs * 100:.2f}%")
+    if total_run_time:
+        logger.info(f"Total run time: {total_run_time:.2f}s")
+    logger.info(f"Average run time (all runs): {avg_run_time:.2f}s")
+    if n_successful_runs:
+        logger.info(
+            f"Average run time (successful runs): {sum(successful_run_times) / n_successful_runs:.2f}s"
+        )
+        logger.info(f"Min run time (successful runs): {min(successful_run_times):.2f}s")
+        logger.info(f"Max run time (successful runs): {max(successful_run_times):.2f}s")
+    if n_failed_runs:
+        logger.info(
+            f"Average run time (failed runs): {total_time_failed / n_failed_runs:.2f}s"
+        )
+    if len(successful_run_times) > 1:
+        logger.info(
+            f"Run time standard deviation (successful runs): {stdev(successful_run_times):.2f}s"
+        )
+    logger.info("")
 
 
-
-async def run_tool(
-    cmd: List[str],
-    run_number: int,
-    config: dict,
-) -> PerformanceMetrics:
-    """Run a tool with detailed performance metrics - non-blocking via executor."""
-
-    monitor = RealTimeMonitor(0.1)
-    total_start_time = time.time()
-    tool_name = config["type"]
-
-    if monitor:
-        monitor.start_monitoring()
+async def run_command(cmd: List[str], run_id: int, config: dict) -> RunStats:
+    start_time = time.time()
+    tool_name = config["name"]
 
     try:
-        # Run blocking subprocess in a thread pool so other coroutines can proceed
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,  # uses default ThreadPoolExecutor
-            lambda: subprocess.run(cmd, capture_output=True, text=True)
+            lambda: subprocess.run(cmd, capture_output=True, text=True),
         )
-
-        monitoring_stats = monitor.stop_monitoring() if monitor else {}
+        run_time = time.time() - start_time
 
         successful = True
         if result.returncode != 0 or "ERROR" in result.stdout:
-            if VERBOSE:
-                logger.info(f"failure - {result.returncode} - {result.stderr}")
             successful = False
-        elif VERBOSE:
-            logger.info(f"success - {result.stdout}")
+        logger.debug(
+            f"    Run '{run_id}' {'completed' if successful else 'failed'} in {run_time:.2f}s"
+        )
+        if not successful:
+            stdout = f"{result.stdout}\n---\n" if result.stdout else ""
+            logger.debug(
+                f"    Error code: {result.returncode}. Logs:\n{stdout}{result.stderr}"
+            )
+        elif result.stdout:
+            logger.debug(f"    Logs:\n{result.stdout}")
 
-        total_time = time.time() - total_start_time
-
-        logger.info(f"📊 {tool_name} Run {run_number}: successful? {successful}, in {total_time:.2f}s")
-
-        return PerformanceMetrics(
+        return RunStats(
             tool_name=tool_name,
-            run_number=run_number,
+            run_id=run_id,
             successful=successful,
-            total_time=total_time,
+            run_time=run_time,
             return_code=result.returncode,
         )
 
     except Exception as e:
-        logger.error(f"❌ {tool_name} Run {run_number} failed: {e}")
-        if monitor:
-            monitor.stop_monitoring()
-        return PerformanceMetrics(
+        logger.error(f"❌ {tool_name} Run '{run_id}' failed: {e}")
+        return RunStats(
             tool_name=tool_name,
-            run_number=run_number,
+            run_id=run_id,
             successful=False,
-            total_time=0,
+            run_time=0,
             return_code=-1,
-            error_details=[str(e)],
-        )
-
-class Gen3SDKTester:
-    """Enhanced Gen3 SDK tester with async and sync support, profiling and monitoring."""
-
-    async def run_tes_task(
-        self, run_number: int, config: dict
-    ) -> PerformanceMetrics:
-        """Test Gen3 SDK download-multiple functionality with enhanced monitoring."""
-
-        import random
-        # r = random.randint(-2, 4)
-        r = random.randint(-1, 0)
-        # print('   r', r)
-
-        cmd = [
-            "sleep",
-            f"{r}",
-            # "&&",
-
-            # "gen3",
-            # "run",
-            # "nextflow",
-            # "run",
-            # "/Users/paulineribeyre/Projects/nextflow-api/hello.nf",
-
-            # "-c",
-            # # "/Users/paulineribeyre/Projects/gen3-workflow/scripts/nextflow.config",
-            # "/Users/paulineribeyre/Projects/nextflow-api/devenv_nextflow.config",
-        ]
-
-        return await run_tool(
-            cmd,
-            run_number,
-            config,
+            error_details=str(e),
         )
 
 
+async def run_tes_task(run_id: int, config: dict) -> RunStats:
+    import random
 
-async def tmp(config):
-    # all_res = []
+    r = random.randint(-2, 3)
+    # r = random.randint(-1, 0)
+    # print('   r', r)
 
-    logger.info(f"🔧 Testing {config['name']} with {config['concurrency']} concurrent runs")
-
-    tester = Gen3SDKTester()
-    # method = getattr(tester, "run_tes_task")
-    tasks = [
-        tester.run_tes_task(run_number=run, config=config)
-        for run in range(1, config["concurrency"] + 1)
-    ]
-    # print('tasks', tasks)
-
-    # TODO: change this, the concurrency is not supposed to be here but in `run_tes_task`
-    run_results = await asyncio.gather(*tasks)
-
-
-    
-    # print('run_results')
-    # for e in run_results:
-    #     print(f'  {e}')
-
-
-    # all_res.append(run_results)
-    logger.info(f"  ✅ All {config['concurrency']} concurrent runs finished.")
-
-    # print('all_res', all_res)
-    return run_results
-
-
-async def main():
-    """Enhanced main function with comprehensive performance testing, multiple runs, and detailed analysis."""
-    os.makedirs("download_performance_results", exist_ok=True)
-
-
-    N_RUNS = 2  # how many times to run each test. then we get the average metrics
-    test_configs = [
-        {
-            "name": "TES",
-            "type": "TES", # / Nextflow
-            "jobs": 1,
-            "concurrency": 2,
-        }
+    cmd = [
+        "sleep",
+        f"{r}",
+        # "&&",
+        # "gen3",
+        # "run",
+        # "nextflow",
+        # "run",
+        # "/Users/paulineribeyre/Projects/nextflow-api/hello.nf",
+        # "-c",
+        # # "/Users/paulineribeyre/Projects/gen3-workflow/scripts/nextflow.config",
+        # "/Users/paulineribeyre/Projects/nextflow-api/devenv_nextflow.config",
     ]
 
-    all_metrics = []
-    for test_config in test_configs:
-        logger.info(f"🔧 Testing {test_config['name']} {N_RUNS} times sequentially")
+    return await run_command(
+        cmd,
+        run_id,
+        config,
+    )
 
-        for run in range(1, N_RUNS + 1):
-            # print("=== SEQ run", run)
-            run_results = await tmp(config=test_config)
-            # print('run_results', run_results)
 
-            agg = calculate_aggregated_metrics(run_results)
-            logger.info(f"----- SEQ run {run} stats -----")
-            logger.info(f"total_runs: {agg['total_runs']}")
-            logger.info(f"successful_runs: {agg['successful_runs']}")
-            logger.info(f"Success Rate: {agg['success_percent']:.2f}%")
-            logger.info(f"avg_run_time: {agg['avg_run_time']}")
-            logger.info(f"successful_avg_run_time: {agg['successful_avg_run_time']}")
-            logger.info(f"min_successful_run_time: {agg['min_successful_run_time']}")
-            logger.info(f"max_successful_run_time: {agg['max_successful_run_time']}")
-            logger.info(f"stdev_successful_run_time: {agg['stdev_successful_run_time']}")
+async def run_tests():
+    all_stats = []
+    for config in TESTS:
+        logger.info(
+            f"Running '{config['name']}' test {config['n_sequential_runs']} times sequentially"
+        )
+        for seq_run in range(1, config["n_sequential_runs"] + 1):
+            _type = config["type"]
+            if _type == "TES":
+                method = run_tes_task
+            else:
+                raise Exception(f"Unknown test type '{_type}'")
 
-            all_metrics.extend(run_results)
+            n_concurrent_runs = config["n_concurrent_runs"]
+            logger.info(
+                f"  Running '{config['name']}' test with {n_concurrent_runs} concurrent runs"
+            )
+            tasks = [
+                method(run_id=f"s{seq_run}c{conc_run}", config=config)
+                for conc_run in range(1, n_concurrent_runs + 1)
+            ]
+            start_time = time.time()
+            run_stats = await asyncio.gather(*tasks)
+            total_run_time = time.time() - start_time
 
-        logger.info(f"  ✅ All {N_RUNS} sequential runs finished.")
+            logger.info(f"✅ Sequential run #{seq_run} completed. Stats:")
+            compute_stats(run_stats, total_run_time)
+            all_stats.extend(run_stats)
 
-    # print('  => all_metrics')
-    # for m in all_metrics:
-    #     print(m)
-
-    # TODO get latency
-    tested_methods = list(set(m.tool_name for m in all_metrics))
-    for tool_name in tested_methods:
-        agg = calculate_aggregated_metrics([m for m in all_metrics if m.tool_name == tool_name])
-        logger.info(f"----- {tool_name} stats -----")
-        logger.info(f"total_runs: {agg['total_runs']}")
-        logger.info(f"successful_runs: {agg['successful_runs']}")
-        logger.info(f"Success Rate: {agg['success_percent']:.2f}%")
-        logger.info(f"avg_run_time: {agg['avg_run_time']}")
-        logger.info(f"successful_avg_run_time: {agg['successful_avg_run_time']}")
-        logger.info(f"min_successful_run_time: {agg['min_successful_run_time']}")
-        logger.info(f"max_successful_run_time: {agg['max_successful_run_time']}")
-        logger.info(f"stdev_successful_run_time: {agg['stdev_successful_run_time']}")
+        # TODO get latency
+        tested_methods = list(set(m.tool_name for m in all_stats))
+        for tool_name in tested_methods:
+            logger.info(f"✅ All sequential runs completed. Final stats:")
+            compute_stats([m for m in all_stats if m.tool_name == tool_name])
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(run_tests())
     except KeyboardInterrupt:
-        logging.exception("⚠️  Test interrupted by user")
+        logger.exception("Test interrupted by user")
         sys.exit(1)
     except Exception as e:
-        logging.exception(f"❌ Test failed with error: {e}")
+        logger.exception(f"❌ Test failed with error: {e}")
         raise
