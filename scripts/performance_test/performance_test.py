@@ -12,8 +12,9 @@ from typing import List
 from cdislogging import get_logger
 
 VERBOSE = 1
-N_SEQ_RUNS = 1 #3
+N_SEQ_RUNS = 3
 ENDPOINT = "https://brhstaging.data-commons.org"
+BUCKET = "gen3wf-brhstaging-data-commons-org-35"
 
 # TODO
 # GPU TES
@@ -37,20 +38,22 @@ TESTS = [
     #         ],
     #     },
     # },
-    {
-        "name": f"Nextflow CPU test (concurrency: {1})",
-        "type": "Nextflow",
-        "n_sequential_runs": N_SEQ_RUNS,
-        "n_concurrent_runs": 1,
-        "gpu": False,
-        "workflow_file": "hello.nf",
-    }
+    # {
+    #     "name": f"Nextflow CPU test (concurrency: {1})",
+    #     "type": "Nextflow",
+    #     "n_sequential_runs": N_SEQ_RUNS,
+    #     "n_concurrent_runs": 1,
+    #     "n_tasks": 2,
+    #     "gpu": False,
+    #     "workflow_file": "hello.nf",
+    # }
 ]
+# TES tests
 for concurrency in [5, 10, 15]:
-    break
+    # break
     TESTS.append(
         {
-            "name": f"TES test (concurrency: {concurrency})",
+            "name": f"TES test (concurrency {concurrency})",
             "type": "TES",
             "n_sequential_runs": N_SEQ_RUNS,
             "n_concurrent_runs": concurrency,
@@ -65,7 +68,7 @@ for concurrency in [5, 10, 15]:
     # TODO fix this: missing bucket env var
     TESTS.append(
         {
-            "name": f"TES test with inputs/outputs (concurrency: {concurrency})",
+            "name": f"TES test with inputs/outputs (concurrency {concurrency})",
             "type": "TES",
             "n_sequential_runs": N_SEQ_RUNS,
             "n_concurrent_runs": concurrency,
@@ -73,14 +76,14 @@ for concurrency in [5, 10, 15]:
                 "name": "Input-Output-Test",
                 "inputs": [
                     {
-                        "url": f"s3://{os.environ.get('BUCKET')}/inputs/test-file.txt",
+                        "url": f"s3://{BUCKET}/inputs/test-file.txt",
                         "path": "/work/test-file.txt",
                         "type": "FILE",
                     }
                 ],
                 "outputs": [
                     {
-                        "url": f"s3://{os.environ.get('BUCKET')}/outputs/output.txt",
+                        "url": f"s3://{BUCKET}/outputs/output.txt",
                         "path": "/work/output.txt",
                         "type": "FILE",
                     }
@@ -95,29 +98,33 @@ for concurrency in [5, 10, 15]:
             },
         }
     )
+# Nextflow tests
 for concurrency in [5, 10]:
-    break
-    # Note: Nextflow tests always include inputs/outputs
-    TESTS.append(
-        {
-            "name": f"Nextflow CPU test (concurrency: {concurrency})",
-            "type": "Nextflow",
-            "n_sequential_runs": N_SEQ_RUNS,
-            "n_concurrent_runs": concurrency,
-            "gpu": False,
-            "workflow_file": "hello.nf",
-        }
-    )
-    # TESTS.append(
-    #     {
-    #         "name": f"Nextflow GPU test (concurrency: {concurrency})",
-    #         "type": "Nextflow",
-    #         "n_sequential_runs": N_SEQ_RUNS,
-    #         "n_concurrent_runs": concurrency,
-    #         "gpu": True,
-    #         "workflow_file": "gpu.nf",
-    #     }
-    # )
+    for n_tasks in [1, 5, 10]:
+        # break
+        # Note: Nextflow tests always include inputs/outputs
+        TESTS.append(
+            {
+                "name": f"Nextflow CPU test ({n_tasks} tasks, concurrency {concurrency})",
+                "type": "Nextflow",
+                "n_sequential_runs": N_SEQ_RUNS,
+                "n_concurrent_runs": concurrency,
+                "n_tasks": n_tasks,
+                "gpu": False,
+                "workflow_file": "hello.nf",
+            }
+        )
+        TESTS.append(
+            {
+                "name": f"Nextflow GPU test ({n_tasks} tasks, concurrency {concurrency})",
+                "type": "Nextflow",
+                "n_sequential_runs": N_SEQ_RUNS,
+                "n_tasks": n_tasks,
+                "n_concurrent_runs": concurrency,
+                "gpu": True,
+                "workflow_file": "gpu.nf",
+            }
+        )
 
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -177,7 +184,9 @@ def compute_stats(metrics_list, total_run_time=None):
     logger.info("")
 
 
-async def run_command(cmd: List[str], seq_id: int, conc_id: int, config: dict, env: dict = {}) -> RunStats:
+async def run_command(
+    cmd: List[str], seq_id: int, conc_id: int, config: dict, env: dict = {}
+) -> RunStats:
     start_time = time.time()
     test_name = config["name"]
 
@@ -217,6 +226,7 @@ async def run_command(cmd: List[str], seq_id: int, conc_id: int, config: dict, e
 
     except Exception as e:
         logger.error(f"❌ {test_name} Run 'seq{seq_id}-conc{conc_id}' failed: {e}")
+        # raise
         return RunStats(
             test_name=test_name,
             seq_id=seq_id,
@@ -235,25 +245,28 @@ async def run_random_failures(seq_id: int, conc_id: int, config: dict) -> RunSta
 
 
 async def run_nextflow_workflow(seq_id: int, conc_id: int, config: dict) -> RunStats:
-    # TODO env var for endpoint
     cmd = [
         "gen3",
         "run",
-        # "sh", "-c",
-        # "'GPU=no nextflow run /Users/paulineribeyre/Projects/gen3-workflow/scripts/performance_test/hello.nf -c /Users/paulineribeyre/Projects/gen3-workflow/scripts/performance_test/base_nextflow.config --n 1'"
-        # "'", f"GPU={'yes' if config['gpu'] else 'no'}",
         "nextflow",
         "run",
         os.path.join(CURRENT_DIR, config["workflow_file"]),
         "-c",
         os.path.join(CURRENT_DIR, "base_nextflow.config"),
-        "--n", "1",
-        # "'",
+        "--n_tasks",
+        f"{config["n_tasks"]}",
     ]
-    # gen3 run sh -c 'GPU=no nextflow run /Users/paulineribeyre/Projects/gen3-workflow/scripts/performance_test/hello.nf -c /Users/paulineribeyre/Projects/gen3-workflow/scripts/performance_test/base_nextflow.config --n 2'
-    print(cmd)
-    print(" ".join(cmd))
-    return await run_command(cmd, seq_id, conc_id, config, {"GPU": 'yes' if config['gpu'] else 'no'})
+    return await run_command(
+        cmd,
+        seq_id,
+        conc_id,
+        config,
+        {
+            "ENDPOINT": ENDPOINT,
+            "BUCKET": BUCKET,
+            "GPU": "yes" if config["gpu"] else "no",
+        },
+    )
 
 
 async def run_tes_task(seq_id: int, conc_id: int, config: dict) -> RunStats:
@@ -298,14 +311,18 @@ async def run_tests():
             run_stats = await asyncio.gather(*tasks)
             total_run_time = time.time() - start_time
 
-            logger.info(f"✅ [{config['name']}] Sequential run #{seq_run} completed. Stats:")
+            logger.info(
+                f"✅ [{config['name']}] Sequential run #{seq_run} completed. Stats:"
+            )
             compute_stats(run_stats, total_run_time)
             all_stats.extend(run_stats)
 
         # TODO get latency
         tested_methods = list(set(m.test_name for m in all_stats))
         for test_name in tested_methods:
-            logger.info(f"✅ [{config['name']}] All sequential runs completed. Final stats:")
+            logger.info(
+                f"✅ [{config['name']}] All sequential runs completed. Final stats:"
+            )
             compute_stats([m for m in all_stats if m.test_name == test_name])
 
 

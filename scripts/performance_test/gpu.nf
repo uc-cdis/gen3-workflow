@@ -1,10 +1,15 @@
 #!/usr/bin/env nextflow
 
 process TEST_GPU {
+    tag "task-${id}"
+
     container 'pytorch/pytorch:latest'
     conda 'pytorch::pytorch=2.5.1 pytorch::torchvision=0.20.1 nvidia::cuda=12.1'
     accelerator 1
     memory '1G'
+
+    input:
+    val id
 
     output:
         stdout
@@ -25,5 +30,5 @@ process TEST_GPU {
 }
 
 workflow {
-    TEST_GPU()
+    Channel.from(1..params.n_tasks) | TEST_GPU
 }

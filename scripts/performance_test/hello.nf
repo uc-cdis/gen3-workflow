@@ -19,6 +19,5 @@ process HELLO_TASK {
 }
 
 workflow {
-  // TODO rename param
-  Channel.from(1..params.n) | HELLO_TASK
+  Channel.from(1..params.n_tasks) | HELLO_TASK
 }
