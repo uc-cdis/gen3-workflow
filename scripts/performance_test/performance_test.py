@@ -11,11 +11,13 @@ from typing import List
 
 from cdislogging import get_logger
 
-VERBOSE = True
-N_SEQ_RUNS = 3
+VERBOSE = 1
+N_SEQ_RUNS = 1 #3
 ENDPOINT = "https://brhstaging.data-commons.org"
 
-# TODO GPU TES
+# TODO
+# GPU TES
+# nextflow number of tasks
 TESTS = [
     # {
     #     "name": "Random failures",
@@ -23,8 +25,29 @@ TESTS = [
     #     "n_sequential_runs": N_SEQ_RUNS,
     #     "n_concurrent_runs": 5,
     # },
+    # {
+    #     "name": f"TES test (concurrency: {1})",
+    #     "type": "TES",
+    #     "n_sequential_runs": N_SEQ_RUNS,
+    #     "n_concurrent_runs": 1,
+    #     "body": {
+    #         "name": "Hello-World",
+    #         "executors": [
+    #             {"image": "quay.io/nextflow/bash", "command": ["echo hello world!"]}
+    #         ],
+    #     },
+    # },
+    {
+        "name": f"Nextflow CPU test (concurrency: {1})",
+        "type": "Nextflow",
+        "n_sequential_runs": N_SEQ_RUNS,
+        "n_concurrent_runs": 1,
+        "gpu": False,
+        "workflow_file": "hello.nf",
+    }
 ]
 for concurrency in [5, 10, 15]:
+    break
     TESTS.append(
         {
             "name": f"TES test (concurrency: {concurrency})",
@@ -39,6 +62,7 @@ for concurrency in [5, 10, 15]:
             },
         }
     )
+    # TODO fix this: missing bucket env var
     TESTS.append(
         {
             "name": f"TES test with inputs/outputs (concurrency: {concurrency})",
@@ -72,6 +96,7 @@ for concurrency in [5, 10, 15]:
         }
     )
 for concurrency in [5, 10]:
+    break
     # Note: Nextflow tests always include inputs/outputs
     TESTS.append(
         {
@@ -94,14 +119,16 @@ for concurrency in [5, 10]:
     #     }
     # )
 
+
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 logger = get_logger("tes-perf", log_level="debug" if VERBOSE else "info")
 
 
 @dataclass
 class RunStats:
-    tool_name: str
-    run_id: int
+    test_name: str
+    seq_id: int
+    conc_id: int
     successful: float
     run_time: float
     return_code: int
@@ -150,16 +177,18 @@ def compute_stats(metrics_list, total_run_time=None):
     logger.info("")
 
 
-async def run_command(cmd: List[str], run_id: int, config: dict) -> RunStats:
+async def run_command(cmd: List[str], seq_id: int, conc_id: int, config: dict, env: dict = {}) -> RunStats:
     start_time = time.time()
-    tool_name = config["name"]
+    test_name = config["name"]
 
     try:
         loop = asyncio.get_event_loop()
         # TODO add a timeout
+        my_env = {**os.environ.copy(), **env}
         result = await loop.run_in_executor(
             None,  # uses default ThreadPoolExecutor
-            lambda: subprocess.run(cmd, capture_output=True, text=True),
+            # lambda: subprocess.run(cmd, capture_output=True, text=True),
+            lambda: subprocess.run(cmd, env=my_env, capture_output=True, text=True),
         )
         run_time = time.time() - start_time
 
@@ -167,7 +196,7 @@ async def run_command(cmd: List[str], run_id: int, config: dict) -> RunStats:
         if result.returncode != 0 or "ERROR" in result.stdout:
             successful = False
         logger.debug(
-            f"    Run '{run_id}' {'completed' if successful else 'failed'} in {run_time:.2f}s"
+            f"    Run 'seq{seq_id}-conc{conc_id}' {'completed' if successful else 'failed'} in {run_time:.2f}s"
         )
         if not successful:
             stdout = f"{result.stdout}\n---\n" if result.stdout else ""
@@ -178,18 +207,20 @@ async def run_command(cmd: List[str], run_id: int, config: dict) -> RunStats:
             logger.debug(f"    Logs:\n{result.stdout}")
 
         return RunStats(
-            tool_name=tool_name,
-            run_id=run_id,
+            test_name=test_name,
+            seq_id=seq_id,
+            conc_id=conc_id,
             successful=successful,
             run_time=run_time,
             return_code=result.returncode,
         )
 
     except Exception as e:
-        logger.error(f"❌ {tool_name} Run '{run_id}' failed: {e}")
+        logger.error(f"❌ {test_name} Run 'seq{seq_id}-conc{conc_id}' failed: {e}")
         return RunStats(
-            tool_name=tool_name,
-            run_id=run_id,
+            test_name=test_name,
+            seq_id=seq_id,
+            conc_id=conc_id,
             successful=False,
             run_time=0,
             return_code=-1,
@@ -197,37 +228,35 @@ async def run_command(cmd: List[str], run_id: int, config: dict) -> RunStats:
         )
 
 
-async def run_random_failures(run_id: int, config: dict) -> RunStats:
+async def run_random_failures(seq_id: int, conc_id: int, config: dict) -> RunStats:
     r = random.randint(-2, 3)
     cmd = ["sleep", str(r)]
-    return await run_command(
-        cmd,
-        run_id,
-        config,
-    )
+    return await run_command(cmd, seq_id, conc_id, config)
 
 
-async def run_nextflow_workflow(run_id: int, config: dict) -> RunStats:
+async def run_nextflow_workflow(seq_id: int, conc_id: int, config: dict) -> RunStats:
+    # TODO env var for endpoint
     cmd = [
-        f"GPU={'yes' if config['gpu'] else 'no'}",
         "gen3",
         "run",
+        # "sh", "-c",
+        # "'GPU=no nextflow run /Users/paulineribeyre/Projects/gen3-workflow/scripts/performance_test/hello.nf -c /Users/paulineribeyre/Projects/gen3-workflow/scripts/performance_test/base_nextflow.config --n 1'"
+        # "'", f"GPU={'yes' if config['gpu'] else 'no'}",
         "nextflow",
         "run",
         os.path.join(CURRENT_DIR, config["workflow_file"]),
         "-c",
-        # TODO env var for endpoint
         os.path.join(CURRENT_DIR, "base_nextflow.config"),
+        "--n", "1",
+        # "'",
     ]
-
-    return await run_command(
-        cmd,
-        run_id,
-        config,
-    )
+    # gen3 run sh -c 'GPU=no nextflow run /Users/paulineribeyre/Projects/gen3-workflow/scripts/performance_test/hello.nf -c /Users/paulineribeyre/Projects/gen3-workflow/scripts/performance_test/base_nextflow.config --n 2'
+    print(cmd)
+    print(" ".join(cmd))
+    return await run_command(cmd, seq_id, conc_id, config, {"GPU": 'yes' if config['gpu'] else 'no'})
 
 
-async def run_tes_task(run_id: int, config: dict) -> RunStats:
+async def run_tes_task(seq_id: int, conc_id: int, config: dict) -> RunStats:
     body = config["body"]
     cmd = [
         "gen3",
@@ -237,19 +266,14 @@ async def run_tes_task(run_id: int, config: dict) -> RunStats:
         ENDPOINT,
         json.dumps(body),
     ]
-
-    return await run_command(
-        cmd,
-        run_id,
-        config,
-    )
+    return await run_command(cmd, seq_id, conc_id, config)
 
 
 async def run_tests():
     all_stats = []
     for config in TESTS:
         logger.info(
-            f"Running '{config['name']}' test {config['n_sequential_runs']} times sequentially"
+            f"[{config['name']}] Launching {config['n_sequential_runs']} sequential runs"
         )
         for seq_run in range(1, config["n_sequential_runs"] + 1):
             _type = config["type"]
@@ -264,25 +288,25 @@ async def run_tests():
 
             n_concurrent_runs = config["n_concurrent_runs"]
             logger.info(
-                f"  Running '{config['name']}' test with {n_concurrent_runs} concurrent runs"
+                f"  [{config['name']}] Launching {n_concurrent_runs} concurrent runs"
             )
             tasks = [
-                method(run_id=f"s{seq_run}c{conc_run}", config=config)
+                method(seq_id=seq_run, conc_id=conc_run, config=config)
                 for conc_run in range(1, n_concurrent_runs + 1)
             ]
             start_time = time.time()
             run_stats = await asyncio.gather(*tasks)
             total_run_time = time.time() - start_time
 
-            logger.info(f"✅ Sequential run #{seq_run} completed. Stats:")
+            logger.info(f"✅ [{config['name']}] Sequential run #{seq_run} completed. Stats:")
             compute_stats(run_stats, total_run_time)
             all_stats.extend(run_stats)
 
         # TODO get latency
-        tested_methods = list(set(m.tool_name for m in all_stats))
-        for tool_name in tested_methods:
-            logger.info(f"✅ All sequential runs completed. Final stats:")
-            compute_stats([m for m in all_stats if m.tool_name == tool_name])
+        tested_methods = list(set(m.test_name for m in all_stats))
+        for test_name in tested_methods:
+            logger.info(f"✅ [{config['name']}] All sequential runs completed. Final stats:")
+            compute_stats([m for m in all_stats if m.test_name == test_name])
 
 
 if __name__ == "__main__":
