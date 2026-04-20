@@ -5,6 +5,7 @@ import random
 from statistics import stdev
 import subprocess
 import sys
+import tempfile
 import time
 from typing import List
 
@@ -29,7 +30,7 @@ TESTS = [
     #     "n_concurrent_runs": 5,
     # },
     # {
-    #     "name": f"TES test (concurrency: {1})",
+    #     "name": "TES test",
     #     "type": "TES",
     #     "n_sequential_runs": N_SEQ_RUNS,
     #     "n_concurrent_runs": 1,
@@ -41,11 +42,11 @@ TESTS = [
     #     },
     # },
     # {
-    #     "name": f"Nextflow CPU test (concurrency: {1})",
+    #     "name": "Nextflow CPU test",
     #     "type": "Nextflow",
-    #     "n_sequential_runs": N_SEQ_RUNS,
-    #     "n_concurrent_runs": 1,
-    #     "n_tasks": 2,
+    #     "n_sequential_runs": 1,
+    #     "n_concurrent_runs": 3,
+    #     "n_tasks": 1,
     #     "gpu": False,
     #     "workflow_file": "hello.nf",
     # },
@@ -60,7 +61,7 @@ TESTS = [
     # }
 ]
 # TES tests
-for concurrency in [5, 10, 15]:
+for concurrency in [10, 25, 50, 100]:
     # break
     TESTS.append(
         {
@@ -111,7 +112,7 @@ for concurrency in [5, 10, 15]:
 # Nextflow tests
 for concurrency in [5, 10]:
     # break
-    for n_tasks in [1, 5, 10]:
+    for n_tasks in [1, 5]:
         # Note: Nextflow tests always include inputs/outputs
         TESTS.append(
             {
@@ -151,7 +152,6 @@ class RunStats:
     successful: float
     run_time: float
     return_code: int
-    error_details: str = ""
 
 
 def log(level, msg):
@@ -232,16 +232,22 @@ async def run_command(
     try:
         loop = asyncio.get_event_loop()
         start_time = time.time()
-        result = await loop.run_in_executor(
-            None,  # uses default ThreadPoolExecutor
-            lambda: subprocess.run(
-                cmd,
-                env={**os.environ.copy(), **env},
-                capture_output=True,
-                text=True,
-                timeout=RUN_TIMEOUT,
-            ),
-        )
+        # Each process runs in its own temp directory to avoid conflicts.
+        # For example, if multiple Nextflow processes run at the same time in the same dir:
+        # `Can't lock file: .nextflow/history -- Nextflow needs to run in a file system that
+        # supports file locks`
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = await loop.run_in_executor(
+                None,  # uses default ThreadPoolExecutor
+                lambda: subprocess.run(
+                    cmd,
+                    env={**os.environ.copy(), **env},
+                    capture_output=True,
+                    text=True,
+                    timeout=RUN_TIMEOUT,
+                    cwd=temp_dir,
+                ),
+            )
         run_time = time.time() - start_time
 
         successful = True
@@ -271,15 +277,14 @@ async def run_command(
 
     except Exception as e:
         log("error", f"❌ {test_name} Run 'seq{seq_id}-conc{conc_id}' failed: {e}")
-        # raise
         if type(e) == subprocess.TimeoutExpired:
-            log("debug", "Logs:\n")
+            log("debug", "Timed out. Logs:\n")
             if e.stdout:
                 for line in e.stdout.split(b"\n"):
-                    print(line)
+                    log("debug", line)
             if e.stderr:
                 for line in e.stderr.split(b"\n"):
-                    print(line)
+                    log("debug", line)
         return RunStats(
             test_name=test_name,
             seq_id=seq_id,
@@ -287,7 +292,6 @@ async def run_command(
             successful=False,
             run_time=0,
             return_code=-1,
-            error_details=str(e),
         )
 
 

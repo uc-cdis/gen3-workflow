@@ -25,7 +25,7 @@ process TEST_GPU {
         print(f"GPU: {gpu_name}")
         print(f"CUDA Version: {cuda_version}")
     else:
-        raise Exception("CUDA is not available on this system.")
+        raise RuntimeError("CUDA is not available on this system.")
     """
 }
 
