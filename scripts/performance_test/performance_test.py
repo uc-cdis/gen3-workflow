@@ -17,9 +17,9 @@ ENDPOINT = "https://brhstaging.data-commons.org"
 BUCKET = "gen3wf-brhstaging-data-commons-org-35"
 BUCKET_REGION = "us-east-1"
 
-VERBOSE = 1
-N_SEQ_RUNS = 1#3
-TIMEOUT = 1200  # 10 min
+VERBOSE = False  # if false, details are not on stdout but are still in the log file
+N_SEQ_RUNS = 3  # stats will be the average of the sequential runs stats
+RUN_TIMEOUT = 1200  # 10 min
 
 TESTS = [
     # {
@@ -48,6 +48,15 @@ TESTS = [
     #     "n_tasks": 2,
     #     "gpu": False,
     #     "workflow_file": "hello.nf",
+    # },
+    # {
+    #     "name": "Nextflow GPU test",
+    #     "type": "Nextflow",
+    #     "n_sequential_runs": 1,
+    #     "n_tasks": 1,
+    #     "n_concurrent_runs": 1,
+    #     "gpu": True,
+    #     "workflow_file": "gpu.nf",
     # }
 ]
 # TES tests
@@ -126,10 +135,12 @@ for concurrency in [5, 10]:
                 "workflow_file": "gpu.nf",
             }
         )
+        # break
 
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 logger = get_logger("tes-perf", log_level="debug" if VERBOSE else "info")
+log_file = None
 
 
 @dataclass
@@ -143,15 +154,22 @@ class RunStats:
     error_details: str = ""
 
 
+def log(level, msg):
+    if level != "debug" or VERBOSE:
+        print(msg)
+    # getattr(logger, level)(msg)
+    log_file.write(msg + "\n")
+
+
 def seconds_to_human_format(total_seconds):
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     res = ""
     if hours:
-        res += f"{hours}h "
+        res += f"{int(hours)}h "
     if minutes:
-        res += f"{minutes}m "
-    res += f"{seconds:.2f}s"
+        res += f"{int(minutes)}m "
+    res += f"{int(seconds)}s"
     return res
 
 
@@ -173,32 +191,37 @@ def print_stats(metrics_list, total_run_time=None):
     avg_run_time = avg_run_time / n_runs
     n_failed_runs = n_runs - n_successful_runs
 
-    logger.info(f"Number of runs: {n_runs}")
+    log("info", f"Number of runs: {n_runs}")
     if total_run_time:
-        logger.info(f"Total run time: {seconds_to_human_format(total_run_time)}")
-    logger.info(f"Successful runs: {n_successful_runs}")
+        log("info", f"Total run time: {seconds_to_human_format(total_run_time)}")
+    log("info", f"Successful runs: {n_successful_runs}")
     if n_runs:
-        logger.info(f"Success rate: {n_successful_runs / n_runs * 100:.2f}%")
-    logger.info(f"Average run time (all runs): {seconds_to_human_format(avg_run_time)}")
+        log("info", f"Success rate: {n_successful_runs / n_runs * 100:.2f}%")
+    log("info", f"Average run time (all runs): {seconds_to_human_format(avg_run_time)}")
     if n_successful_runs:
-        logger.info(
-            f"Average run time (successful runs): {seconds_to_human_format(sum(successful_run_times) / n_successful_runs)}"
+        log(
+            "info",
+            f"Average run time (successful runs): {seconds_to_human_format(sum(successful_run_times) / n_successful_runs)}",
         )
-        logger.info(
-            f"Min run time (successful runs): {seconds_to_human_format(min(successful_run_times))}"
+        log(
+            "info",
+            f"Min run time (successful runs): {seconds_to_human_format(min(successful_run_times))}",
         )
-        logger.info(
-            f"Max run time (successful runs): {seconds_to_human_format(max(successful_run_times))}"
+        log(
+            "info",
+            f"Max run time (successful runs): {seconds_to_human_format(max(successful_run_times))}",
         )
     if n_failed_runs:
-        logger.info(
-            f"Average run time (failed runs): {seconds_to_human_format(total_time_failed / n_failed_runs)}"
+        log(
+            "info",
+            f"Average run time (failed runs): {seconds_to_human_format(total_time_failed / n_failed_runs)}",
         )
     if len(successful_run_times) > 1:
-        logger.info(
-            f"Run time standard deviation (successful runs): {seconds_to_human_format(stdev(successful_run_times))}"
+        log(
+            "info",
+            f"Run time standard deviation (successful runs): {seconds_to_human_format(stdev(successful_run_times))}",
         )
-    logger.info("")
+    log("info", "")
 
 
 async def run_command(
@@ -216,7 +239,7 @@ async def run_command(
                 env={**os.environ.copy(), **env},
                 capture_output=True,
                 text=True,
-                timeout=TIMEOUT,
+                timeout=RUN_TIMEOUT,
             ),
         )
         run_time = time.time() - start_time
@@ -224,16 +247,18 @@ async def run_command(
         successful = True
         if result.returncode != 0 or "ERROR" in result.stdout:
             successful = False
-        logger.debug(
-            f"    Run 'seq{seq_id}-conc{conc_id}' {'completed' if successful else 'failed'} in {run_time:.2f}s"
+        log(
+            "debug",
+            f"    Run 'seq{seq_id}-conc{conc_id}' {'completed' if successful else 'failed'} in {run_time:.2f}s",
         )
         if not successful:
             stdout = f"{result.stdout}\n---\n" if result.stdout else ""
-            logger.debug(
-                f"    Error code: {result.returncode}. Logs:\n{stdout}{result.stderr}"
+            log(
+                "debug",
+                f"    Error code: {result.returncode}. Logs:\n{stdout}{result.stderr}",
             )
         elif result.stdout:
-            logger.debug(f"    Logs:\n{result.stdout}")
+            log("debug", f"    Logs:\n{result.stdout}")
 
         return RunStats(
             test_name=test_name,
@@ -245,10 +270,10 @@ async def run_command(
         )
 
     except Exception as e:
-        logger.error(f"❌ {test_name} Run 'seq{seq_id}-conc{conc_id}' failed: {e}")
+        log("error", f"❌ {test_name} Run 'seq{seq_id}-conc{conc_id}' failed: {e}")
         # raise
         if type(e) == subprocess.TimeoutExpired:
-            logger.debug("Logs:\n")
+            log("debug", "Logs:\n")
             if e.stdout:
                 for line in e.stdout.split(b"\n"):
                     print(line)
@@ -310,7 +335,7 @@ async def run_tes_task(seq_id: int, conc_id: int, config: dict) -> RunStats:
     return await run_command(cmd, seq_id, conc_id, config)
 
 
-async def run_tests():
+async def run_tests(log_file_name):
     # upload the input file used by TES tests
     s3_client = boto3.client(
         service_name="s3",
@@ -323,9 +348,9 @@ async def run_tests():
         Bucket=BUCKET, Key="inputs/test-file.txt", Body="this is my test file\n"
     )
 
-    start_time = time.time()
+    total_start_time = time.time()
     for test_i, config in enumerate(TESTS, start=1):
-        logger.info(f"[test {test_i}/{len(TESTS)}] '{config['name']}' starting")
+        log("info", f"[test {test_i}/{len(TESTS)}] '{config['name']}' starting")
 
         # launch `n_sequential_runs` sequential runs
         all_stats = []
@@ -348,28 +373,33 @@ async def run_tests():
             ]
             start_time = time.time()
             run_stats = await asyncio.gather(*tasks)
-            total_run_time = time.time() - start_time
-
-            logger.info(
-                f"[test {test_i}/{len(TESTS)}] [run {seq_run}/{config['n_sequential_runs']}] '{config['name']}' run stats:"
+            log(
+                "info",
+                f"[test {test_i}/{len(TESTS)}] [run {seq_run}/{config['n_sequential_runs']}] '{config['name']}' run stats:",
             )
-            print_stats(run_stats, total_run_time)
+            print_stats(run_stats, time.time() - start_time)
             all_stats.extend(run_stats)
 
-        logger.info(
-            f"✅ [test {test_i}/{len(TESTS)}] '[{config['name']}]' final stats:"
+        log(
+            "info", f"✅ [test {test_i}/{len(TESTS)}] '[{config['name']}]' final stats:"
         )
         print_stats(all_stats)
-    run_time = time.time() - start_time
-    logger.info(f"Total run time: {seconds_to_human_format(run_time)}")
+    log(
+        "info",
+        f"Total run time: {seconds_to_human_format(time.time() - total_start_time)}. Find logs at '{log_file_name}'.",
+    )
 
 
 if __name__ == "__main__":
+    log_file_name = f"{int(time.time())}_logs.txt"
+    log_file = open(log_file_name, "w")
     try:
-        asyncio.run(run_tests())
+        asyncio.run(run_tests(log_file_name))
     except KeyboardInterrupt:
-        logger.exception("Test interrupted by user")
+        log("exception", "Test interrupted by user")
         sys.exit(1)
     except Exception as e:
-        logger.exception(f"❌ Test failed with error: {e}")
+        log("exception", f"❌ Test failed with error: {e}")
         raise
+    finally:
+        log_file.close()
