@@ -13,12 +13,10 @@ from cdislogging import get_logger
 
 VERBOSE = 1
 N_SEQ_RUNS = 3
+TIMEOUT = 1200  # 10 min
 ENDPOINT = "https://brhstaging.data-commons.org"
 BUCKET = "gen3wf-brhstaging-data-commons-org-35"
 
-# TODO
-# GPU TES
-# nextflow number of tasks
 TESTS = [
     # {
     #     "name": "Random failures",
@@ -100,8 +98,8 @@ for concurrency in [5, 10, 15]:
     )
 # Nextflow tests
 for concurrency in [5, 10]:
+    # break
     for n_tasks in [1, 5, 10]:
-        # break
         # Note: Nextflow tests always include inputs/outputs
         TESTS.append(
             {
@@ -192,12 +190,15 @@ async def run_command(
 
     try:
         loop = asyncio.get_event_loop()
-        # TODO add a timeout
-        my_env = {**os.environ.copy(), **env}
         result = await loop.run_in_executor(
             None,  # uses default ThreadPoolExecutor
-            # lambda: subprocess.run(cmd, capture_output=True, text=True),
-            lambda: subprocess.run(cmd, env=my_env, capture_output=True, text=True),
+            lambda: subprocess.run(
+                cmd,
+                env={**os.environ.copy(), **env},
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT,
+            ),
         )
         run_time = time.time() - start_time
 
@@ -227,6 +228,14 @@ async def run_command(
     except Exception as e:
         logger.error(f"❌ {test_name} Run 'seq{seq_id}-conc{conc_id}' failed: {e}")
         # raise
+        if type(e) == subprocess.TimeoutExpired:
+            logger.debug("Logs:\n")
+            if e.stdout:
+                for line in e.stdout.split(b"\n"):
+                    print(line)
+            if e.stderr:
+                for line in e.stderr.split(b"\n"):
+                    print(line)
         return RunStats(
             test_name=test_name,
             seq_id=seq_id,
@@ -283,7 +292,7 @@ async def run_tes_task(seq_id: int, conc_id: int, config: dict) -> RunStats:
 
 
 async def run_tests():
-    for test_i, config in enumerate(TESTS):
+    for test_i, config in enumerate(TESTS, start=1):
         logger.info(f"[test {test_i}/{len(TESTS)}] '{config['name']}' starting")
 
         # launch `n_sequential_runs` sequential runs
