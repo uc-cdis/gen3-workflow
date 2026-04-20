@@ -1,4 +1,3 @@
-import asyncio
 from dataclasses import dataclass
 import json
 import os
@@ -9,13 +8,18 @@ import sys
 import time
 from typing import List
 
+import asyncio
+import boto3
+from botocore.config import Config
 from cdislogging import get_logger
 
-VERBOSE = 1
-N_SEQ_RUNS = 3
-TIMEOUT = 1200  # 10 min
 ENDPOINT = "https://brhstaging.data-commons.org"
 BUCKET = "gen3wf-brhstaging-data-commons-org-35"
+BUCKET_REGION = "us-east-1"
+
+VERBOSE = 1
+N_SEQ_RUNS = 1#3
+TIMEOUT = 1200  # 10 min
 
 TESTS = [
     # {
@@ -63,7 +67,6 @@ for concurrency in [5, 10, 15]:
             },
         }
     )
-    # TODO automate uploading inputs/test-file.txt
     TESTS.append(
         {
             "name": f"TES test with inputs/outputs (concurrency {concurrency})",
@@ -140,6 +143,18 @@ class RunStats:
     error_details: str = ""
 
 
+def seconds_to_human_format(total_seconds):
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    res = ""
+    if hours:
+        res += f"{hours}h "
+    if minutes:
+        res += f"{minutes}m "
+    res += f"{seconds:.2f}s"
+    return res
+
+
 def print_stats(metrics_list, total_run_time=None):
     n_runs = len(metrics_list)
     n_successful_runs = 0
@@ -160,24 +175,28 @@ def print_stats(metrics_list, total_run_time=None):
 
     logger.info(f"Number of runs: {n_runs}")
     if total_run_time:
-        logger.info(f"Total run time: {total_run_time:.2f}s")
+        logger.info(f"Total run time: {seconds_to_human_format(total_run_time)}")
     logger.info(f"Successful runs: {n_successful_runs}")
     if n_runs:
         logger.info(f"Success rate: {n_successful_runs / n_runs * 100:.2f}%")
-    logger.info(f"Average run time (all runs): {avg_run_time:.2f}s")
+    logger.info(f"Average run time (all runs): {seconds_to_human_format(avg_run_time)}")
     if n_successful_runs:
         logger.info(
-            f"Average run time (successful runs): {sum(successful_run_times) / n_successful_runs:.2f}s"
+            f"Average run time (successful runs): {seconds_to_human_format(sum(successful_run_times) / n_successful_runs)}"
         )
-        logger.info(f"Min run time (successful runs): {min(successful_run_times):.2f}s")
-        logger.info(f"Max run time (successful runs): {max(successful_run_times):.2f}s")
+        logger.info(
+            f"Min run time (successful runs): {seconds_to_human_format(min(successful_run_times))}"
+        )
+        logger.info(
+            f"Max run time (successful runs): {seconds_to_human_format(max(successful_run_times))}"
+        )
     if n_failed_runs:
         logger.info(
-            f"Average run time (failed runs): {total_time_failed / n_failed_runs:.2f}s"
+            f"Average run time (failed runs): {seconds_to_human_format(total_time_failed / n_failed_runs)}"
         )
     if len(successful_run_times) > 1:
         logger.info(
-            f"Run time standard deviation (successful runs): {stdev(successful_run_times):.2f}s"
+            f"Run time standard deviation (successful runs): {seconds_to_human_format(stdev(successful_run_times))}"
         )
     logger.info("")
 
@@ -185,11 +204,11 @@ def print_stats(metrics_list, total_run_time=None):
 async def run_command(
     cmd: List[str], seq_id: int, conc_id: int, config: dict, env: dict = {}
 ) -> RunStats:
-    start_time = time.time()
     test_name = config["name"]
 
     try:
         loop = asyncio.get_event_loop()
+        start_time = time.time()
         result = await loop.run_in_executor(
             None,  # uses default ThreadPoolExecutor
             lambda: subprocess.run(
@@ -292,6 +311,19 @@ async def run_tes_task(seq_id: int, conc_id: int, config: dict) -> RunStats:
 
 
 async def run_tests():
+    # upload the input file used by TES tests
+    s3_client = boto3.client(
+        service_name="s3",
+        aws_access_key_id=os.environ["GEN3_TOKEN"],
+        aws_secret_access_key="N/A",
+        endpoint_url=f"{ENDPOINT}/workflows/s3",
+        config=Config(region_name=BUCKET_REGION),
+    )
+    s3_client.put_object(
+        Bucket=BUCKET, Key="inputs/test-file.txt", Body="this is my test file\n"
+    )
+
+    start_time = time.time()
     for test_i, config in enumerate(TESTS, start=1):
         logger.info(f"[test {test_i}/{len(TESTS)}] '{config['name']}' starting")
 
@@ -328,6 +360,8 @@ async def run_tests():
             f"✅ [test {test_i}/{len(TESTS)}] '[{config['name']}]' final stats:"
         )
         print_stats(all_stats)
+    run_time = time.time() - start_time
+    logger.info(f"Total run time: {seconds_to_human_format(run_time)}")
 
 
 if __name__ == "__main__":
