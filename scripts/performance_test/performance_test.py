@@ -332,7 +332,7 @@ async def run_tes_task(seq_id: int, conc_id: int, config: dict) -> RunStats:
         "gen3",
         "run",
         "python",
-        "run_tes_task.py",
+        os.path.join(CURRENT_DIR, "run_tes_task.py"),
         ENDPOINT,
         json.dumps(body),
     ]
