@@ -65,7 +65,7 @@ for concurrency in [5, 10, 15]:
             },
         }
     )
-    # TODO fix this: missing bucket env var
+    # TODO automate uploading inputs/test-file.txt
     TESTS.append(
         {
             "name": f"TES test with inputs/outputs (concurrency {concurrency})",
@@ -142,7 +142,7 @@ class RunStats:
     error_details: str = ""
 
 
-def compute_stats(metrics_list, total_run_time=None):
+def print_stats(metrics_list, total_run_time=None):
     n_runs = len(metrics_list)
     n_successful_runs = 0
     avg_run_time = 0
@@ -161,11 +161,11 @@ def compute_stats(metrics_list, total_run_time=None):
     n_failed_runs = n_runs - n_successful_runs
 
     logger.info(f"Number of runs: {n_runs}")
+    if total_run_time:
+        logger.info(f"Total run time: {total_run_time:.2f}s")
     logger.info(f"Successful runs: {n_successful_runs}")
     if n_runs:
         logger.info(f"Success rate: {n_successful_runs / n_runs * 100:.2f}%")
-    if total_run_time:
-        logger.info(f"Total run time: {total_run_time:.2f}s")
     logger.info(f"Average run time (all runs): {avg_run_time:.2f}s")
     if n_successful_runs:
         logger.info(
@@ -283,11 +283,11 @@ async def run_tes_task(seq_id: int, conc_id: int, config: dict) -> RunStats:
 
 
 async def run_tests():
-    all_stats = []
-    for config in TESTS:
-        logger.info(
-            f"[{config['name']}] Launching {config['n_sequential_runs']} sequential runs"
-        )
+    for test_i, config in enumerate(TESTS):
+        logger.info(f"[test {test_i}/{len(TESTS)}] '{config['name']}' starting")
+
+        # launch `n_sequential_runs` sequential runs
+        all_stats = []
         for seq_run in range(1, config["n_sequential_runs"] + 1):
             _type = config["type"]
             if _type == "Random":
@@ -299,10 +299,8 @@ async def run_tests():
             else:
                 raise Exception(f"Unknown test type '{_type}'")
 
+            # launch `n_concurrent_runs` concurrent runs
             n_concurrent_runs = config["n_concurrent_runs"]
-            logger.info(
-                f"  [{config['name']}] Launching {n_concurrent_runs} concurrent runs"
-            )
             tasks = [
                 method(seq_id=seq_run, conc_id=conc_run, config=config)
                 for conc_run in range(1, n_concurrent_runs + 1)
@@ -312,18 +310,15 @@ async def run_tests():
             total_run_time = time.time() - start_time
 
             logger.info(
-                f"✅ [{config['name']}] Sequential run #{seq_run} completed. Stats:"
+                f"[test {test_i}/{len(TESTS)}] [run {seq_run}/{config['n_sequential_runs']}] '{config['name']}' run stats:"
             )
-            compute_stats(run_stats, total_run_time)
+            print_stats(run_stats, total_run_time)
             all_stats.extend(run_stats)
 
-        # TODO get latency
-        tested_methods = list(set(m.test_name for m in all_stats))
-        for test_name in tested_methods:
-            logger.info(
-                f"✅ [{config['name']}] All sequential runs completed. Final stats:"
-            )
-            compute_stats([m for m in all_stats if m.test_name == test_name])
+        logger.info(
+            f"✅ [test {test_i}/{len(TESTS)}] '[{config['name']}]' final stats:"
+        )
+        print_stats(all_stats)
 
 
 if __name__ == "__main__":
