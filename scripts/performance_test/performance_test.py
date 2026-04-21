@@ -32,12 +32,13 @@ TESTS = [
     # {
     #     "name": "TES test",
     #     "type": "TES",
-    #     "n_sequential_runs": N_SEQ_RUNS,
+    #     "n_sequential_runs": 1,
     #     "n_concurrent_runs": 1,
     #     "body": {
     #         "name": "Hello-World",
+    #         "tags": {"_GPU": "no"},
     #         "executors": [
-    #             {"image": "quay.io/nextflow/bash", "command": ["echo hello world!"]}
+    #             {"image": "quay.io/nextflow/bash", "command": ["sleep SLEEP_TIME_PLACEHOLDER && echo hello world!"]}
     #         ],
     #     },
     # },
@@ -60,8 +61,38 @@ TESTS = [
     #     "workflow_file": "gpu.nf",
     # }
 ]
+
+# Nextflow tests
+for concurrency in [5, 10]:
+    # break
+    for n_tasks in [1, 5]:
+        # Note: Nextflow tests always include inputs/outputs
+        TESTS.append(
+            {
+                "name": f"Nextflow test ({n_tasks} tasks, concurrency {concurrency})",
+                "type": "Nextflow",
+                "n_sequential_runs": N_SEQ_RUNS,
+                "n_concurrent_runs": concurrency,
+                "n_tasks": n_tasks,
+                "gpu": False,
+                "workflow_file": "hello.nf",
+            }
+        )
+        TESTS.append(
+            {
+                "name": f"Nextflow GPU test ({n_tasks} tasks, concurrency {concurrency})",
+                "type": "Nextflow",
+                "n_sequential_runs": N_SEQ_RUNS,
+                "n_tasks": n_tasks,
+                "n_concurrent_runs": concurrency,
+                "gpu": True,
+                "workflow_file": "gpu.nf",
+            }
+        )
+        # break
+
 # TES tests
-for concurrency in [10, 25, 50, 100]:
+for concurrency in [50, 100, 150, 200]:
     # break
     TESTS.append(
         {
@@ -72,7 +103,32 @@ for concurrency in [10, 25, 50, 100]:
             "body": {
                 "name": "Hello-World",
                 "executors": [
-                    {"image": "quay.io/nextflow/bash", "command": ["echo hello world!"]}
+                    {
+                        "image": "quay.io/nextflow/bash",
+                        "command": [
+                            "sleep SLEEP_TIME_PLACEHOLDER && echo hello world!"
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+    TESTS.append(
+        {
+            "name": f"TES GPU test (concurrency {concurrency})",
+            "type": "TES",
+            "n_sequential_runs": N_SEQ_RUNS,
+            "n_concurrent_runs": concurrency,
+            "body": {
+                "name": "Hello-World",
+                "tags": {"_GPU": "yes"},
+                "executors": [
+                    {
+                        "image": "quay.io/nextflow/bash",
+                        "command": [
+                            "sleep SLEEP_TIME_PLACEHOLDER && echo hello world!"
+                        ],
+                    }
                 ],
             },
         }
@@ -103,40 +159,14 @@ for concurrency in [10, 25, 50, 100]:
                     {
                         "image": "quay.io/nextflow/bash",
                         "workdir": "/work",
-                        "command": ["cat test-file.txt && echo hello > output.txt"],
+                        "command": [
+                            "sleep SLEEP_TIME_PLACEHOLDER && cat test-file.txt && echo hello > output.txt"
+                        ],
                     }
                 ],
             },
         }
     )
-# Nextflow tests
-for concurrency in [5, 10]:
-    # break
-    for n_tasks in [1, 5]:
-        # Note: Nextflow tests always include inputs/outputs
-        TESTS.append(
-            {
-                "name": f"Nextflow CPU test ({n_tasks} tasks, concurrency {concurrency})",
-                "type": "Nextflow",
-                "n_sequential_runs": N_SEQ_RUNS,
-                "n_concurrent_runs": concurrency,
-                "n_tasks": n_tasks,
-                "gpu": False,
-                "workflow_file": "hello.nf",
-            }
-        )
-        TESTS.append(
-            {
-                "name": f"Nextflow GPU test ({n_tasks} tasks, concurrency {concurrency})",
-                "type": "Nextflow",
-                "n_sequential_runs": N_SEQ_RUNS,
-                "n_tasks": n_tasks,
-                "n_concurrent_runs": concurrency,
-                "gpu": True,
-                "workflow_file": "gpu.nf",
-            }
-        )
-        # break
 
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -255,7 +285,7 @@ async def run_command(
             successful = False
         log(
             "debug",
-            f"    Run 'seq{seq_id}-conc{conc_id}' {'completed' if successful else 'failed'} in {run_time:.2f}s",
+            f"    '{test_name}' run 'seq{seq_id}-conc{conc_id}' {'completed' if successful else 'failed'} in {run_time:.2f}s",
         )
         if not successful:
             stdout = f"{result.stdout}\n---\n" if result.stdout else ""
@@ -276,7 +306,7 @@ async def run_command(
         )
 
     except Exception as e:
-        log("error", f"❌ {test_name} Run 'seq{seq_id}-conc{conc_id}' failed: {e}")
+        log("error", f"❌ '{test_name}' run 'seq{seq_id}-conc{conc_id}' failed: {e}")
         if type(e) == subprocess.TimeoutExpired:
             log("debug", "Timed out. Logs:\n")
             if e.stdout:
@@ -327,7 +357,11 @@ async def run_nextflow_workflow(seq_id: int, conc_id: int, config: dict) -> RunS
 
 
 async def run_tes_task(seq_id: int, conc_id: int, config: dict) -> RunStats:
+    sleep_time = random.randint(0, 5)
     body = config["body"]
+    body["executors"][0]["command"][0] = body["executors"][0]["command"][0].replace(
+        "SLEEP_TIME_PLACEHOLDER", str(sleep_time)
+    )
     cmd = [
         "gen3",
         "run",
