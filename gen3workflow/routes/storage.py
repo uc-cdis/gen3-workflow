@@ -15,9 +15,6 @@ from gen3workflow.config import config
 router = APIRouter(prefix="/storage")
 
 
-# TODO: remove the /storage/info path once the CI and plugin use /storage/setup
-@router.get("/info", status_code=HTTP_200_OK)
-@router.get("/info/", status_code=HTTP_200_OK, include_in_schema=False)
 @router.get("/setup", status_code=HTTP_200_OK)
 @router.get("/setup/", status_code=HTTP_200_OK, include_in_schema=False)
 async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
