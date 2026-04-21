@@ -309,7 +309,9 @@ async def run_command(
 
     except Exception as e:
         log("error", f"❌ '{test_name}' run 'seq{seq_id}-conc{conc_id}' failed: {e}")
+        run_time = 0
         if type(e) == subprocess.TimeoutExpired:
+            run_time = RUN_TIMEOUT
             log("debug", "Timed out. Logs:\n")
             if e.stdout:
                 for line in e.stdout.split(b"\n"):
@@ -322,7 +324,7 @@ async def run_command(
             seq_id=seq_id,
             conc_id=conc_id,
             successful=False,
-            run_time=0,
+            run_time=run_time,
             return_code=-1,
         )
 
