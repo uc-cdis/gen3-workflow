@@ -1,5 +1,14 @@
 # pylint: disable=missing-function-docstring
 
+"""
+Usage:
+- Install the Gen3 SDK
+- Save your API key at`~/.gen3/credentials.json`
+- Get your bucket and bucket region: `gen3 run sh -c 'curl -X GET <endpoint>/workflows/storage/setup --header "authorization: bearer $GEN3_TOKEN" | jq'`
+- Configure `ENDPOINT`, `BUCKET` and `BUCKET_REGION` below
+- Launch with `gen3 run python performance_test.py`
+"""
+
 from dataclasses import dataclass
 import json
 import os
@@ -21,6 +30,7 @@ BUCKET = "gen3wf-brhstaging-data-commons-org-35"
 BUCKET_REGION = "us-east-1"
 
 VERBOSE = False  # if false, details are not on stdout but are still in the log file
+INCLUDE_TIMESTAMPS_IN_LOGS = False
 N_SEQ_RUNS = 3  # stats will be the average of the sequential runs stats
 RUN_TIMEOUT = 1200  # 10 min
 
@@ -31,42 +41,10 @@ TESTS = [
     #     "n_sequential_runs": N_SEQ_RUNS,
     #     "n_concurrent_runs": 5,
     # },
-    # {
-    #     "name": "TES test",
-    #     "type": "TES",
-    #     "n_sequential_runs": 1,
-    #     "n_concurrent_runs": 1,
-    #     "body": {
-    #         "name": "Hello-World",
-    #         "tags": {"_GPU": "no"},
-    #         "executors": [
-    #             {"image": "quay.io/nextflow/bash", "command": ["sleep SLEEP_TIME_PLACEHOLDER && echo hello world!"]}
-    #         ],
-    #     },
-    # },
-    # {
-    #     "name": "Nextflow CPU test",
-    #     "type": "Nextflow",
-    #     "n_sequential_runs": 1,
-    #     "n_concurrent_runs": 3,
-    #     "n_tasks": 1,
-    #     "gpu": False,
-    #     "workflow_file": "hello.nf",
-    # },
-    # {
-    #     "name": "Nextflow GPU test",
-    #     "type": "Nextflow",
-    #     "n_sequential_runs": 1,
-    #     "n_tasks": 1,
-    #     "n_concurrent_runs": 1,
-    #     "gpu": True,
-    #     "workflow_file": "gpu.nf",
-    # }
 ]
 
 # Nextflow tests
 for concurrency in [5, 10]:
-    # break
     for n_tasks in [1, 5]:
         # Note: Nextflow tests always include inputs/outputs
         TESTS.append(
@@ -91,11 +69,9 @@ for concurrency in [5, 10]:
                 "workflow_file": "gpu.nf",
             }
         )
-        # break
 
 # TES tests
 for concurrency in [50, 100, 150, 200]:
-    # break
     TESTS.append(
         {
             "name": f"TES test (concurrency {concurrency})",
@@ -187,9 +163,17 @@ class RunStats:
 
 
 def log(level, msg):
-    if level != "debug" or VERBOSE:
-        print(msg)
-    # getattr(logger, level)(msg)
+    # print to terminal
+    if INCLUDE_TIMESTAMPS_IN_LOGS:
+        getattr(logger, level)(msg)
+    else:
+        if level != "debug" or VERBOSE:
+            print(msg)
+
+    # print to file
+    if type(msg) == bytes:
+        print(f"DEBUG: [This message is bytes: {msg}]")
+        msg = msg.decode()
     log_file.write(msg + "\n")
 
 
@@ -205,14 +189,14 @@ def seconds_to_human_format(total_seconds):
     return res
 
 
-def print_stats(metrics_list, total_run_time=None):
-    n_runs = len(metrics_list)
+def print_stats(stats_list, total_run_time=None):
+    n_runs = len(stats_list)
     n_successful_runs = 0
     avg_run_time = 0
     total_time_failed = 0
     successful_run_times = []
 
-    for m in metrics_list:
+    for m in stats_list:
         avg_run_time += m.run_time
         if not m.successful:
             total_time_failed += m.run_time
@@ -390,6 +374,7 @@ async def run_tests(log_file_name):
         Bucket=BUCKET, Key="inputs/test-file.txt", Body="this is my test file\n"
     )
 
+    # run all the tests
     total_start_time = time.time()
     for test_i, config in enumerate(TESTS, start=1):
         log("info", f"[test {test_i}/{len(TESTS)}] '{config['name']}' starting")
