@@ -1,3 +1,5 @@
+# pylint: disable=missing-function-docstring
+
 from dataclasses import dataclass
 import json
 import os
@@ -429,10 +431,10 @@ async def run_tests(log_file_name):
 
 
 if __name__ == "__main__":
-    log_file_name = f"{int(time.time())}_logs.txt"
-    log_file = open(log_file_name, "w")
+    LOG_FILE_NAME = f"{int(time.time())}_logs.txt"
+    log_file = open(LOG_FILE_NAME, "w")
     try:
-        asyncio.run(run_tests(log_file_name))
+        asyncio.run(run_tests(LOG_FILE_NAME))
     except KeyboardInterrupt:
         log("exception", "Test interrupted by user")
         sys.exit(1)
