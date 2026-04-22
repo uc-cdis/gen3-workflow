@@ -172,7 +172,6 @@ def log(level, msg):
 
     # print to file
     if type(msg) == bytes:
-        print(f"DEBUG: [This message is bytes: {msg}]")
         msg = msg.decode()
     log_file.write(msg + "\n")
 
