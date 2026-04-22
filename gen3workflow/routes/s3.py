@@ -26,6 +26,7 @@ from gen3workflow.config import config
 
 s3_root_router = APIRouter(include_in_schema=False)
 s3_router = APIRouter(prefix="/s3")
+session = boto3.Session()
 
 
 S3_MAX_RETRIES = 3
@@ -301,7 +302,6 @@ async def s3_endpoint(path: str, request: Request):
             secret_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
         )
     else:  # assume the service is running in k8s: get credentials from the assumed role
-        session = boto3.Session()
         credentials = session.get_credentials()
         assert credentials, "No AWS credentials found"
         headers["x-amz-security-token"] = credentials.token
