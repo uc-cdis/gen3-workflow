@@ -29,7 +29,9 @@ class Gen3WorkflowConfig(Config):
         """
         schema = {
             "type": "object",
-            "additionalProperties": False,
+            # Forward compatibility: allow unknown configuration keys ("additionalProperties") so
+            # that the app remains functional when using configuration files from newer versions
+            "additionalProperties": True,
             "properties": {
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
