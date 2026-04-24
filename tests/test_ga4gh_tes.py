@@ -2,7 +2,9 @@ import json
 from unittest.mock import patch
 
 import pytest
+import pytest_asyncio
 
+from gen3workflow.config import config
 from tests.conftest import (
     mock_arborist_request,
     mock_tes_server_request,
@@ -422,6 +424,56 @@ async def test_create_task_with_whitelist_images(
             body=json.dumps(expected_body, separators=(",", ":")),
             status_code=200,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enable_optimized_node_scheduling", [True, False])
+async def test_create_task_optimized_node_scheduling(
+    client, access_token_patcher, mock_aws_services, enable_optimized_node_scheduling
+):
+    """
+    When ENABLE_OPTIMIZED_NODE_SCHEDULING is enabled, tasks should be created with additional tags.
+    """
+    prev_val = config["ENABLE_OPTIMIZED_NODE_SCHEDULING"]
+    config["ENABLE_OPTIMIZED_NODE_SCHEDULING"] = enable_optimized_node_scheduling
+
+    try:
+        with patch(
+            "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+            lambda _: ("test_kms_key_alias", "*"),
+        ):
+            res = await client.post(
+                f"/ga4gh/tes/v1/tasks",
+                json={"name": "test-task"},
+                headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+            )
+    finally:
+        config["ENABLE_OPTIMIZED_NODE_SCHEDULING"] = prev_val
+
+    assert res.status_code == 200, res.text
+    expected_body = {
+        "name": "test-task",
+        "tags": {
+            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER",
+            "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_USER_ID}-funnel-role",
+            "_WORKER_SA": f"gen3wf-localhost-{TEST_USER_ID}-worker-sa",
+        },
+    }
+    if enable_optimized_node_scheduling:
+        expected_body["tags"].update(
+            {
+                "_NODE_SELECTOR": "role:workflow",
+                "_TOLERATIONS": "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule",
+            }
+        )
+    expected_body["tags"] = dict(sorted(expected_body["tags"].items()))
+    mock_tes_server_request.assert_called_once_with(
+        method="POST",
+        path="/tasks",
+        query_params={},
+        body=json.dumps(expected_body, separators=(",", ":")),
+        status_code=client.tes_resp_code,
+    )
 
 
 @pytest.mark.asyncio

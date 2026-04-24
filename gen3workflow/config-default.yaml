@@ -33,7 +33,6 @@ S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY:
 
 KMS_ENCRYPTION_ENABLED: true
 
-
 #############
 # GA4GH TES #
 #############
@@ -54,9 +53,13 @@ TASK_IMAGE_WHITELIST: []
 ENABLE_PROMETHEUS_METRICS: false
 PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
 
-#################
-#  EKS CLUSTER  #
-#################
+#############
+#  CLUSTER  #
+#############
+
+# When enabled, jobs are configured to run on specific nodes through Kubernetes NodeSelector
+# and Tolerations. Disable this if using a cluster that does not support nodepools.
+ENABLE_OPTIMIZED_NODE_SCHEDULING: true
 
 # When Gen3Workflow runs on an EKS cluster, it relies on IAM Roles for Service Accounts (IRSA)
 # to provide AWS permissions to Funnel’s worker and executor pods.
@@ -67,7 +70,6 @@ PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
 #
 # In short: these values allow Gen3Workflow to generate per-user IAM roles that EKS will recognize and associate
 # with the corresponding service accounts used by Funnel pods.
-
 WORKER_PODS_NAMESPACE: default-namespace
 EKS_CLUSTER_NAME: ""
 EKS_CLUSTER_REGION: us-east-1

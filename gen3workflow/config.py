@@ -29,7 +29,9 @@ class Gen3WorkflowConfig(Config):
         """
         schema = {
             "type": "object",
-            "additionalProperties": False,
+            # Forward compatibility: allow unknown configuration keys ("additionalProperties") so
+            # that the app remains functional when using configuration files from newer versions
+            "additionalProperties": True,
             "properties": {
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
@@ -47,6 +49,7 @@ class Gen3WorkflowConfig(Config):
                 "TES_SERVER_URL": {"type": "string"},
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
                 "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
+                "ENABLE_OPTIMIZED_NODE_SCHEDULING": {"type": "boolean"},
                 "WORKER_PODS_NAMESPACE": {"type": "string"},
                 "EKS_CLUSTER_NAME": {"type": "string"},
                 "EKS_CLUSTER_REGION": {"type": "string"},
