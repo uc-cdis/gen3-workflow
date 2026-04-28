@@ -14,6 +14,9 @@ templates = Jinja2Templates(directory="gen3workflow/templates")
 
 @router.get("", status_code=HTTP_200_OK, response_class=HTMLResponse)
 async def ui_list_tasks(request: Request, auth=Depends(Auth)):
+    """
+    A UI which allows for basic TES task management
+    """
     auth = Auth(api_request=request)
     try:
         token_claims = await auth.get_token_claims()

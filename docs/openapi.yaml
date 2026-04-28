@@ -553,3 +553,19 @@ paths:
       summary: Empty User Bucket
       tags:
       - Storage
+  /ui:
+    get:
+      description: A UI which allows for basic TES task management
+      operationId: ui_list_tasks
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                type: string
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Ui List Tasks
+      tags:
+      - UI
