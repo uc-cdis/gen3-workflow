@@ -57,6 +57,7 @@ class Auth:
                 err_msg,
             )
 
+        print("get_token_claims self.bearer_token", self.bearer_token)
         try:
             token_claims = await access_token("user", "openid", purpose="access")(
                 self.bearer_token
