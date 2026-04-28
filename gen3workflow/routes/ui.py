@@ -34,12 +34,12 @@ async def ui_list_tasks(request: Request, auth=Depends(Auth)):
     )
 
 
-@router.post(
-    "/cancel/{task_id}",
-    status_code=HTTP_200_OK,
-    response_class=HTMLResponse,
-    include_in_schema=False,
-)
-async def ui_cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
-    # auth = get_auth(request)
-    await _cancel_task(request, task_id, auth)
+# @router.post(
+#     "/cancel/{task_id}",
+#     status_code=HTTP_200_OK,
+#     response_class=HTMLResponse,
+#     include_in_schema=False,
+# )
+# async def ui_cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
+#     # auth = get_auth(request)
+#     await _cancel_task(request, task_id, auth)

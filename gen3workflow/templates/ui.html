@@ -20,7 +20,7 @@
             <td>{{ task.creation_time }}</td>
             <td><form action="/ga4gh/tes/v1/tasks/{{ task.id }}" method="get"><button type="submit">Details</button></form></td>
             {% if task.state != "SYSTEM_ERROR" and task.state != "EXECUTOR_ERROR" and task.state != "CANCELED" and task.state != "COMPLETE" %}
-            <td><form action="/ui/cancel/{{ task.id }}" method="post"><button type="cancel">Cancel</button></form></td>
+            <td><form action="/ga4gh/tes/v1/tasks/{{ task.id }}:cancel" method="post"><button type="cancel">Cancel</button></form></td>
             {% else %}
             <td></td>
             {% endif %}
