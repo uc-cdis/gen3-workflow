@@ -21,8 +21,7 @@ templates = Jinja2Templates(directory="gen3workflow/templates")
 
 
 @router.get("", status_code=HTTP_200_OK, response_class=HTMLResponse)
-# @router.get("/ui/", status_code=HTTP_200_OK, response_class=HTMLResponse, include_in_schema=False)
-async def TODO(request: Request, auth=Depends(Auth)):
+async def ui_list_tasks(request: Request, auth=Depends(Auth)):
     # auth = get_auth(request)
     # TODO find a way to set this instead of going to http://localhost:8080/ui?view=MINIMAL
     # request.query_params = {"view": "MINIMAL"}
@@ -41,6 +40,6 @@ async def TODO(request: Request, auth=Depends(Auth)):
     response_class=HTMLResponse,
     include_in_schema=False,
 )
-async def cancel_from_ui(request: Request, task_id: str, auth=Depends(Auth)):
+async def ui_cancel_task(request: Request, task_id: str, auth=Depends(Auth)):
     # auth = get_auth(request)
     await _cancel_task(request, task_id, auth)
