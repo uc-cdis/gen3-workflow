@@ -19,15 +19,14 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
     """
     A UI which allows for basic TES task management
     """
-    try:
-        token_claims = await auth.get_token_claims()
-        username = token_claims.get("context", {}).get("user", {}).get("name")
-    except Exception:
-        username = None
-
+    user_id = await auth.get_user_id()
+    username = None
     tasks = []
     is_more = ""
-    if username:  # only get the tasks if the user is logged in
+
+    if user_id:  # only get the tasks if the user is logged in
+        token_claims = await auth.get_token_claims()
+        username = token_claims.get("context", {}).get("user", {}).get("name")
         resp = await list_tasks(
             Request(
                 scope={
@@ -54,8 +53,8 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
         name="ui.html",
         context={
             "hostname": f'https://{config["HOSTNAME"]}',
+            "user_id": user_id,
             "username": username,
-            "user_id": auth.get_user_id(),
             "tasks": tasks,
             "is_more": is_more,
         },
