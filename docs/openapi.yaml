@@ -556,7 +556,7 @@ paths:
   /ui:
     get:
       description: A UI which allows for basic TES task management
-      operationId: ui_list_tasks
+      operationId: tasks_ui
       responses:
         '200':
           content:
@@ -566,6 +566,6 @@ paths:
           description: Successful Response
       security:
       - HTTPBearer: []
-      summary: Ui List Tasks
+      summary: Tasks Ui
       tags:
       - UI

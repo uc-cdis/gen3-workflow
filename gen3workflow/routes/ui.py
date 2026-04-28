@@ -1,3 +1,5 @@
+from dateutil import parser
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -17,13 +19,12 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
     """
     A UI which allows for basic TES task management
     """
-    # auth = Auth(api_request=request)
-    # print("tasks_ui auth", auth)
     try:
         token_claims = await auth.get_token_claims()
         username = token_claims.get("context", {}).get("user", {}).get("name")
     except Exception:
         username = None
+
     tasks = []
     is_more = ""
     if username:  # only get the tasks if the user is logged in
@@ -39,12 +40,22 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
         )
         tasks = resp.pop("tasks")
         is_more = resp.get("next_page_token")
+
+    for i in range(len(tasks)):
+        authz_tag = tasks[i]["tags"]["_AUTHZ"]
+        tasks[i]["owner_id"] = authz_tag.split(
+            "/services/workflow/gen3-workflow/tasks/"
+        )[1].split("/")[0]
+        tasks[i]["creation_time"] = parser.parse(tasks[i]["creation_time"])
+    tasks.sort(key=lambda x: x["creation_time"])
+
     return templates.TemplateResponse(
         request=request,
         name="ui.html",
         context={
             "hostname": f'https://{config["HOSTNAME"]}',
             "username": username,
+            "user_id": auth.get_user_id(),
             "tasks": tasks,
             "is_more": is_more,
         },

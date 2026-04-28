@@ -243,7 +243,6 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     """
     List the user's GA4GH TES tasks
     """
-    print("list_tasks auth", auth)
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' listing TES tasks")
 
