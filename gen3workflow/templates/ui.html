@@ -3,6 +3,9 @@
     <title>GA4GH TES tasks</title>
 </head>
 <body>
+    {% if username %}
+    <p>Logged in as '{{ username }}'.</p>
+    {% if tasks %}
     <table border="1" cellspacing="0" cellpadding="10">
         <tr>
             <th>Task ID</th>
@@ -27,8 +30,12 @@
         </tr>
         {% endfor %}
     </table>
-{% if is_more %}
-<p>Note: older tasks exist but are not displayed. Use the API directly to see them.</p>
-{% endif %}
+    {% endif %}
+    {% else %}
+    <p>You are not logged in. Login at <a href={{ hostname }}>{{ hostname }}</a>.</p>
+    {% endif %}
+    {% if is_more %}
+    <p>Note: older tasks exist but are not displayed. Use the API directly to see them.</p>
+    {% endif %}
 </body>
 </html>
