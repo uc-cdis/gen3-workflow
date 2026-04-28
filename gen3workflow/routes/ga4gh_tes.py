@@ -243,6 +243,10 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     """
     List the user's GA4GH TES tasks
     """
+    return await _list_tasks(request, auth)
+
+
+async def _list_tasks(request: Request, auth: Auth) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' listing TES tasks")
 
@@ -347,6 +351,10 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     """
     Cancel a GA4GH TES task
     """
+    return await _cancel_task(request, task_id, auth)
+
+
+async def _cancel_task(request: Request, task_id: str, auth: Auth) -> dict:
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' canceling TES task '{task_id}'")
 
