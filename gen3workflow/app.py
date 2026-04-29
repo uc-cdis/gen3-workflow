@@ -64,7 +64,6 @@ def get_app(httpx_client=None) -> FastAPI:
         title="Gen3Workflow",
         version=version("gen3workflow"),
         debug=config["APP_DEBUG"],
-        root_path=config["DOCS_URL_PREFIX"],
         generate_unique_id_function=generate_unique_route_id,
     )
 

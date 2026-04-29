@@ -58,6 +58,7 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
         name="ui.html",
         context={
             "hostname": f'https://{config["HOSTNAME"]}',
+            "proxy_prefix": config["PROXY_PREFIX"],
             "user_id": user_id,
             "username": username,
             "tasks": tasks,
@@ -74,4 +75,4 @@ async def cancel_task_from_ui(request: Request, task_id: str, auth=Depends(Auth)
     There might be a way to fix that, but this was faster.
     """
     await cancel_task(request, task_id, auth)
-    return RedirectResponse(request.url_for("tasks_ui"))
+    return RedirectResponse(f'{config["PROXY_PREFIX"]}/ui')
