@@ -7,7 +7,7 @@ from starlette.status import HTTP_200_OK
 
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
-from gen3workflow.routes.ga4gh_tes import list_tasks
+from gen3workflow.routes.ga4gh_tes import list_tasks, cancel_task
 
 router = APIRouter(prefix="/ui")
 
@@ -59,3 +59,8 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
             "is_more": is_more,
         },
     )
+
+
+@router.get("/cancel/{task_id}", status_code=HTTP_200_OK, include_in_schema=False)
+async def cancel_task_from_ui(request: Request, task_id: str, auth=Depends(Auth)):
+    return await cancel_task(request, task_id, auth)

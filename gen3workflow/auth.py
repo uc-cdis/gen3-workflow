@@ -51,7 +51,7 @@ class Auth:
 
         if not self.bearer_token:
             err_msg = "Must provide an access token"
-            logger.error(err_msg)
+            logger.warning(err_msg)
             raise HTTPException(
                 HTTP_401_UNAUTHORIZED,
                 err_msg,
