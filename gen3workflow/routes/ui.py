@@ -45,7 +45,10 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
         tasks[i]["owner_id"] = authz_tag.split(
             "/services/workflow/gen3-workflow/tasks/"
         )[1].split("/")[0]
-        tasks[i]["creation_time"] = parser.parse(tasks[i]["creation_time"])
+        simple_date = parser.parse(tasks[i]["creation_time"]).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        tasks[i]["creation_time"] = f"{simple_date} UTC"
     tasks.sort(key=lambda x: x["creation_time"])
 
     return templates.TemplateResponse(
@@ -63,4 +66,9 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
 
 @router.get("/cancel/{task_id}", status_code=HTTP_200_OK, include_in_schema=False)
 async def cancel_task_from_ui(request: Request, task_id: str, auth=Depends(Auth)):
+    """
+    Shortcut to the `POST /ga4gh/tes/v1/tasks/<task_id>:cancel` endpoint.
+    When the UI calls that endpoint directly, the user's credentials are missing.
+    There might be a way to fix that, but this was faster.
+    """
     return await cancel_task(request, task_id, auth)
