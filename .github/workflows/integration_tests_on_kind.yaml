@@ -7,6 +7,7 @@ jobs:
     name: Integration tests
     uses: uc-cdis/.github/.github/workflows/integration_tests.yaml@support-kind  # TODO remove pin
     with:
+      EXTERNAL_TO_CTDS: "true"
       SERVICE_TO_TEST: gen3_workflow
       # TODO replace `integration_tests_on_kind` with `master`
       SETUP_SCRIPT_1: https://raw.githubusercontent.com/uc-cdis/gen3-workflow/refs/heads/integration_tests_on_kind/.github/workflows/integration_tests_on_kind/ci_start_kind_cluster.sh
