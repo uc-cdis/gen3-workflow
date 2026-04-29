@@ -1,7 +1,7 @@
 from dateutil import parser
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.status import HTTP_200_OK
 
@@ -71,4 +71,5 @@ async def cancel_task_from_ui(request: Request, task_id: str, auth=Depends(Auth)
     When the UI calls that endpoint directly, the user's credentials are missing.
     There might be a way to fix that, but this was faster.
     """
-    return await cancel_task(request, task_id, auth)
+    await cancel_task(request, task_id, auth)
+    return RedirectResponse("/ui")
