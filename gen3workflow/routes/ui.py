@@ -74,4 +74,4 @@ async def cancel_task_from_ui(request: Request, task_id: str, auth=Depends(Auth)
     There might be a way to fix that, but this was faster.
     """
     await cancel_task(request, task_id, auth)
-    return RedirectResponse("/ui")
+    return RedirectResponse(request.url_for("tasks_ui"))
