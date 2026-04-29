@@ -49,7 +49,9 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
             "%Y-%m-%d %H:%M:%S"
         )
         tasks[i]["creation_time"] = f"{simple_date} UTC"
-    tasks.sort(key=lambda x: x["creation_time"])
+
+    # sort newest to oldest
+    tasks.sort(key=lambda x: x["creation_time"], reverse=True)
 
     return templates.TemplateResponse(
         request=request,
