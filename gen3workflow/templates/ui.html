@@ -1,0 +1,52 @@
+<html>
+<head>
+    <title>GA4GH TES tasks</title>
+</head>
+<body>
+    {% if username %}
+        <p>Logged in as: {{ username }} (ID {{ user_id }})</p>
+        {% if tasks %}
+            <table border="1" cellspacing="0" cellpadding="10">
+                <tr>
+                    <th>Owner ID</th>
+                    <th>Task ID</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Creation time</th>
+                    <th>Details</th>
+                    <th>Cancel</th>
+                </tr>
+                {% for task in tasks %}
+                    <tr>
+                        <td>{{ task.owner_id }}</td>
+                        <td>{{ task.id }}</td>
+                        <td>{{ task.name }}</td>
+                        <td>{{ task.state }}</td>
+                        <td>{{ task.creation_time }}</td>
+                        <td>
+                            <form action="{{ proxy_prefix }}/ga4gh/tes/v1/tasks/{{ task.id }}" method="get">
+                                <input type="hidden" name="view" value="FULL"/>
+                                <button type="submit">Details</button>
+                            </form>
+                        </td>
+                        {% if task.state != "SYSTEM_ERROR" and task.state != "EXECUTOR_ERROR" and task.state != "CANCELED" and task.state != "COMPLETE" %}
+                            <td>
+                                <form action="{{ proxy_prefix }}/ui/cancel/{{ task.id }}" method="get">
+                                    <button type="cancel">Cancel</button>
+                                </form>
+                            </td>
+                        {% else %}
+                            <td></td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            </table>
+        {% endif %}
+    {% else %}
+        <p>You are not logged in. Login at <a href={{ hostname }}>{{ hostname }}</a>.</p>
+    {% endif %}
+    {% if is_more %}
+        <p>Note: older tasks exist but are not displayed. Use the API directly to see them.</p>
+    {% endif %}
+</body>
+</html>
