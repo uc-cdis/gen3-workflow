@@ -29,15 +29,18 @@ class Gen3WorkflowConfig(Config):
         """
         schema = {
             "type": "object",
-            "additionalProperties": False,
+            # Forward compatibility: allow unknown configuration keys ("additionalProperties") so
+            # that the app remains functional when using configuration files from newer versions
+            "additionalProperties": True,
             "properties": {
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
                 "HTTPX_DEBUG": {"type": "boolean"},
-                "DOCS_URL_PREFIX": {"type": "string"},
+                "PROXY_PREFIX": {"type": ["string", "null"]},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},
                 "USER_BUCKETS_REGION": {"type": "string"},
+                "S3_UPSTREAM_ENDPOINT": {"type": ["string", "null"]},
                 "S3_OBJECTS_EXPIRATION_DAYS": {"type": "integer", "minimum": 1},
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY": {"type": ["string", "null"]},
@@ -46,6 +49,7 @@ class Gen3WorkflowConfig(Config):
                 "TES_SERVER_URL": {"type": "string"},
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
                 "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
+                "ENABLE_OPTIMIZED_NODE_SCHEDULING": {"type": "boolean"},
                 "WORKER_PODS_NAMESPACE": {"type": "string"},
                 "EKS_CLUSTER_NAME": {"type": "string"},
                 "EKS_CLUSTER_REGION": {"type": "string"},

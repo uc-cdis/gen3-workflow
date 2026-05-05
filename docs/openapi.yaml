@@ -496,29 +496,6 @@ paths:
       summary: S3 Endpoint
       tags:
       - S3
-  /storage/info:
-    get:
-      description: 'Return details about the current user''s storage setup.
-
-        This endpoint also serves as a mandatory "first time setup" for the user''s
-        bucket
-
-        and authz.'
-      operationId: storage_setup_2
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                additionalProperties: true
-                title: Response Storage Setup 2
-                type: object
-          description: Successful Response
-      security:
-      - HTTPBearer: []
-      summary: Storage Setup
-      tags:
-      - Storage
   /storage/setup:
     get:
       description: 'Return details about the current user''s storage setup.
@@ -576,3 +553,19 @@ paths:
       summary: Empty User Bucket
       tags:
       - Storage
+  /ui:
+    get:
+      description: A UI which allows for basic TES task management
+      operationId: tasks_ui
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                type: string
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Tasks Ui
+      tags:
+      - UI

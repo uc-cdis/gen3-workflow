@@ -65,7 +65,7 @@ Start the Gen3Workflow app:
 python run.py
 ```
 
-Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/docs> (you might have to set `DOCS_URL_PREFIX` to `""` in your configuration file for the docs endpoint to work).
+Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/docs>.
 
 > Note: Although the Gen3Workflow service can run as a standalone component, a complete end-to-end experience with Funnel and the Funnel plugin requires interaction with the Fence service. While support for this flow is planned for future releases, it is not currently supported out of the box.
 

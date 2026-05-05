@@ -16,6 +16,7 @@ from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import s3_root_router, s3_router
 from gen3workflow.routes.storage import router as storage_router
 from gen3workflow.routes.system import router as system_router
+from gen3workflow.routes.ui import router as ui_router
 
 
 def get_app(httpx_client=None) -> FastAPI:
@@ -63,7 +64,6 @@ def get_app(httpx_client=None) -> FastAPI:
         title="Gen3Workflow",
         version=version("gen3workflow"),
         debug=config["APP_DEBUG"],
-        root_path=config["DOCS_URL_PREFIX"],
         generate_unique_id_function=generate_unique_route_id,
     )
 
@@ -78,6 +78,7 @@ def get_app(httpx_client=None) -> FastAPI:
     app.include_router(s3_router, tags=["S3"])
     app.include_router(storage_router, tags=["Storage"])
     app.include_router(system_router, tags=["System"])
+    app.include_router(ui_router, tags=["UI"])
 
     # Following will update logger level, propagate, and handlers
     get_logger("gen3workflow", log_level=log_level)

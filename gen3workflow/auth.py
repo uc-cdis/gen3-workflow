@@ -51,7 +51,7 @@ class Auth:
 
         if not self.bearer_token:
             err_msg = "Must provide an access token"
-            logger.error(err_msg)
+            logger.warning(err_msg)
             raise HTTPException(
                 HTTP_401_UNAUTHORIZED,
                 err_msg,
@@ -64,7 +64,7 @@ class Auth:
         except Exception as e:
             err_msg = "Could not verify, parse, and/or validate provided access token"
             logger.error(
-                f"{err_msg}:\n{e.detail if hasattr(e, 'detail') else e}",
+                f"{err_msg}: {e.detail if hasattr(e, 'detail') else e}",
                 exc_info=True,
             )
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)

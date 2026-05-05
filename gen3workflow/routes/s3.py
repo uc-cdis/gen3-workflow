@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 import hashlib
 import random
+from typing import Tuple
 import urllib.parse
 
 import boto3
@@ -32,7 +33,9 @@ S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
 
-async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
+async def set_access_token_and_get_user_id(
+    auth: Auth, headers: Headers
+) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
     provided as the access key ID, from the Authorization header.
@@ -54,7 +57,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         headers (Headers): request headers
 
     Returns:
-        str: the user's ID
+        tuple(str, str): the user's ID and (if relevant) the client's ID
     """
     auth_header = headers.get("authorization")
     if not auth_header:
@@ -92,10 +95,10 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
     # ensure token validity
     token_claims = await auth.get_token_claims()
     sub = token_claims.get("sub")
+    client_id = token_claims.get("azp")
     if is_user_token:
         user_id = sub
     else:
-        client_id = token_claims.get("azp")
         if not client_id:
             # Format B (see docstring) should only be used by clients acting on behalf of a user.
             # It is not a valid format if the token is not linked to a client.
@@ -119,7 +122,7 @@ async def set_access_token_and_get_user_id(auth: Auth, headers: Headers) -> str:
         logger.error(f"{err_msg}. Debug: {is_user_token=} {token_claims=}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    return user_id
+    return user_id, client_id
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -187,7 +190,7 @@ async def s3_endpoint(path: str, request: Request):
     # S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
     # the list of files for a specific task.
     auth = Auth(api_request=request)
-    user_id = await set_access_token_and_get_user_id(auth, request.headers)
+    user_id, client_id = await set_access_token_and_get_user_id(auth, request.headers)
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )
@@ -196,13 +199,19 @@ async def s3_endpoint(path: str, request: Request):
     )
 
     # get the name of the user's bucket and ensure the user is making a call to their own bucket
-    logger.info(f"Incoming S3 request from user '{user_id}': '{request.method} {path}'")
+    logger.info(
+        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
+    )
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+
+    # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
+    # (as opposed to virtual-hosted style addressing)
+    path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
@@ -219,7 +228,10 @@ async def s3_endpoint(path: str, request: Request):
     # - path = my-bucket/pre/fix/file.txt
     #   request_path = /pre/fix/file.txt
     #   api_endpoint = pre/fix/file.txt
-    request_path = path.split(user_bucket)[1] or "/"
+    if path_style:
+        request_path = "/" + path.lstrip("/")
+    else:
+        request_path = path.split(user_bucket)[1] or "/"
     api_endpoint = "/".join(request_path.split("/")[1:])
 
     region = config["USER_BUCKETS_REGION"]
@@ -252,8 +264,12 @@ async def s3_endpoint(path: str, request: Request):
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
+    if path_style:
+        host = config["S3_UPSTREAM_ENDPOINT"].split("://")[1]  # remove the protocol
+    else:
+        host = f"{user_bucket}.s3.{region}.amazonaws.com"
     headers = {
-        "host": f"{user_bucket}.s3.{region}.amazonaws.com",
+        "host": host,
         "x-amz-date": timestamp,
     }
     for h in [
@@ -264,7 +280,7 @@ async def s3_endpoint(path: str, request: Request):
         "x-amz-trailer",
         "x-amz-copy-source",
     ]:
-        if request.headers.get(h):
+        if h in request.headers:
             headers[h] = request.headers[h]
     if (
         request.headers.get("x-amz-content-sha256")
@@ -275,7 +291,7 @@ async def s3_endpoint(path: str, request: Request):
         content_len = str(len(body))
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
-            if request.headers.get(h):
+            if h in request.headers:
                 headers[h] = content_len
 
     # get AWS credentials from the configuration or the current assumed role session
@@ -352,7 +368,10 @@ async def s3_endpoint(path: str, request: Request):
     headers["authorization"] = (
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
-    s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
+    if path_style:
+        s3_api_url = f"{config['S3_UPSTREAM_ENDPOINT'].rstrip('/')}/{api_endpoint}"
+    else:
+        s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to AWS S3 with the new Authorization header.
@@ -414,6 +433,10 @@ async def s3_endpoint(path: str, request: Request):
     # - return all the headers from the AWS response, except `x-amz-bucket-region` which for some
     # reason causes this error for tasks ran through Nextflow: `The AWS Access Key Id you provided
     # does not exist in our records`
+    if response.status_code == HTTP_403_FORBIDDEN:
+        for h in ["content-length", "x-amz-decoded-content-length"]:
+            if h in response.headers:
+                response.headers[h] = "0"
     return Response(
         content=(
             response.content if response.status_code != HTTP_403_FORBIDDEN else None
