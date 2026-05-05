@@ -23,7 +23,7 @@ global:
     # This lets funnel worker pods access the kube api to create executor jobs.
     # If disabled, an automatic lookup will be performed to get the IPs.
     enabled: true
-    ip :
+    ip:
     # -- <list of ip ranges of kubeapi> can be fetched by running `kubectl get endpoints --namespace default kubernetes` in your cluster.
       - x.x.x.x
 
