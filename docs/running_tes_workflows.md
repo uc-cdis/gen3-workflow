@@ -52,19 +52,19 @@ Upload your script to your S3 bucket, then reference it in your task definition:
   "description": "Demonstrates the most basic echo task.",
   "inputs": [
     {
-      "url": "s3://{{bucket_name}}/integration-tests/input.txt",
+      "url": "s3://{{bucket_name}}/{{your_path}}/input.txt",
       "path": "/data/input.txt"
     }
   ],
   "outputs": [
     {
       "path": "/data/output.txt",
-      "url": "s3://{{bucket_name}}/integration-tests/.output.txt",
+      "url": "s3://{{bucket_name}}/{{your_path}}/.output.txt",
       "type": "FILE"
     },
     {
       "path": "/data/grep_output.txt",
-      "url": "s3://{{bucket_name}}/integration-tests/.grep_output.txt",
+      "url": "s3://{{bucket_name}}/{{your_path}}/.grep_output.txt",
       "type": "FILE"
     }
   ],
