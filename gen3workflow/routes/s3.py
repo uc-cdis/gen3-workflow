@@ -212,7 +212,6 @@ async def s3_endpoint(path: str, request: Request):
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)
     path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
-    logger.debug(f"S3 PATH STYLE is: {path_style}")
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
@@ -374,13 +373,10 @@ async def s3_endpoint(path: str, request: Request):
     else:
         s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
-    logger.debug(f"S3 OUTGOING headers: {headers}")
-    logger.debug(f"S3 OUTGOING body: '{body}'")
 
     # forward the call to AWS S3 with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
     for attempt in range(1, S3_MAX_RETRIES + 1):
-        logger.debug(f"S3 OUTGOING attempt: {attempt}")
         proceed = True
         exception = None
         try:
@@ -437,8 +433,6 @@ async def s3_endpoint(path: str, request: Request):
     # - return all the headers from the AWS response, except `x-amz-bucket-region` which for some
     # reason causes this error for tasks ran through Nextflow: `The AWS Access Key Id you provided
     # does not exist in our records`
-    logger.debug(f"S3 RESPONSE content: '{response.content}'")
-    logger.debug(f"S3 RESPONSE headers: {response.headers}")
     if response.status_code == HTTP_403_FORBIDDEN:
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if h in response.headers:
