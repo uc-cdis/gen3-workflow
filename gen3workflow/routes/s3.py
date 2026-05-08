@@ -395,6 +395,8 @@ async def s3_endpoint(path: str, request: Request):
                         proceed = False
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
+            else:
+                logger.debug(f"Received response from S3: {response.status_code}'")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
             proceed = False
