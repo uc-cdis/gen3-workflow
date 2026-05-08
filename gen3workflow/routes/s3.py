@@ -202,6 +202,9 @@ async def s3_endpoint(path: str, request: Request):
     logger.info(
         f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
     )
+    for h, v in request.headers.items():
+        print(h, v)
+    print("")
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
@@ -373,6 +376,8 @@ async def s3_endpoint(path: str, request: Request):
         proceed = True
         exception = None
         try:
+            for h, v in headers.items():
+                print(h, v)
             response = await request.app.async_client.request(
                 method=request.method,
                 url=s3_api_url,
@@ -396,7 +401,7 @@ async def s3_endpoint(path: str, request: Request):
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
             else:
-                logger.debug(f"Received response from S3: {response.status_code}'")
+                logger.debug(f"Received response from S3: {response.status_code}")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
             proceed = False
