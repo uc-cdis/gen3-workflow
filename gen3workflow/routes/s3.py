@@ -202,15 +202,16 @@ async def s3_endpoint(path: str, request: Request):
     logger.info(
         f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
     )
-    for h, v in request.headers.items():
-        print(h, v)
-    print("")
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+
+    for h, v in request.headers.items():
+        print(h, v)
+    print("")
 
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)
@@ -275,19 +276,31 @@ async def s3_endpoint(path: str, request: Request):
         "host": host,
         "x-amz-date": timestamp,
     }
-    # for h in request.headers:
-    #     if h not in headers and h != "authorization":
+
+    with open("gen3workflow/routes/header_list.txt", "r") as f:
+        header_list = f.read()
+    header_list = [e for e in header_list.split("\n") if e]
+    # for h in [
+    #     "content-encoding",
+    #     "content-length",
+    #     "x-amz-content-sha256",
+    #     "x-amz-decoded-content-length",
+    #     "x-amz-trailer",
+    #     "x-amz-copy-source",
+    # ]:
+    #     if h in request.headers:
     #         headers[h] = request.headers[h]
-    for h in [
-        "content-encoding",
-        "content-length",
-        "x-amz-content-sha256",
-        "x-amz-decoded-content-length",
-        "x-amz-trailer",
-        "x-amz-copy-source",
-    ]:
-        if h in request.headers:
-            headers[h] = request.headers[h]
+    print("...header_list:", header_list)
+    if header_list:
+        for h in header_list:
+            if h in request.headers:
+                headers[h] = request.headers[h]
+    else:
+        print("...adding all headers")
+        for h in request.headers:
+            if h not in headers and h != "authorization":
+                headers[h] = request.headers[h]
+
     if (
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
