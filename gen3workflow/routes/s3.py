@@ -272,15 +272,8 @@ async def s3_endpoint(path: str, request: Request):
         "host": host,
         "x-amz-date": timestamp,
     }
-    for h in [
-        "content-encoding",
-        "content-length",
-        "x-amz-content-sha256",
-        "x-amz-decoded-content-length",
-        "x-amz-trailer",
-        "x-amz-copy-source",
-    ]:
-        if h in request.headers:
+    for h in request.headers:
+        if h not in headers and h != "authorization":
             headers[h] = request.headers[h]
     if (
         request.headers.get("x-amz-content-sha256")
