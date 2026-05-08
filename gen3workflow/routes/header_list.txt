@@ -1,6 +1,0 @@
-content-encoding
-content-length
-x-amz-content-sha256
-x-amz-decoded-content-length
-x-amz-trailer
-x-amz-copy-source

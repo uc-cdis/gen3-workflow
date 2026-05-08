@@ -209,9 +209,9 @@ async def s3_endpoint(path: str, request: Request):
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
-    for h, v in request.headers.items():
-        print(h, v)
-    print("")
+    # for h, v in request.headers.items():
+    #     print(h, v)
+    # print("")
 
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)
@@ -241,6 +241,11 @@ async def s3_endpoint(path: str, request: Request):
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
 
+    if path_style:
+        host = config["S3_UPSTREAM_ENDPOINT"].split("://")[1]  # remove the protocol
+    else:
+        host = f"{user_bucket}.s3.{region}.amazonaws.com"
+
     timestamp = request.headers.get("x-amz-date")
     if not timestamp and request.headers.get("date"):
         # assume RFC 1123 format, convert to ISO 8601 basic YYYYMMDD'T'HHMMSS'Z' format
@@ -251,56 +256,41 @@ async def s3_endpoint(path: str, request: Request):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
-    # Generate the request headers. Chunked payload support:
-    # - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
-    #   The body includes chunks and checksums. It can be forwarded to AWS without changes as long
-    #   as the necessary headers are forwarded as well.
-    # - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
-    #   Funnel uses this client.
-    #   We overwrite the original `x-amz-content-sha256` header value with the body hash and we
-    #   strip the body of the chunk signatures => protocol translation from a chunk-signed streaming
-    #   request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT).
-    #   We could also implement chunked signing but it's not straightforward and likely unnecessary.
-    # Note: Chunked uploads != multipart uploads.
+    # Generate the request headers
+    headers = {
+        "host": host,
+    }
+
+    # - Copy all relevant headers from the incoming request
+    #   https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html:
+    #   "For the purpose of calculating an authorization signature, only the host and any x-amz-*
+    #   headers are required; [...] Do not include hop-by-hop headers that are frequently altered
+    #   during transit across a complex system."
+    for h in request.headers:
+        if h.startswith("x-amz-"):
+            headers[h] = request.headers[h]
+
+    # - Add the `x-amz-date` header if it wasn't there
+    headers["x-amz-date"] = timestamp
+
+    # - Chunked payload support:
+    #   - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
+    #     The body includes chunks and checksums. It can be forwarded to AWS without changes as long
+    #     as the necessary headers are forwarded as well.
+    #   - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
+    #     Funnel uses this client.
+    #     We overwrite the original `x-amz-content-sha256` header value with the body hash and we
+    #     strip the body of the chunk signatures => protocol translation from a chunk-signed
+    #     streaming request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4
+    #     HTTP PUT). We could also implement chunked signing but it's not straightforward and
+    #     likely unnecessary.
+    #   Note: Chunked uploads != multipart uploads.
     try:
         body = await request.body()
     except ClientDisconnect:  # catch this to avoid throwing 500 errors
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
-    if path_style:
-        host = config["S3_UPSTREAM_ENDPOINT"].split("://")[1]  # remove the protocol
-    else:
-        host = f"{user_bucket}.s3.{region}.amazonaws.com"
-    headers = {
-        "host": host,
-        "x-amz-date": timestamp,
-    }
-
-    with open("gen3workflow/routes/header_list.txt", "r") as f:
-        header_list = f.read()
-    header_list = [e for e in header_list.split("\n") if e]
-    # for h in [
-    #     "content-encoding",
-    #     "content-length",
-    #     "x-amz-content-sha256",
-    #     "x-amz-decoded-content-length",
-    #     "x-amz-trailer",
-    #     "x-amz-copy-source",
-    # ]:
-    #     if h in request.headers:
-    #         headers[h] = request.headers[h]
-    print("...header_list:", header_list)
-    if header_list:
-        for h in header_list:
-            if h in request.headers:
-                headers[h] = request.headers[h]
-    else:
-        print("...adding all headers")
-        for h in request.headers:
-            if h not in headers and h != "authorization":
-                headers[h] = request.headers[h]
-
     if (
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
@@ -399,8 +389,8 @@ async def s3_endpoint(path: str, request: Request):
         proceed = True
         exception = None
         try:
-            for h, v in headers.items():
-                print(h, v)
+            # for h, v in headers.items():
+            #     print(h, v)
             response = await request.app.async_client.request(
                 method=request.method,
                 url=s3_api_url,
