@@ -170,10 +170,9 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     )
     body["tags"]["_AUTHZ"] = authz_resource
 
-    # TODO: Test running gen3-workflow locally and document this change
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
-            aws_utils.create_iam_role_for_bucket_access(user_id)
+            aws_utils.create_iam_role_for_funnel_bucket_access(user_id)
         )
         body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
 

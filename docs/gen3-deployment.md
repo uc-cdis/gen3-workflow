@@ -57,7 +57,7 @@ funnel: # <-- configure the Gen3 Funnel chart
 >
 > - *Cluster Configuration Requirement*
 >
-> Gen3Workflow requires the Gen3 Helm chart’s `.Values.global.clusterName` to be set to the name of the Amazon EKS cluster where Gen3 is deployed. While Gen3 strives to remain cloud-agnostic, Gen3Workflow currently requires Amazon EKS for supported operation. This value must be configured correctly to ensure proper deployment and integration.
+> Gen3Workflow requires the Gen3 Helm chart's `.Values.global.clusterName` to be set to the name of the Amazon EKS cluster where Gen3 is deployed. While Gen3 strives to remain cloud-agnostic, Gen3Workflow currently requires Amazon EKS for supported operation. This value must be configured correctly to ensure proper deployment and integration.
 
 
 ---

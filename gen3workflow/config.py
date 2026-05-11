@@ -50,9 +50,11 @@ class Gen3WorkflowConfig(Config):
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
                 "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
                 "ENABLE_OPTIMIZED_NODE_SCHEDULING": {"type": "boolean"},
-                "WORKER_PODS_NAMESPACE": {"type": "string"},
                 "EKS_CLUSTER_NAME": {"type": "string"},
                 "EKS_CLUSTER_REGION": {"type": "string"},
+                "APP_NAMESPACE": {"type": "string"},
+                "APP_SERVICE_ACCOUNT": {"type": "string"},
+                "WORKER_PODS_NAMESPACE": {"type": "string"},
             },
         }
         validate(instance=self, schema=schema)

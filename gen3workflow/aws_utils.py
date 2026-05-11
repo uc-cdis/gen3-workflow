@@ -120,9 +120,10 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         raise
 
 
-def create_iam_role_for_bucket_access(user_id: str) -> str:
+def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
     """
     Create an IAM role that can be assumed by EC2 instances to access the specified S3 bucket and KMS keys (if enabled).
+
     Args:
         user_id (str): The user's unique Gen3 ID
     Returns:
@@ -142,8 +143,6 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
         "cluster"
     ]["identity"]["oidc"]["issuer"].replace("https://", "")
 
-    worker_namespace = config["WORKER_PODS_NAMESPACE"]
-
     assume_role_policy_document = {
         "Version": "2012-10-17",
         "Statement": [
@@ -160,7 +159,7 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
                     "StringEquals": {
-                        f"{oidc_token_url}:sub": f"system:serviceaccount:{worker_namespace}:{get_worker_sa_name(user_id)}",
+                        f"{oidc_token_url}:sub": f"system:serviceaccount:{config["WORKER_PODS_NAMESPACE"]}:{get_worker_sa_name(user_id)}",
                         f"{oidc_token_url}:aud": "sts.amazonaws.com",
                     }
                 },
@@ -183,21 +182,152 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
                 PolicyDocument=json.dumps(assume_role_policy_document),
             )
     except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchEntity":
-            logger.info(f"Creating IAM role '{role_name}'")
-            worker_role = iam_client.create_role(
-                RoleName=role_name,
-                AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-                Tags=[
-                    {
-                        "Key": "Name",
-                        "Value": get_safe_name_from_hostname(user_id=None),
-                    }
-                ],
-            )
-            logger.info(f"Created IAM role '{role_name}'")
-        else:
+        if e.response["Error"]["Code"] != "NoSuchEntity":
             raise
+        logger.info(f"Creating IAM role '{role_name}'")
+        worker_role = iam_client.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
+            Tags=[
+                {
+                    "Key": "Name",
+                    "Value": get_safe_name_from_hostname(user_id=None),
+                }
+            ],
+        )
+        logger.info(f"Created IAM role '{role_name}'")
+
+    policy_name = f"{role_name}-s3-access"
+    policy_document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket",
+                    "s3:GetBucketLocation",
+                ],
+                "Resource": f"arn:aws:s3:::{bucket_name}",
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                ],
+                "Resource": f"arn:aws:s3:::{bucket_name}/*",
+            },
+        ],
+    }
+
+    if config["KMS_ENCRYPTION_ENABLED"]:
+        _, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
+        if not kms_key_arn:
+            err_msg = "Bucket misconfigured. Hit the `GET /storage/setup` endpoint and try again."
+            logger.error(
+                f"No existing KMS key found for bucket '{bucket_name}'. {err_msg}"
+            )
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+        logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
+        policy_document["Statement"].append(
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "kms:Decrypt",
+                    "kms:Encrypt",
+                    "kms:GenerateDataKey*",
+                ],
+                "Resource": kms_key_arn,
+            }
+        )
+
+    iam_client.put_role_policy(
+        RoleName=role_name,
+        PolicyName=policy_name,
+        PolicyDocument=json.dumps(policy_document),
+    )
+    logger.info(f"Updated IAM policy '{policy_name}' for role '{role_name}'")
+
+    return worker_role["Role"]["Arn"]
+
+
+def create_iam_role_for_user_bucket_access(user_id: str) -> str:
+    """
+    Create an IAM role that can be assumed by end users to access the specified S3 bucket and KMS keys (if enabled).
+    TODO reuse code from `create_iam_role_for_funnel_bucket_access`
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+    Returns:
+        str: ARN of the created IAM role
+    Raises:
+        Exception: If there is an error during the creation or updating of the IAM role or policy
+    """
+    role_name_suffix = "-bucket-role"
+    safe_name = get_safe_name_from_hostname(
+        user_id, reserved_length=len(role_name_suffix)
+    )
+    role_name = f"{safe_name}{role_name_suffix}"
+    bucket_name = get_bucket_name_from_user_id(user_id)
+    aws_account_id = sts_client.get_caller_identity().get("Account")
+    oidc_token_url = eks_client.describe_cluster(name=config["EKS_CLUSTER_NAME"])[
+        "cluster"
+    ]["identity"]["oidc"]["issuer"].replace("https://", "")
+
+    assume_role_policy_document = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "ec2.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+            },
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    f"Federated": f"arn:aws:iam::{aws_account_id}:oidc-provider/{oidc_token_url}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        f"{oidc_token_url}:sub": f"system:serviceaccount:{config["APP_NAMESPACE"]}:gen3-workflow-sa",
+                        f"{oidc_token_url}:aud": "sts.amazonaws.com",
+                    }
+                },
+            },
+        ],
+    }
+
+    try:
+        worker_role = iam_client.get_role(RoleName=role_name)
+        logger.info(f"IAM role '{role_name}' already exists")
+        current_policy = dict_to_sorted_json_str(
+            worker_role["Role"]["AssumeRolePolicyDocument"]
+        )
+        updated_policy = dict_to_sorted_json_str(assume_role_policy_document)
+
+        if current_policy != updated_policy:
+            logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
+            iam_client.update_assume_role_policy(
+                RoleName=role_name,
+                PolicyDocument=json.dumps(assume_role_policy_document),
+            )
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "NoSuchEntity":
+            raise
+        logger.info(f"Creating IAM role '{role_name}'")
+        worker_role = iam_client.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
+            MaxSessionDuration=43200,  # 12 hours
+            Tags=[
+                {
+                    "Key": "Name",
+                    "Value": get_safe_name_from_hostname(user_id=None),
+                }
+            ],
+        )
+        logger.info(f"Created IAM role '{role_name}'")
 
     policy_name = f"{role_name}-s3-access"
     policy_document = {
@@ -256,6 +386,7 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
 def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     """
     Set up KMS encryption on the bucket.
+
     Args:
         bucket_name (str): name of the bucket to setup KMS encryption
     Returns:
@@ -297,6 +428,9 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         },
     )
 
+    # The deny in this policy fires when the headers are present but wrong (e.g. trying not to use
+    # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
+    # is accepted and AWS falls back on the bucket's default encryption (set above).
     logger.debug("Enforcing KMS encryption through bucket policy")
     s3_client.put_bucket_policy(
         Bucket=bucket_name,
@@ -316,8 +450,11 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
                     "Action": "s3:PutObject",
                     "Resource": "arn:aws:s3:::{bucket_name}/*",
                     "Condition": {{
-                        "StringNotEquals": {{
+                        "StringNotEqualsIfExists": {{
                             "s3:x-amz-server-side-encryption": "aws:kms"
+                        }},
+                        "Null": {{
+                            "s3:x-amz-server-side-encryption": "false"
                         }}
                     }}
                 }},
@@ -328,8 +465,14 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
                     "Action": "s3:PutObject",
                     "Resource": "arn:aws:s3:::{bucket_name}/*",
                     "Condition": {{
-                        "StringNotEquals": {{
-                            "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
+                        "StringNotEqualsIfExists": {{
+                            "s3:x-amz-server-side-encryption-aws-kms-key-id": [
+                                "{kms_key_arn}",
+                                "{kms_key_alias}"
+                            ]
+                        }},
+                        "Null": {{
+                            "s3:x-amz-server-side-encryption-aws-kms-key-id": "false"
                         }}
                     }}
                 }}

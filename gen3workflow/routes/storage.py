@@ -1,3 +1,5 @@
+import uuid
+
 from gen3authz.client.arborist.errors import ArboristError
 from fastapi import APIRouter, Depends, Request, HTTPException
 from starlette.status import (
@@ -43,6 +45,13 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
+    role_arn = aws_utils.create_iam_role_for_user_bucket_access(user_id)
+    assume_role_creds = aws_utils.sts_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName=f"gen3wf-{aws_utils.get_safe_name_from_hostname(user_id, reserved_length=5)}-{str(uuid.uuid4())[:5]}",
+        DurationSeconds=43200,  # 12 hours
+    )["Credentials"]
+
     return {
         "bucket": bucket_name,
         "workdir": f"s3://{bucket_name}/{bucket_prefix}",
@@ -50,6 +59,7 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         "kms_key_arn": (
             kms_key_arn if config["KMS_ENCRYPTION_ENABLED"] and kms_key_arn else None
         ),
+        "credentials": assume_role_creds,
     }
 
 
