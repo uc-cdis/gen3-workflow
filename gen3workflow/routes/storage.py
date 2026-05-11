@@ -45,12 +45,18 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
-    role_arn = aws_utils.create_iam_role_for_user_bucket_access(user_id)
-    assume_role_creds = aws_utils.sts_client.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName=f"gen3wf-{aws_utils.get_safe_name_from_hostname(user_id, reserved_length=5)}-{str(uuid.uuid4())[:5]}",
-        DurationSeconds=43200,  # 12 hours
-    )["Credentials"]
+    assume_role_creds = "Error"
+    try:
+        role_arn = aws_utils.create_iam_role_for_user_bucket_access(user_id)
+        assume_role_creds = aws_utils.sts_client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName=f"gen3wf-{aws_utils.get_safe_name_from_hostname(user_id, reserved_length=5)}-{str(uuid.uuid4())[:5]}",
+            DurationSeconds=43200,  # 12 hours
+        )["Credentials"]
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
 
     return {
         "bucket": bucket_name,
