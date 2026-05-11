@@ -209,10 +209,6 @@ async def s3_endpoint(path: str, request: Request):
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
-    # for h, v in request.headers.items():
-    #     print(h, v)
-    # print("")
-
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)
     path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
@@ -270,10 +266,10 @@ async def s3_endpoint(path: str, request: Request):
         if h.startswith("x-amz-"):
             headers[h] = request.headers[h]
 
-    # The Minio-go S3 client sets the `x-amz-server-side-encryption-context` header to
-    # `{"Context":{"Context":{"Context":{}}}}`, triggering this error: "The header
-    # 'x-amz-server-side-encryption-context' shall be Base64-encoded UTF-8 string holding JSON
-    # which represents a string-string map". Band-aid fix: drop it
+    # - The Minio-go S3 client sets the `x-amz-server-side-encryption-context` header to
+    #   `{"Context":{"Context":{"Context":{}}}}`, triggering this error: "The header
+    #   'x-amz-server-side-encryption-context' shall be Base64-encoded UTF-8 string holding JSON
+    #   which represents a string-string map". Band-aid fix: drop it
     headers.pop("x-amz-server-side-encryption-context", None)
 
     # - Add the `x-amz-date` header if it wasn't there
@@ -361,7 +357,7 @@ async def s3_endpoint(path: str, request: Request):
         f"{canonical_headers}"
         f"\n"
         f"{signed_headers}\n"
-        f"{headers['x-amz-content-sha256']}"
+        f"{headers.get('x-amz-content-sha256', '')}"
     )
 
     # construct the string to sign based on the canonical request
@@ -395,8 +391,6 @@ async def s3_endpoint(path: str, request: Request):
         proceed = True
         exception = None
         try:
-            # for h, v in headers.items():
-            #     print(h, v)
             response = await request.app.async_client.request(
                 method=request.method,
                 url=s3_api_url,
@@ -411,20 +405,16 @@ async def s3_endpoint(path: str, request: Request):
                 # stderr output files may not be present when there were no errors)
                 if response.status_code != HTTP_404_NOT_FOUND:
                     logger.error(
-                        f"(attempt {attempt}/{S3_MAX_RETRIES}) Error from S3: {response.status_code} {response.text}"
+                        f"Error from S3: {response.status_code} {response.text}"
                     )
                     # do not retry in the case of a 403 error: authentication is done internally by
                     # this function, so 403 errors are internal service errors
                     if response.status_code != HTTP_403_FORBIDDEN:
                         proceed = False
                 else:
-                    logger.debug(
-                        f"(attempt {attempt}/{S3_MAX_RETRIES}) Error from S3: {response.status_code}"
-                    )
-            else:
-                logger.debug(
-                    f"(attempt {attempt}/{S3_MAX_RETRIES}) Received response from S3: {response.status_code}"
-                )
+                    logger.debug(f"Error from S3: {response.status_code}")
+            else:  # TODO remove
+                logger.debug(f"Received response from S3: {response.status_code}")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
             proceed = False
@@ -436,7 +426,7 @@ async def s3_endpoint(path: str, request: Request):
             break
         if attempt == S3_MAX_RETRIES:
             logger.error(
-                f"Outgoing S3 request failed {S3_MAX_RETRIES} times. Giving up"
+                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_RETRIES}). Giving up"
             )
             if exception:
                 raise exception
