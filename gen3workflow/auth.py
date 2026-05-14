@@ -67,7 +67,6 @@ class Auth:
                 f"{err_msg}: {e.detail if hasattr(e, 'detail') else e}",
                 exc_info=True,
             )
-            logger.error(f"TOKEN: {self.get_access_token()}")  # TODO remove this
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
         return token_claims
