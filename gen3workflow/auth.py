@@ -58,9 +58,9 @@ class Auth:
             )
 
         try:
-            token_claims = await access_token("user", "openid", purpose="access")(
-                self.bearer_token
-            )
+            token_claims = await access_token(
+                "user", "openid", audience=["Gen3", "TES"], purpose="access"
+            )(self.bearer_token)
         except Exception as e:
             err_msg = "Could not verify, parse, and/or validate provided access token"
             logger.error(

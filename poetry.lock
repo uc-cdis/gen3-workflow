@@ -72,19 +72,17 @@ joserfc = ">=1.6.0"
 
 [[package]]
 name = "authutils"
-version = "7.2.6"
+version = "8.0.0"
 description = "Gen3 auth utility functions"
 optional = false
-python-versions = "<4.0,>=3.13"
+python-versions = ">=3.13, <4.0"
 groups = ["main"]
-files = [
-    {file = "authutils-7.2.6-py3-none-any.whl", hash = "sha256:719c0585a012b0eb3b637f21ecced643d7bed432339350e2cdb3af5e54dd9691"},
-    {file = "authutils-7.2.6.tar.gz", hash = "sha256:956066f52b0dfb28971e015749078a4b1c935b277e544268c659819f6e7b3019"},
-]
+files = []
+develop = false
 
 [package.dependencies]
 authlib = ">=1.6.6"
-cached-property = ">=1.4,<2.0"
+cached-property = "~=1.4"
 cdiserrors = "*"
 cdislogging = "*"
 cryptography = ">=46.0.5"
@@ -92,12 +90,18 @@ httpx = ">=0.23.0,<1.0.0"
 pyjwt = {version = ">=2.4.0,<3.0", extras = ["crypto"]}
 starlette = "*"
 werkzeug = ">=3.1.5"
-xmltodict = ">=0.9,<1.0"
+xmltodict = "~=0.9"
 
 [package.extras]
 datamodelutils = ["datamodelutils"]
 fastapi = ["fastapi"]
 flask = ["Flask"]
+
+[package.source]
+type = "git"
+url = "https://github.com/uc-cdis/authutils"
+reference = "validate-aud"
+resolved_reference = "c2c3552de3201ac093b0774da6e8a3710c442936"
 
 [[package]]
 name = "backoff"
@@ -2003,4 +2007,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "832029ce6af63001e9ee715dc123cfc55f9fc5a29bc6b7c8dacc923fa31f1b48"
+content-hash = "76d5b07ac62935ea3b128cc646b9ce17bbf2528c1be5026d36b4c1e23b4cc056"
