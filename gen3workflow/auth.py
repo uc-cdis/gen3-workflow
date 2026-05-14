@@ -58,15 +58,16 @@ class Auth:
             )
 
         try:
-            token_claims = await access_token("user", "openid", purpose="access")(
-                self.bearer_token
-            )
+            token_claims = await access_token(
+                "user", "openid", audience=["Gen3", "TES"], purpose="access"
+            )(self.bearer_token)
         except Exception as e:
             err_msg = "Could not verify, parse, and/or validate provided access token"
             logger.error(
                 f"{err_msg}: {e.detail if hasattr(e, 'detail') else e}",
                 exc_info=True,
             )
+            logger.error(f"TOKEN: {self.get_access_token()}")  # TODO remove this
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
         return token_claims
