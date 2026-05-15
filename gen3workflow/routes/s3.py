@@ -142,7 +142,7 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
-def chunked_to_non_chunked_body(body: str) -> str:
+def chunked_to_non_chunked_body(body: bytes) -> bytes:
     """
     Turn a chunked body into a non-chunked body.
 
@@ -152,9 +152,27 @@ def chunked_to_non_chunked_body(body: str) -> str:
     Final chunk:
         0;chunk-signature=<sig>\r\n\r\n
 
-    Strip and return the data without the chunk signatures.
+    Parse the chunks and return a non-chunked body.
     """
-    return b"".join([e for e in body.split(b"\r\n") if b";chunk-signature=" not in e])
+    result = []
+    i = 0
+    while i < len(body):
+        # find the end of the chunk
+        line_end = body.index(b"\r\n", i)
+        line = body[i:line_end]
+        i = line_end + 2  # skip the separator `\r\n`
+
+        # strip chunk extensions (such as the signature) and extract the chunk size
+        chunk_size_hex = line.split(b";")[0]
+        chunk_size = int(chunk_size_hex, 16)
+
+        if chunk_size == 0:
+            break  # final chunk
+
+        result.append(body[i : i + chunk_size])  # extract exactly `chunk_size` bytes
+        i += chunk_size + 2  # skip chunk data + the separator `\r\n`
+
+    return b"".join(result)
 
 
 @s3_root_router.api_route(
