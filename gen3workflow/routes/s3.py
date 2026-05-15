@@ -298,7 +298,9 @@ async def s3_endpoint(path: str, request: Request):
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
     ):
         # parse the body and update the corresponding headers
+        print("BEFORE chunked_to_non_chunked_body:", body)  # TODO remove this
         body = chunked_to_non_chunked_body(body)
+        print("AFTER chunked_to_non_chunked_body:", body)  # TODO remove this
         content_len = str(len(body))
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:

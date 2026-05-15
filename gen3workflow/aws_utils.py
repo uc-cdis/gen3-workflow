@@ -254,6 +254,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
 def create_iam_role_for_user_bucket_access(user_id: str) -> str:
     """
     Create an IAM role that can be assumed by end users to access the specified S3 bucket and KMS keys (if enabled).
+    TODO WIP to enable temporary assumed role credentials for users
     TODO reuse code from `create_iam_role_for_funnel_bucket_access`
 
     Args:
