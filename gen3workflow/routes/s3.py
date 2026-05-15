@@ -306,6 +306,8 @@ async def s3_endpoint(path: str, request: Request):
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if h in request.headers:
                 headers[h] = content_len
+    else:
+        print("non chunked body:", body)  # TODO remove this
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
