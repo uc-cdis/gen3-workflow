@@ -79,7 +79,7 @@ for concurrency in [50, 100, 150, 200]:
             "n_sequential_runs": N_SEQ_RUNS,
             "n_concurrent_runs": concurrency,
             "body": {
-                "name": "Hello-World",
+                "name": f"Hello-World (concurrency {concurrency})",
                 "executors": [
                     {
                         "image": "quay.io/nextflow/bash",
@@ -98,7 +98,7 @@ for concurrency in [50, 100, 150, 200]:
             "n_sequential_runs": N_SEQ_RUNS,
             "n_concurrent_runs": concurrency,
             "body": {
-                "name": "Hello-World",
+                "name": f"Hello-World (GPU, concurrency {concurrency})",
                 "tags": {"_GPU": "yes"},
                 "executors": [
                     {
@@ -328,7 +328,7 @@ async def run_nextflow_workflow(seq_id: int, conc_id: int, config: dict) -> RunS
         "-c",
         os.path.join(CURRENT_DIR, "base_nextflow.config"),
         "--n_tasks",
-        f"{config["n_tasks"]}",
+        f"{config['n_tasks']}",
     ]
     return await run_command(
         cmd,

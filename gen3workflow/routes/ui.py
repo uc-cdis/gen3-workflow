@@ -42,9 +42,13 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
 
     for i in range(len(tasks)):
         authz_tag = tasks[i]["tags"]["_AUTHZ"]
-        tasks[i]["owner_id"] = authz_tag.split(
-            "/services/workflow/gen3-workflow/tasks/"
-        )[1].split("/")[0]
+        try:
+            owner_id = authz_tag.split("/services/workflow/gen3-workflow/tasks/")[
+                1
+            ].split("/")[0]
+        except Exception:
+            owner_id = ""
+        tasks[i]["owner_id"] = owner_id
         simple_date = parser.parse(tasks[i]["creation_time"]).strftime(
             "%Y-%m-%d %H:%M:%S"
         )

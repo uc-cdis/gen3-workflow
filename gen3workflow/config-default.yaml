@@ -65,7 +65,7 @@ PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
 ENABLE_OPTIMIZED_NODE_SCHEDULING: true
 
 # When Gen3Workflow runs on an EKS cluster, it relies on IAM Roles for Service Accounts (IRSA)
-# to provide AWS permissions to Funnel’s worker and executor pods.
+# to provide AWS permissions to Funnel's worker and executor pods.
 #
 # The parameters below are required for Gen3Workflow to:
 #   - Identify the Kubernetes namespace where worker pods run, to construct the correct IAM role trust relationship
