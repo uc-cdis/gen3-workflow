@@ -316,16 +316,12 @@ async def s3_endpoint(path: str, request: Request):
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
     ):
         # parse the body and update the corresponding headers
-        print("BEFORE chunked_to_non_chunked_body:", body)  # TODO remove this
         body = chunked_to_non_chunked_body(body)
-        print("AFTER chunked_to_non_chunked_body:", body)  # TODO remove this
         content_len = str(len(body))
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if h in request.headers:
                 headers[h] = content_len
-    else:
-        print("non chunked body:", body)  # TODO remove this
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -435,8 +431,6 @@ async def s3_endpoint(path: str, request: Request):
                         proceed = False
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
-            else:  # TODO remove
-                logger.debug(f"Received response from S3: {response.status_code}")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
             proceed = False
