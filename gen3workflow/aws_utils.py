@@ -347,6 +347,7 @@ def create_iam_role_for_user_bucket_access(user_id: str) -> str:
                 "Action": [
                     "s3:PutObject",
                     "s3:GetObject",
+                    "s3:DeleteObject",
                 ],
                 "Resource": f"arn:aws:s3:::{bucket_name}/*",
             },

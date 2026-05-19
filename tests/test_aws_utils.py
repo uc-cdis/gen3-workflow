@@ -113,6 +113,7 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
                     "Action": [
                         "s3:PutObject",
                         "s3:GetObject",
+                        "s3:DeleteObject",
                     ],
                     "Resource": f"arn:aws:s3:::gen3wf-localhost-{TEST_USER_ID}/*",
                 },
@@ -287,6 +288,7 @@ def test_create_role_for_bucket_access_with_no_kms_enabled(
                     "Action": [
                         "s3:PutObject",
                         "s3:GetObject",
+                        "s3:DeleteObject",
                     ],
                     "Resource": f"arn:aws:s3:::gen3wf-localhost-{TEST_USER_ID}/*",
                 },
