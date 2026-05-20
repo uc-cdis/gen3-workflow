@@ -60,8 +60,10 @@ class Auth:
             )
 
         try:
+            # TODO: remove "user" - it's a workaround to accept old-fence tokens that do not have
+            # the updated aud and that are not aud-validated
             token_claims = await access_token(
-                "user", "openid", audience=["gen3", "TES"], purpose="access"
+                "user", "openid", audience=["user", "gen3", "TES"], purpose="access"
             )(self.bearer_token)
         except Exception as e:
             err_msg = "Could not verify, parse, and/or validate provided access token"
@@ -177,7 +179,7 @@ class Auth:
             # the policy already exists, but it may be outdated
             existing_policy_hash = existing_policy["description"].split("HASH=")[-1]
             if policy_hash == existing_policy_hash:
-                # the policy is up to date
+                # the policy exists and is up to date
                 create_or_update_policy = False
 
         grant_policy = True

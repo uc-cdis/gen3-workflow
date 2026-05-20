@@ -268,7 +268,6 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
         request.app.async_client, "get", url, params=query_params
     )
     listed_tasks = res.json()
-    print("listed_tasks1:", json.dumps(listed_tasks))
 
     # get all the tasks' authz resource paths, replacing the task ID placeholder with the actual ID
     all_resource_paths = set()
@@ -278,7 +277,6 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
                 "TASK_ID_PLACEHOLDER", task.get("id")
             )
             all_resource_paths.add(task["tags"]["_AUTHZ"])
-    print("all_resource_paths:", all_resource_paths)
 
     # ask arborist which resource paths the current user has access to.
     # `user_access` format: { <resource path>: True if user has access, False otherwise }
@@ -293,7 +291,6 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     except ArboristError as e:
         logger.error(e.message)
         raise HTTPException(e.code, e.message)
-    print("user_access:", json.dumps(user_access))
 
     # filter out tasks the current user does not have access to
     listed_tasks["tasks"] = [
@@ -301,7 +298,6 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
         for task in listed_tasks.get("tasks", [])
         if user_access.get(task.get("tags", {}).get("_AUTHZ"))
     ]
-    print("listed_tasks2:", json.dumps(listed_tasks))
 
     return listed_tasks
 
