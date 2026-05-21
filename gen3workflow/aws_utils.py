@@ -435,6 +435,9 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
     # is accepted and AWS falls back on the bucket's default encryption (set above).
     logger.debug("Enforcing KMS encryption through bucket policy")
+    # TODO: this change should allow us to stop specifying the KMS key in the funnel config: we
+    # allow not specifying a KMS key, in which case it uses the default one. However if it is
+    # specified, it must be the expected key.
     s3_client.put_bucket_policy(
         Bucket=bucket_name,
         # using 2 statements here, because for some reason the condition below allows using a
