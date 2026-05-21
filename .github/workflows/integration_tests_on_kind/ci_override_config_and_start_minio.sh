@@ -10,7 +10,7 @@ MINIO_SERVICE_URL="http://minio.${NAMESPACE}.svc.cluster.local:9000"
 
 # Keep the config files for the services we need, delete the rest
 cd gen3-gitops-ci/ci/default/values && mkdir ../to-keep
-mv arborist.yaml fence.yaml funnel.yaml gen3-workflow.yaml indexd.yaml revproxy.yaml values.yaml ../to-keep
+mv arborist.yaml awshelper.yaml fence.yaml funnel.yaml gen3-workflow.yaml indexd.yaml revproxy.yaml values.yaml ../to-keep
 rm ./* && mv ../to-keep/* .
 
 yq eval -i '.gen3-workflow.enabled = true' gen3-workflow.yaml
