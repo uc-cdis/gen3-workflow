@@ -219,7 +219,7 @@ authz:
       role_ids:
         - gen3_workflow_reader
       resource_paths:
-        - /services/workflow/gen3-workflow/tasks/main@example.org
+        - /services/workflow/gen3-workflow/tasks/1
     - id: gen3_workflow_storage_admin
       description: Allows access to manage all the user buckets
       role_ids:
@@ -235,7 +235,7 @@ authz:
               subresources:
                 - name: tasks
                   subresources:
-                    - name: main@example.org
+                    - name: 1  # 1 is main@example.org
                 - name: storage
   roles:
     - id: gen3_workflow_reader
