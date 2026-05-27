@@ -76,6 +76,4 @@ ENABLE_OPTIMIZED_NODE_SCHEDULING: true
 # with the corresponding service accounts used by Funnel pods.
 EKS_CLUSTER_NAME: ""
 EKS_CLUSTER_REGION: us-east-1
-APP_NAMESPACE: brhstaging-helm  # TODO move this config to gen3-helm
-APP_SERVICE_ACCOUNT: "gen3-workflow-sa"
 WORKER_PODS_NAMESPACE: default-namespace
