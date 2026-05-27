@@ -313,9 +313,6 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         logger.debug("Bucket encryption is already up to date")
 
     logger.debug("Enforcing KMS encryption through bucket policy")
-    # The deny in this policy fires when the headers are present but wrong (e.g. trying not to use
-    # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
-    # is accepted and AWS falls back on the bucket's default encryption (set above).
     try:
         existing_bucket_policy = json.loads(
             s3_client.get_bucket_policy(Bucket=bucket_name)["Policy"]
@@ -325,15 +322,10 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         if error_code != "NoSuchBucketPolicy":
             raise
         existing_bucket_policy = None
-    # using 2 statements here, because for some reason the condition below allows using a
-    # different key as long as "s3:x-amz-server-side-encryption: aws:kms" is specified:
-    # "StringNotEquals": {
-    #     "s3:x-amz-server-side-encryption": "aws:kms",
-    #     "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
-    # }
-    # TODO: this change should allow us to stop specifying the KMS key in the funnel config: we
-    # allow not specifying a KMS key, in which case it uses the default one. However if it is
-    # specified, it must be the expected key.
+    # The deny in this policy fires when the headers are present but wrong (e.g. trying not to use
+    # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
+    # is accepted and AWS falls back on the bucket's default encryption (set above).
+    # TODO: stop specifying the KMS key in the funnel config
     new_bucket_policy = {
         "Version": "2012-10-17",
         "Statement": [
