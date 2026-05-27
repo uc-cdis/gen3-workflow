@@ -514,16 +514,22 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         logger.info(
             f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user '{user_id}'"
         )
-        if config["USER_BUCKETS_REGION"] == "us-east-1":
-            # it's the default region and cannot be specified in `LocationConstraint`
-            s3_client.create_bucket(Bucket=user_bucket_name)
-        else:
-            s3_client.create_bucket(
-                Bucket=user_bucket_name,
-                CreateBucketConfiguration={
-                    "LocationConstraint": config["USER_BUCKETS_REGION"]
-                },
-            )
+        try:
+            if config["USER_BUCKETS_REGION"] == "us-east-1":
+                # it's the default region and cannot be specified in `LocationConstraint`
+                s3_client.create_bucket(Bucket=user_bucket_name)
+            else:
+                s3_client.create_bucket(
+                    Bucket=user_bucket_name,
+                    CreateBucketConfiguration={
+                        "LocationConstraint": config["USER_BUCKETS_REGION"]
+                    },
+                )
+        except s3_client.exceptions.BucketAlreadyOwnedByYou:
+            # `An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation:
+            # Your previous request to create the named bucket succeeded and you already own it.`
+            # This can happen if this function is called multiple times in a row.
+            pass
         logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
         expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
