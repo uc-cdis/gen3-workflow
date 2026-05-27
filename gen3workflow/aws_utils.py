@@ -1,4 +1,6 @@
 import json
+import random
+import time
 from typing import Tuple, Union
 
 from fastapi import HTTPException
@@ -416,76 +418,98 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         logger.debug(f"Created KMS key alias '{kms_key_alias}'")
 
     logger.debug(f"Setting KMS encryption on bucket '{bucket_name}'")
-    s3_client.put_bucket_encryption(
-        Bucket=bucket_name,
-        ServerSideEncryptionConfiguration={
-            "Rules": [
-                {
-                    "ApplyServerSideEncryptionByDefault": {
-                        "SSEAlgorithm": "aws:kms",
-                        "KMSMasterKeyID": kms_key_arn,
-                    },
-                    "BucketKeyEnabled": True,
+    try:
+        existing_bucket_encryption = s3_client.get_bucket_encryption(
+            Bucket=bucket_name
+        )["ServerSideEncryptionConfiguration"]
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code != "ServerSideEncryptionConfigurationNotFoundError":
+            raise
+        existing_bucket_encryption = None
+    new_bucket_encryption = {
+        "Rules": [
+            {
+                "ApplyServerSideEncryptionByDefault": {
+                    "SSEAlgorithm": "aws:kms",
+                    "KMSMasterKeyID": kms_key_arn,
                 },
-            ],
-        },
-    )
+                "BucketKeyEnabled": True,
+            },
+        ],
+    }
+    if new_bucket_encryption != existing_bucket_encryption:
+        s3_client.put_bucket_encryption(
+            Bucket=bucket_name,
+            ServerSideEncryptionConfiguration=new_bucket_encryption,
+        )
+    else:
+        logger.debug("Bucket encryption is already up to date")
 
+    logger.debug("Enforcing KMS encryption through bucket policy")
     # The deny in this policy fires when the headers are present but wrong (e.g. trying not to use
     # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
     # is accepted and AWS falls back on the bucket's default encryption (set above).
-    logger.debug("Enforcing KMS encryption through bucket policy")
+    try:
+        existing_bucket_policy = json.loads(
+            s3_client.get_bucket_policy(Bucket=bucket_name)["Policy"]
+        )
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code != "NoSuchBucketPolicy":
+            raise
+        existing_bucket_policy = None
+    # using 2 statements here, because for some reason the condition below allows using a
+    # different key as long as "s3:x-amz-server-side-encryption: aws:kms" is specified:
+    # "StringNotEquals": {
+    #     "s3:x-amz-server-side-encryption": "aws:kms",
+    #     "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
+    # }
     # TODO: this change should allow us to stop specifying the KMS key in the funnel config: we
     # allow not specifying a KMS key, in which case it uses the default one. However if it is
     # specified, it must be the expected key.
-    s3_client.put_bucket_policy(
-        Bucket=bucket_name,
-        # using 2 statements here, because for some reason the condition below allows using a
-        # different key as long as "s3:x-amz-server-side-encryption: aws:kms" is specified:
-        # "StringNotEquals": {
-        #     "s3:x-amz-server-side-encryption": "aws:kms",
-        #     "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
-        # }
-        Policy=f"""{{
-            "Version": "2012-10-17",
-            "Statement": [
-                {{
-                    "Sid": "RequireKMSEncryption",
-                    "Effect": "Deny",
-                    "Principal": "*",
-                    "Action": "s3:PutObject",
-                    "Resource": "arn:aws:s3:::{bucket_name}/*",
-                    "Condition": {{
-                        "StringNotEqualsIfExists": {{
-                            "s3:x-amz-server-side-encryption": "aws:kms"
-                        }},
-                        "Null": {{
-                            "s3:x-amz-server-side-encryption": "false"
-                        }}
-                    }}
-                }},
-                {{
-                    "Sid": "RequireSpecificKMSKey",
-                    "Effect": "Deny",
-                    "Principal": "*",
-                    "Action": "s3:PutObject",
-                    "Resource": "arn:aws:s3:::{bucket_name}/*",
-                    "Condition": {{
-                        "StringNotEqualsIfExists": {{
-                            "s3:x-amz-server-side-encryption-aws-kms-key-id": [
-                                "{kms_key_arn}",
-                                "{kms_key_alias}"
-                            ]
-                        }},
-                        "Null": {{
-                            "s3:x-amz-server-side-encryption-aws-kms-key-id": "false"
-                        }}
-                    }}
-                }}
-            ]
-        }}
-        """,
-    )
+    new_bucket_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "RequireKMSEncryption",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:PutObject",
+                "Resource": f"arn:aws:s3:::{bucket_name}/*",
+                "Condition": {
+                    "StringNotEqualsIfExists": {
+                        "s3:x-amz-server-side-encryption": "aws:kms"
+                    },
+                    "Null": {"s3:x-amz-server-side-encryption": "false"},
+                },
+            },
+            {
+                "Sid": "RequireSpecificKMSKey",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:PutObject",
+                "Resource": f"arn:aws:s3:::{bucket_name}/*",
+                "Condition": {
+                    "StringNotEqualsIfExists": {
+                        "s3:x-amz-server-side-encryption-aws-kms-key-id": [
+                            kms_key_arn,
+                            kms_key_alias,
+                        ]
+                    },
+                    "Null": {"s3:x-amz-server-side-encryption-aws-kms-key-id": "false"},
+                },
+            },
+        ],
+    }
+    if new_bucket_policy != existing_bucket_policy:
+        s3_client.put_bucket_policy(
+            Bucket=bucket_name,
+            Policy=json.dumps(new_bucket_policy),
+        )
+    else:
+        logger.debug("Bucket policy is already up to date")
+
     return kms_key_arn
 
 
@@ -554,7 +578,17 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         )
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
-        kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
+        try:
+            kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "OperationAborted":
+                raise
+            # Gracefully handle race conditions, for example:
+            # `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
+            # A conflicting conditional operation is currently in progress against this resource.`
+            # Wait 2s + jitter before retrying.
+            time.sleep(2 + 0.1 * random.uniform(-1, 1))
+            kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
