@@ -161,13 +161,13 @@ class Auth:
             "role_ids": [role_id],
             "resource_paths": [resource_path1, resource_path2],
         }
-        policy_hash = hashlib.sha256(
+        pol_hash = hashlib.sha256(
             json.dumps(policy, sort_keys=True).encode("utf-8")
         ).hexdigest()[:10]
         role_hash = hashlib.sha256(
             json.dumps(policy, sort_keys=True).encode("utf-8")
         ).hexdigest()[:10]
-        policy_hash = f"{policy_hash}-{role_hash}"
+        policy_hash = f"{pol_hash}-{role_hash}"
         policy["description"] = (
             f"policy created by gen3-workflow for user '{username}' - HASH={policy_hash}"
         )

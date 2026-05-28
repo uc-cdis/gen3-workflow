@@ -288,6 +288,9 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         existing_bucket_encryption = s3_client.get_bucket_encryption(
             Bucket=bucket_name
         )["ServerSideEncryptionConfiguration"]
+        if len(existing_bucket_encryption["Rules"]) > 0:
+            # remove this default to allow comparing with the new rules
+            existing_bucket_encryption["Rules"][0].pop("BlockedEncryptionTypes")
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code != "ServerSideEncryptionConfigurationNotFoundError":
@@ -411,8 +414,11 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             # `An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation:
             # Your previous request to create the named bucket succeeded and you already own it.`
             # This can happen if this function is called multiple times in a row.
-            pass
-        logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
+            logger.info(
+                f"S3 bucket '{user_bucket_name}' already exists (race condition?): proceeding"
+            )
+        else:
+            logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
         expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
         logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
