@@ -1,4 +1,6 @@
 import json
+import random
+import time
 from typing import Tuple, Union
 
 from fastapi import HTTPException
@@ -120,9 +122,10 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         raise
 
 
-def create_iam_role_for_bucket_access(user_id: str) -> str:
+def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
     """
     Create an IAM role that can be assumed by EC2 instances to access the specified S3 bucket and KMS keys (if enabled).
+
     Args:
         user_id (str): The user's unique Gen3 ID
     Returns:
@@ -142,8 +145,6 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
         "cluster"
     ]["identity"]["oidc"]["issuer"].replace("https://", "")
 
-    worker_namespace = config["WORKER_PODS_NAMESPACE"]
-
     assume_role_policy_document = {
         "Version": "2012-10-17",
         "Statement": [
@@ -160,7 +161,7 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
                     "StringEquals": {
-                        f"{oidc_token_url}:sub": f"system:serviceaccount:{worker_namespace}:{get_worker_sa_name(user_id)}",
+                        f"{oidc_token_url}:sub": f"system:serviceaccount:{config["WORKER_PODS_NAMESPACE"]}:{get_worker_sa_name(user_id)}",
                         f"{oidc_token_url}:aud": "sts.amazonaws.com",
                     }
                 },
@@ -183,21 +184,20 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
                 PolicyDocument=json.dumps(assume_role_policy_document),
             )
     except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchEntity":
-            logger.info(f"Creating IAM role '{role_name}'")
-            worker_role = iam_client.create_role(
-                RoleName=role_name,
-                AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-                Tags=[
-                    {
-                        "Key": "Name",
-                        "Value": get_safe_name_from_hostname(user_id=None),
-                    }
-                ],
-            )
-            logger.info(f"Created IAM role '{role_name}'")
-        else:
+        if e.response["Error"]["Code"] != "NoSuchEntity":
             raise
+        logger.info(f"Creating IAM role '{role_name}'")
+        worker_role = iam_client.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
+            Tags=[
+                {
+                    "Key": "Name",
+                    "Value": get_safe_name_from_hostname(user_id=None),
+                }
+            ],
+        )
+        logger.info(f"Created IAM role '{role_name}'")
 
     policy_name = f"{role_name}-s3-access"
     policy_document = {
@@ -257,6 +257,7 @@ def create_iam_role_for_bucket_access(user_id: str) -> str:
 def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     """
     Set up KMS encryption on the bucket.
+
     Args:
         bucket_name (str): name of the bucket to setup KMS encryption
     Returns:
@@ -283,61 +284,93 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         logger.debug(f"Created KMS key alias '{kms_key_alias}'")
 
     logger.debug(f"Setting KMS encryption on bucket '{bucket_name}'")
-    s3_client.put_bucket_encryption(
-        Bucket=bucket_name,
-        ServerSideEncryptionConfiguration={
-            "Rules": [
-                {
-                    "ApplyServerSideEncryptionByDefault": {
-                        "SSEAlgorithm": "aws:kms",
-                        "KMSMasterKeyID": kms_key_arn,
-                    },
-                    "BucketKeyEnabled": True,
+    try:
+        existing_bucket_encryption = s3_client.get_bucket_encryption(
+            Bucket=bucket_name
+        )["ServerSideEncryptionConfiguration"]
+        if len(existing_bucket_encryption["Rules"]) > 0:
+            # remove this default to allow comparing with the new rules
+            existing_bucket_encryption["Rules"][0].pop("BlockedEncryptionTypes")
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code != "ServerSideEncryptionConfigurationNotFoundError":
+            raise
+        existing_bucket_encryption = None
+    new_bucket_encryption = {
+        "Rules": [
+            {
+                "ApplyServerSideEncryptionByDefault": {
+                    "SSEAlgorithm": "aws:kms",
+                    "KMSMasterKeyID": kms_key_arn,
                 },
-            ],
-        },
-    )
+                "BucketKeyEnabled": True,
+            },
+        ],
+    }
+    if new_bucket_encryption != existing_bucket_encryption:
+        s3_client.put_bucket_encryption(
+            Bucket=bucket_name,
+            ServerSideEncryptionConfiguration=new_bucket_encryption,
+        )
+    else:
+        logger.debug("Bucket encryption is already up to date")
 
     logger.debug("Enforcing KMS encryption through bucket policy")
-    s3_client.put_bucket_policy(
-        Bucket=bucket_name,
-        # using 2 statements here, because for some reason the condition below allows using a
-        # different key as long as "s3:x-amz-server-side-encryption: aws:kms" is specified:
-        # "StringNotEquals": {
-        #     "s3:x-amz-server-side-encryption": "aws:kms",
-        #     "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
-        # }
-        Policy=f"""{{
-            "Version": "2012-10-17",
-            "Statement": [
-                {{
-                    "Sid": "RequireKMSEncryption",
-                    "Effect": "Deny",
-                    "Principal": "*",
-                    "Action": "s3:PutObject",
-                    "Resource": "arn:aws:s3:::{bucket_name}/*",
-                    "Condition": {{
-                        "StringNotEquals": {{
-                            "s3:x-amz-server-side-encryption": "aws:kms"
-                        }}
-                    }}
-                }},
-                {{
-                    "Sid": "RequireSpecificKMSKey",
-                    "Effect": "Deny",
-                    "Principal": "*",
-                    "Action": "s3:PutObject",
-                    "Resource": "arn:aws:s3:::{bucket_name}/*",
-                    "Condition": {{
-                        "StringNotEquals": {{
-                            "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
-                        }}
-                    }}
-                }}
-            ]
-        }}
-        """,
-    )
+    try:
+        existing_bucket_policy = json.loads(
+            s3_client.get_bucket_policy(Bucket=bucket_name)["Policy"]
+        )
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code != "NoSuchBucketPolicy":
+            raise
+        existing_bucket_policy = None
+    # The deny in this policy fires when the headers are present but wrong (e.g. trying not to use
+    # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
+    # is accepted and AWS falls back on the bucket's default encryption (set above).
+    # TODO: stop specifying the KMS key in the funnel config
+    new_bucket_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "RequireKMSEncryption",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:PutObject",
+                "Resource": f"arn:aws:s3:::{bucket_name}/*",
+                "Condition": {
+                    "StringNotEqualsIfExists": {
+                        "s3:x-amz-server-side-encryption": "aws:kms"
+                    },
+                    "Null": {"s3:x-amz-server-side-encryption": "false"},
+                },
+            },
+            {
+                "Sid": "RequireSpecificKMSKey",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:PutObject",
+                "Resource": f"arn:aws:s3:::{bucket_name}/*",
+                "Condition": {
+                    "StringNotEqualsIfExists": {
+                        "s3:x-amz-server-side-encryption-aws-kms-key-id": [
+                            kms_key_arn,
+                            kms_key_alias,
+                        ]
+                    },
+                    "Null": {"s3:x-amz-server-side-encryption-aws-kms-key-id": "false"},
+                },
+            },
+        ],
+    }
+    if new_bucket_policy != existing_bucket_policy:
+        s3_client.put_bucket_policy(
+            Bucket=bucket_name,
+            Policy=json.dumps(new_bucket_policy),
+        )
+    else:
+        logger.debug("Bucket policy is already up to date")
+
     return kms_key_arn
 
 
@@ -366,17 +399,26 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         logger.info(
             f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user '{user_id}'"
         )
-        if config["USER_BUCKETS_REGION"] == "us-east-1":
-            # it's the default region and cannot be specified in `LocationConstraint`
-            s3_client.create_bucket(Bucket=user_bucket_name)
-        else:
-            s3_client.create_bucket(
-                Bucket=user_bucket_name,
-                CreateBucketConfiguration={
-                    "LocationConstraint": config["USER_BUCKETS_REGION"]
-                },
+        try:
+            if config["USER_BUCKETS_REGION"] == "us-east-1":
+                # it's the default region and cannot be specified in `LocationConstraint`
+                s3_client.create_bucket(Bucket=user_bucket_name)
+            else:
+                s3_client.create_bucket(
+                    Bucket=user_bucket_name,
+                    CreateBucketConfiguration={
+                        "LocationConstraint": config["USER_BUCKETS_REGION"]
+                    },
+                )
+        except s3_client.exceptions.BucketAlreadyOwnedByYou:
+            # `An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation:
+            # Your previous request to create the named bucket succeeded and you already own it.`
+            # This can happen if this function is called multiple times in a row.
+            logger.info(
+                f"S3 bucket '{user_bucket_name}' already exists (race condition?): proceeding"
             )
-        logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
+        else:
+            logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
         expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
         logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
@@ -400,7 +442,17 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         )
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
-        kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
+        try:
+            kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "OperationAborted":
+                raise
+            # Gracefully handle race conditions, for example:
+            # `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
+            # A conflicting conditional operation is currently in progress against this resource.`
+            # Wait 2s + jitter before retrying.
+            time.sleep(2 + 0.1 * random.uniform(-1, 1))
+            kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)

@@ -125,8 +125,18 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
         # resource, role, policy and user creation:
         "/resource/services/workflow/gen3-workflow/tasks": {"POST": (200, {})},
         "/resource/services/workflow/gen3-workflow/storage": {"POST": (200, {})},
+        "/role/gen3_workflow_admin": {"GET": (404, {})},
         "/role": {"POST": (200, {})},
         "/policy": {"POST": (200, {})},
+        f"/policy/gen3_workflow_user_sub_{TEST_USER_ID}": {"GET": (200, {})},
+        f"/policy/gen3_workflow_user_sub_{NEW_TEST_USER_ID}": {"GET": (404, {})},
+        f"/user/test-username-{TEST_USER_ID}": {
+            "GET": (
+                200,
+                {"policies": [{"policy": f"gen3_workflow_user_sub_{TEST_USER_ID}"}]},
+            )
+        },
+        f"/user/test-username-{NEW_TEST_USER_ID}": {"GET": (404, {})},
         "/user": {"POST": (200, {})},
         # grant user access to a policy:
         f"/user/test-username-{NEW_TEST_USER_ID}/policy": {"POST": (204, {})},

@@ -1,15 +1,17 @@
+import hashlib
+import json
 from typing import Union
+
 from authutils.token.fastapi import access_token
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from gen3authz.client.arborist.errors import ArboristError
 from starlette.requests import Request
 from starlette.status import (
     HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
-
-from gen3authz.client.arborist.errors import ArboristError
 
 from gen3workflow import logger
 from gen3workflow.config import config
@@ -131,30 +133,16 @@ class Auth:
             f"Ensuring user '{user_id}' has access to their own tasks and storage"
         )
         resource_path1 = f"/services/workflow/gen3-workflow/tasks/{user_id}"
-        if await self.authorize(method="read", resources=[resource_path1], throw=False):
-            # if the user already has access to their own data, return early
-            return
-
-        parent_path = "/services/workflow/gen3-workflow/tasks"
-        logger.debug(f"Attempting to create resource '{resource_path1}' in Arborist")
-        resource = {
+        resource1 = {
             "name": user_id,
             "description": f"Represents workflow tasks owned by user '{username}'",
         }
-        await self.arborist_client.create_resource(
-            parent_path, resource, create_parents=True
-        )
 
         resource_path2 = f"/services/workflow/gen3-workflow/storage/{user_id}"
-        parent_path = "/services/workflow/gen3-workflow/storage"
-        logger.debug(f"Attempting to create resource '{resource_path2}' in Arborist")
-        resource = {
+        resource2 = {
             "name": user_id,
             "description": f"Represents task storage owned by user '{username}'",
         }
-        await self.arborist_client.create_resource(
-            parent_path, resource, create_parents=True
-        )
 
         role_id = "gen3_workflow_admin"
         role = {
@@ -167,32 +155,79 @@ class Auth:
             ],
         }
 
-        logger.debug(f"Attempting to update role '{role_id}' in Arborist")
-        try:
-            await self.arborist_client.update_role(role_id, role)
-        except ArboristError as e:
-            logger.debug(
-                f"An error occured while updating role '{role_id}': {e}. Attempting to create role instead"
-            )
-            await self.arborist_client.create_role(role)
-
         policy_id = f"gen3_workflow_user_sub_{user_id}"
-        logger.debug(f"Attempting to create policy '{policy_id}' in Arborist")
         policy = {
             "id": policy_id,
-            "description": f"policy created by gen3-workflow for user '{username}'",
             "role_ids": [role_id],
             "resource_paths": [resource_path1, resource_path2],
         }
-        await self.arborist_client.create_policy(policy, skip_if_exists=True)
+        pol_hash = hashlib.sha256(
+            json.dumps(policy, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:10]
+        role_hash = hashlib.sha256(
+            json.dumps(policy, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:10]
+        policy_hash = f"{pol_hash}-{role_hash}"
+        policy["description"] = (
+            f"policy created by gen3-workflow for user '{username}' - HASH={policy_hash}"
+        )
 
-        logger.debug(f"Attempting to create user '{username}' in Arborist")
-        await self.arborist_client.create_user_if_not_exist(username)
+        create_or_update_policy = True
+        if existing_policy := await self.arborist_client.get_policy(policy_id):
+            # the policy already exists, but it may be outdated
+            existing_policy_hash = existing_policy["description"].split("HASH=")[-1]
+            if policy_hash == existing_policy_hash:
+                # the policy exists and is up to date
+                create_or_update_policy = False
 
-        # grant the user access to the resource
-        logger.debug(f"Attempting to grant '{username}' access to '{policy_id}'")
-        status_code = await self.arborist_client.grant_user_policy(username, policy_id)
-        if status_code != 204:
-            err_msg = "Unable to grant access to user"
-            logger.error(f"{err_msg}. Status code: {status_code}")
-            raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, err_msg)
+        grant_policy = True
+        try:
+            user = await self.arborist_client.get_user(username)
+        except ArboristError as e:
+            if e.code != 404:
+                raise
+            # the user doesn't exist: create it
+            logger.debug(f"Attempting to create user '{username}' in Arborist")
+            await self.arborist_client.create_user_if_not_exist(username)
+        else:
+            user_policies = (p["policy"] for p in user["policies"])
+            if policy_id in user_policies:
+                # the user already has this policy
+                grant_policy = False
+
+        if create_or_update_policy:
+            logger.debug(
+                f"Attempting to create resource '{resource_path1}' in Arborist"
+            )
+            await self.arborist_client.create_resource(
+                "/".join(resource_path1.split("/")[:-1]), resource1, create_parents=True
+            )
+
+            logger.debug(
+                f"Attempting to create resource '{resource_path2}' in Arborist"
+            )
+            await self.arborist_client.create_resource(
+                "/".join(resource_path2.split("/")[:-1]), resource2, create_parents=True
+            )
+
+            logger.debug(f"Attempting to update role '{role_id}' in Arborist")
+            try:
+                await self.arborist_client.update_role(role_id, role)
+            except ArboristError as e:
+                logger.debug(
+                    f"An error occured while updating role '{role_id}': {e}. Attempting to create role instead"
+                )
+                await self.arborist_client.create_role(role)
+
+            logger.debug(f"Attempting to create policy '{policy_id}' in Arborist")
+            await self.arborist_client.create_policy(policy, skip_if_exists=True)
+
+        if grant_policy:
+            logger.debug(f"Attempting to grant '{username}' access to '{policy_id}'")
+            status_code = await self.arborist_client.grant_user_policy(
+                username, policy_id
+            )
+            if status_code != 204:
+                err_msg = "Unable to grant access to user"
+                logger.error(f"{err_msg}. Status code: {status_code}")
+                raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, err_msg)

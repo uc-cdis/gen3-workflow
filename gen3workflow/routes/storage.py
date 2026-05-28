@@ -113,5 +113,5 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         )
 
     logger.info(
-        f"All objects remvoved from bucket '{deleted_bucket_name}' for user '{user_id}'"
+        f"All objects removed from bucket '{deleted_bucket_name}' for user '{user_id}'"
     )
