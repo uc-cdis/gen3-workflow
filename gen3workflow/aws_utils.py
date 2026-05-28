@@ -1,8 +1,8 @@
 import json
 import random
-import time
 from typing import Tuple, Union
 
+import asyncio
 from fastapi import HTTPException
 import boto3
 from botocore.exceptions import ClientError
@@ -374,7 +374,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     return kms_key_arn
 
 
-def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
+async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
 
@@ -388,7 +388,6 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     try:
         s3_client.head_bucket(Bucket=user_bucket_name)
         logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
-
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code != "404":
@@ -418,8 +417,11 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
                 f"S3 bucket '{user_bucket_name}' already exists (race condition?): proceeding"
             )
         else:
+            waiter = s3_client.get_waiter("bucket_exists")
+            waiter.wait(Bucket=user_bucket_name)
             logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
+        # TODO move this out of the `except` block, and only update it if it's outdated
         expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
         logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
         s3_client.put_bucket_lifecycle_configuration(
@@ -440,6 +442,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             # error: `Missing required header for this request: Content-MD5`.
             ChecksumAlgorithm="SHA256",
         )
+
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
         try:
@@ -451,7 +454,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             # `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
             # A conflicting conditional operation is currently in progress against this resource.`
             # Wait 2s + jitter before retrying.
-            time.sleep(2 + 0.1 * random.uniform(-1, 1))
+            await asyncio.sleep(2 + 0.1 * random.uniform(-1, 1))
             kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
