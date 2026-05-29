@@ -1,4 +1,4 @@
-import uuid
+# import uuid
 
 from gen3authz.client.arborist.errors import ArboristError
 from fastapi import APIRouter, Depends, Request, HTTPException
