@@ -235,7 +235,7 @@ authz:
               subresources:
                 - name: tasks
                   subresources:
-                    - name: 1  # 1 is main@example.org
+                    - name: "1"  # 1 is main@example.org
                 - name: storage
   roles:
     - id: gen3_workflow_reader

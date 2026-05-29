@@ -1,8 +1,8 @@
 import json
 import random
-import time
 from typing import Tuple, Union
 
+import asyncio
 from fastapi import HTTPException
 import boto3
 from botocore.exceptions import ClientError
@@ -254,140 +254,6 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
     return worker_role["Role"]["Arn"]
 
 
-def create_iam_role_for_user_bucket_access(user_id: str) -> str:
-    """
-    Create an IAM role that can be assumed by end users to access the specified S3 bucket and KMS keys (if enabled).
-    TODO WIP to enable temporary assumed role credentials for users
-    TODO reuse code from `create_iam_role_for_funnel_bucket_access`
-
-    Args:
-        user_id (str): The user's unique Gen3 ID
-    Returns:
-        str: ARN of the created IAM role
-    Raises:
-        Exception: If there is an error during the creation or updating of the IAM role or policy
-    """
-    role_name_suffix = "-bucket-role"
-    safe_name = get_safe_name_from_hostname(
-        user_id, reserved_length=len(role_name_suffix)
-    )
-    role_name = f"{safe_name}{role_name_suffix}"
-    bucket_name = get_bucket_name_from_user_id(user_id)
-    aws_account_id = sts_client.get_caller_identity().get("Account")
-    oidc_token_url = eks_client.describe_cluster(name=config["EKS_CLUSTER_NAME"])[
-        "cluster"
-    ]["identity"]["oidc"]["issuer"].replace("https://", "")
-
-    assume_role_policy_document = {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Principal": {"Service": "ec2.amazonaws.com"},
-                "Action": "sts:AssumeRole",
-            },
-            {
-                "Effect": "Allow",
-                "Principal": {
-                    f"Federated": f"arn:aws:iam::{aws_account_id}:oidc-provider/{oidc_token_url}"
-                },
-                "Action": "sts:AssumeRoleWithWebIdentity",
-                "Condition": {
-                    "StringEquals": {
-                        f"{oidc_token_url}:sub": f"system:serviceaccount:{config["APP_NAMESPACE"]}:gen3-workflow-sa",
-                        f"{oidc_token_url}:aud": "sts.amazonaws.com",
-                    }
-                },
-            },
-        ],
-    }
-
-    try:
-        worker_role = iam_client.get_role(RoleName=role_name)
-        logger.info(f"IAM role '{role_name}' already exists")
-        current_policy = dict_to_sorted_json_str(
-            worker_role["Role"]["AssumeRolePolicyDocument"]
-        )
-        updated_policy = dict_to_sorted_json_str(assume_role_policy_document)
-
-        if current_policy != updated_policy:
-            logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
-            iam_client.update_assume_role_policy(
-                RoleName=role_name,
-                PolicyDocument=json.dumps(assume_role_policy_document),
-            )
-    except ClientError as e:
-        if e.response["Error"]["Code"] != "NoSuchEntity":
-            raise
-        logger.info(f"Creating IAM role '{role_name}'")
-        worker_role = iam_client.create_role(
-            RoleName=role_name,
-            AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-            MaxSessionDuration=43200,  # 12 hours
-            Tags=[
-                {
-                    "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=None),
-                }
-            ],
-        )
-        logger.info(f"Created IAM role '{role_name}'")
-
-    policy_name = f"{role_name}-s3-access"
-    policy_document = {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "s3:ListBucket",
-                    "s3:GetBucketLocation",
-                ],
-                "Resource": f"arn:aws:s3:::{bucket_name}",
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "s3:PutObject",
-                    "s3:GetObject",
-                    "s3:DeleteObject",
-                ],
-                "Resource": f"arn:aws:s3:::{bucket_name}/*",
-            },
-        ],
-    }
-
-    if config["KMS_ENCRYPTION_ENABLED"]:
-        _, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
-        if not kms_key_arn:
-            err_msg = "Bucket misconfigured. Hit the `GET /storage/setup` endpoint and try again."
-            logger.error(
-                f"No existing KMS key found for bucket '{bucket_name}'. {err_msg}"
-            )
-            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-        logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
-        policy_document["Statement"].append(
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "kms:Decrypt",
-                    "kms:Encrypt",
-                    "kms:GenerateDataKey*",
-                ],
-                "Resource": kms_key_arn,
-            }
-        )
-
-    iam_client.put_role_policy(
-        RoleName=role_name,
-        PolicyName=policy_name,
-        PolicyDocument=json.dumps(policy_document),
-    )
-    logger.info(f"Updated IAM policy '{policy_name}' for role '{role_name}'")
-
-    return worker_role["Role"]["Arn"]
-
-
 def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     """
     Set up KMS encryption on the bucket.
@@ -422,6 +288,9 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         existing_bucket_encryption = s3_client.get_bucket_encryption(
             Bucket=bucket_name
         )["ServerSideEncryptionConfiguration"]
+        if len(existing_bucket_encryption["Rules"]) > 0:
+            # remove this default to allow comparing with the new rules
+            existing_bucket_encryption["Rules"][0].pop("BlockedEncryptionTypes")
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code != "ServerSideEncryptionConfigurationNotFoundError":
@@ -447,9 +316,6 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         logger.debug("Bucket encryption is already up to date")
 
     logger.debug("Enforcing KMS encryption through bucket policy")
-    # The deny in this policy fires when the headers are present but wrong (e.g. trying not to use
-    # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
-    # is accepted and AWS falls back on the bucket's default encryption (set above).
     try:
         existing_bucket_policy = json.loads(
             s3_client.get_bucket_policy(Bucket=bucket_name)["Policy"]
@@ -459,15 +325,10 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
         if error_code != "NoSuchBucketPolicy":
             raise
         existing_bucket_policy = None
-    # using 2 statements here, because for some reason the condition below allows using a
-    # different key as long as "s3:x-amz-server-side-encryption: aws:kms" is specified:
-    # "StringNotEquals": {
-    #     "s3:x-amz-server-side-encryption": "aws:kms",
-    #     "s3:x-amz-server-side-encryption-aws-kms-key-id": "{kms_key_arn}"
-    # }
-    # TODO: this change should allow us to stop specifying the KMS key in the funnel config: we
-    # allow not specifying a KMS key, in which case it uses the default one. However if it is
-    # specified, it must be the expected key.
+    # The deny in this policy fires when the headers are present but wrong (e.g. trying not to use
+    # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
+    # is accepted and AWS falls back on the bucket's default encryption (set above).
+    # TODO: stop specifying the KMS key in the funnel config
     new_bucket_policy = {
         "Version": "2012-10-17",
         "Statement": [
@@ -513,7 +374,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     return kms_key_arn
 
 
-def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
+async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
 
@@ -527,7 +388,6 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     try:
         s3_client.head_bucket(Bucket=user_bucket_name)
         logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
-
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code != "404":
@@ -553,29 +413,47 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             # `An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation:
             # Your previous request to create the named bucket succeeded and you already own it.`
             # This can happen if this function is called multiple times in a row.
-            pass
-        logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
+            logger.info(
+                f"S3 bucket '{user_bucket_name}' already exists (race condition?): proceeding"
+            )
+        else:
+            waiter = s3_client.get_waiter("bucket_exists")
+            waiter.wait(Bucket=user_bucket_name)
+            logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
-        expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
-        logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
+    expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
+    logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
+    lc_config = {
+        "Rules": [
+            {
+                "ID": f"ExpireAllAfter{expiration_days}Days",
+                "Expiration": {"Days": expiration_days},
+                "Status": "Enabled",
+                # apply to all objects:
+                "Filter": {"Prefix": ""},
+            },
+        ],
+    }
+    try:
         s3_client.put_bucket_lifecycle_configuration(
             Bucket=user_bucket_name,
-            LifecycleConfiguration={
-                "Rules": [
-                    {
-                        "ID": f"ExpireAllAfter{expiration_days}Days",
-                        "Expiration": {"Days": expiration_days},
-                        "Status": "Enabled",
-                        # apply to all objects:
-                        "Filter": {"Prefix": ""},
-                    },
-                ],
-            },
-            # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5, which is
-            # not allowed by FIPS. When FIPS mode is enabled, not specifying the algorithm causes this
-            # error: `Missing required header for this request: Content-MD5`.
+            LifecycleConfiguration=lc_config,
+            # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5,
+            # which is not allowed by FIPS. When FIPS mode is enabled, not specifying the algorithm
+            # causes this error: `Missing required header for this request: Content-MD5`.
             ChecksumAlgorithm="SHA256",
         )
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "OperationAborted":
+            raise
+        # Gracefully handle race conditions: wait 2s + jitter before retrying.
+        await asyncio.sleep(2 + 0.1 * random.uniform(-1, 1))
+        s3_client.put_bucket_lifecycle_configuration(
+            Bucket=user_bucket_name,
+            LifecycleConfiguration=lc_config,
+            ChecksumAlgorithm="SHA256",
+        )
+
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
         try:
@@ -587,7 +465,7 @@ def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             # `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
             # A conflicting conditional operation is currently in progress against this resource.`
             # Wait 2s + jitter before retrying.
-            time.sleep(2 + 0.1 * random.uniform(-1, 1))
+            await asyncio.sleep(2 + 0.1 * random.uniform(-1, 1))
             kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
