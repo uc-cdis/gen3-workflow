@@ -23,6 +23,9 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
     and authz.
     """
+    # only users with access to create tasks should be able to setup their storage
+    await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
+
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     logger.info(f"User '{user_id}' getting their own storage info")
