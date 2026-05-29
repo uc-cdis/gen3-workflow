@@ -23,9 +23,6 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
     and authz.
     """
-    # only users with access to create tasks should be able to setup their storage
-    await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
-
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
     logger.info(f"User '{user_id}' getting their own storage info")
@@ -35,6 +32,9 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         err_msg = "No context.user.name in token"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    # only users with access to create tasks should be able to setup their storage
+    await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     bucket_name, bucket_prefix, bucket_region, kms_key_arn = (
         await aws_utils.create_user_bucket(user_id)
