@@ -28,7 +28,7 @@ s3_root_router = APIRouter(include_in_schema=False)
 s3_router = APIRouter(prefix="/s3")
 
 
-S3_MAX_RETRIES = 3
+S3_MAX_TRIES = 3
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
@@ -405,7 +405,7 @@ async def s3_endpoint(path: str, request: Request):
 
     # forward the call to AWS S3 with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
-    for attempt in range(1, S3_MAX_RETRIES + 1):
+    for attempt in range(1, S3_MAX_TRIES + 1):
         proceed = True
         exception = None
         try:
@@ -440,9 +440,9 @@ async def s3_endpoint(path: str, request: Request):
         # retries
         if proceed:
             break
-        if attempt == S3_MAX_RETRIES:
+        if attempt == S3_MAX_TRIES:
             logger.error(
-                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_RETRIES}). Giving up"
+                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Giving up"
             )
             if exception:
                 raise exception
@@ -452,7 +452,7 @@ async def s3_endpoint(path: str, request: Request):
         delay = S3_RETRY_BASE_DELAY * (S3_RETRY_BACKOFF_FACTOR**attempt)
         delay += delay * 0.1 * random.uniform(-1, 1)  # add jitter
         logger.warning(
-            f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_RETRIES}). Retrying in {delay:.2f} seconds"
+            f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Retrying in {delay:.2f} seconds"
         )
         await asyncio.sleep(delay)
 
