@@ -117,17 +117,17 @@ class Auth:
         if not await self.is_token_close_to_expiry(token) and AUTHZ_CACHE.has(
             cache_key
         ):
-            return AUTHZ_CACHE.get(cache_key)
-
-        try:
-            authorized = await self.arborist_client.auth_request(
-                token, "gen3-workflow", method, resources
-            )
-        except ArboristError as e:
-            logger.error(f"Error while talking to arborist: {e}")
-            authorized = False
+            authorized = AUTHZ_CACHE.get(cache_key)
         else:
-            AUTHZ_CACHE.set(cache_key, authorized)
+            try:
+                authorized = await self.arborist_client.auth_request(
+                    token, "gen3-workflow", method, resources
+                )
+            except ArboristError as e:
+                logger.error(f"Error while talking to arborist: {e}")
+                authorized = False
+            else:
+                AUTHZ_CACHE.set(cache_key, authorized)
 
         if not authorized:
             token_claims = await self.get_token_claims() if token else {}
