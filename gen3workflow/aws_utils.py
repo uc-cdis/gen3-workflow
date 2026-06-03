@@ -12,7 +12,7 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from gen3workflow import logger
 from gen3workflow.config import config
 
-USER_BUCKET_CACHE = SimpleCache(default_timeout=43200)  # cached for 12h
+USER_BUCKET_CACHE = SimpleCache(default_timeout=config["USER_BUCKET_CACHE_SECONDS"])
 
 
 def dict_to_sorted_json_str(obj: dict) -> str:
