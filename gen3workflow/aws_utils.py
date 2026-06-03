@@ -464,8 +464,8 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
     A conflicting conditional operation is currently in progress against this resource.`
     """
-    max_tries = 2
-    retry_delay = 0.5
+    max_tries = 3
+    retry_delay = 1
     retry_backoff_factor = 2
     for attempt in range(1, max_tries + 1):
         try:
