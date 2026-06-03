@@ -36,9 +36,9 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    bucket_name, bucket_prefix, bucket_region, kms_key_arn = (
-        await aws_utils.create_user_bucket(user_id)
-    )
+    bucket_name, kms_key_arn = await aws_utils.create_user_bucket(user_id)
+    bucket_prefix = "ga4gh-tes"
+    bucket_region = config["USER_BUCKETS_REGION"]
 
     try:
         await auth.grant_user_access_to_their_own_data(

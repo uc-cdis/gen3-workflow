@@ -176,6 +176,18 @@ files = [
 ]
 
 [[package]]
+name = "cachelib"
+version = "0.14.0"
+description = "A collection of cache libraries in the same API interface."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "cachelib-0.14.0-py3-none-any.whl", hash = "sha256:4671000b032baa8fac47ad19850f4f522785cee764b4e04c5cfe8955a18d67de"},
+    {file = "cachelib-0.14.0.tar.gz", hash = "sha256:73fedcadd0ba818fb2bb9f3c7cd5fcc2a71e86286f1842f55f28d500faee17f1"},
+]
+
+[[package]]
 name = "cdiserrors"
 version = "2.1.0"
 description = "Gen3 shared exceptions and utilities."
@@ -2007,4 +2019,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "d4400bc6fa50576657302a763992b53b0e4360e7c82420dbb4db1b0469e1b791"
+content-hash = "37c23c40e28e49128e22a2f8bfc46c88bb570db4b4911df1a27da65b8ba2abc6"

@@ -3,13 +3,16 @@ import random
 from typing import Tuple, Union
 
 import asyncio
-from fastapi import HTTPException
+from cachelib import SimpleCache
 import boto3
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
 
 from gen3workflow import logger
 from gen3workflow.config import config
+
+USER_BUCKET_CACHE = SimpleCache(default_timeout=43200)  # cached for 12h
 
 
 def dict_to_sorted_json_str(obj: dict) -> str:
@@ -422,7 +425,6 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             waiter.wait(Bucket=user_bucket_name)
             logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
-    # TODO do not update if not needed
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
     s3_client.put_bucket_lifecycle_configuration(
@@ -444,7 +446,6 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         ChecksumAlgorithm="SHA256",
     )
 
-    # TODO do not update if not needed
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
         kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
@@ -453,23 +454,28 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
 
-    return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"], kms_key_arn
+    return user_bucket_name, kms_key_arn
 
 
 async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
-    Wrapper for `_create_user_bucket` that handles retries.
+    Wrapper for `_create_user_bucket` that handles caching and retries.
 
     Gracefully handles race conditions, for example:
     `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
     A conflicting conditional operation is currently in progress against this resource.`
     """
+    if USER_BUCKET_CACHE.has(user_id):
+        return USER_BUCKET_CACHE.get(user_id)
+
     max_tries = 3
     retry_delay = 1
     retry_backoff_factor = 2
     for attempt in range(1, max_tries + 1):
         try:
-            return await _create_user_bucket(user_id)
+            bucket_info = await _create_user_bucket(user_id)
+            USER_BUCKET_CACHE.set(user_id, bucket_info)
+            return bucket_info
         except ClientError as e:
             if (
                 e.response["Error"]["Code"] != "OperationAborted"
