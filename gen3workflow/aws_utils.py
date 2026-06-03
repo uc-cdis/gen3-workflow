@@ -422,6 +422,7 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             waiter.wait(Bucket=user_bucket_name)
             logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
+    # TODO do not update if not needed
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
     s3_client.put_bucket_lifecycle_configuration(
@@ -443,6 +444,7 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         ChecksumAlgorithm="SHA256",
     )
 
+    # TODO do not update if not needed
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
         kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
