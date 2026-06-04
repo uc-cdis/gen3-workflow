@@ -3,13 +3,16 @@ import random
 from typing import Tuple, Union
 
 import asyncio
-from fastapi import HTTPException
+from cachelib import SimpleCache
 import boto3
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
 
 from gen3workflow import logger
 from gen3workflow.config import config
+
+USER_BUCKET_CACHE = SimpleCache(default_timeout=config["USER_BUCKET_CACHE_SECONDS"])
 
 
 def dict_to_sorted_json_str(obj: dict) -> str:
@@ -451,23 +454,28 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
 
-    return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"], kms_key_arn
+    return user_bucket_name, kms_key_arn
 
 
 async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
-    Wrapper for `_create_user_bucket` that handles retries.
+    Wrapper for `_create_user_bucket` that handles caching and retries.
 
     Gracefully handles race conditions, for example:
     `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
     A conflicting conditional operation is currently in progress against this resource.`
     """
-    max_tries = 2
-    retry_delay = 0.5
+    if USER_BUCKET_CACHE.has(user_id):
+        return USER_BUCKET_CACHE.get(user_id)
+
+    max_tries = 3
+    retry_delay = 1
     retry_backoff_factor = 2
     for attempt in range(1, max_tries + 1):
         try:
-            return await _create_user_bucket(user_id)
+            bucket_info = await _create_user_bucket(user_id)
+            USER_BUCKET_CACHE.set(user_id, bucket_info)
+            return bucket_info
         except ClientError as e:
             if (
                 e.response["Error"]["Code"] != "OperationAborted"

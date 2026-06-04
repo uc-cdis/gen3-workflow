@@ -29,6 +29,7 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
+from gen3workflow.aws_utils import USER_BUCKET_CACHE
 
 TEST_USER_ID = "user-64"
 NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
@@ -265,15 +266,16 @@ mock_aws_s3_request = MagicMock(side_effect=mock_aws_s3_request_function)
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
-async def reset_requests_mocks():
+async def reset_requests_mocks_and_caches():
     """
     Before each test, reset `mock_tes_server_request` and `mock_arborist_request` to forget
-    previous function calls.
+    previous function calls. Also clear caches.
     """
     global mock_tes_server_request
     global mock_arborist_request
     mock_tes_server_request.reset_mock()
     mock_arborist_request.reset_mock()
+    USER_BUCKET_CACHE.clear()
 
 
 class UvicornServer(uvicorn.Server):

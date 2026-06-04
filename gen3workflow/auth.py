@@ -1,8 +1,10 @@
 import hashlib
 import json
+import time
 from typing import Union
 
 from authutils.token.fastapi import access_token
+from cachelib import SimpleCache
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from gen3authz.client.arborist.errors import ArboristError
@@ -20,6 +22,9 @@ from gen3workflow.config import config
 # is missing an Authorization header. Instead, we want to return a 401
 # to signify that we did not receive valid credentials
 bearer = HTTPBearer(auto_error=False)
+
+CACHE_SECONDS = 5
+AUTHZ_CACHE = SimpleCache(default_timeout=CACHE_SECONDS)
 
 
 class Auth:
@@ -83,6 +88,18 @@ class Auth:
             return None
         return token_claims.get("sub")
 
+    async def is_token_close_to_expiry(self, token):
+        """
+        Check if a JWT is close to expiry based on `CACHE_SECONDS`.
+        """
+        try:
+            token_claims = await self.get_token_claims() if token else {}
+            return token_claims.get("exp", 0) < time.time() + CACHE_SECONDS
+        except Exception as e:
+            err_msg = "Unable to check access token expiration"
+            logger.error(f"{err_msg}: {e}")
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
     async def authorize(
         self,
         method: str,
@@ -96,13 +113,21 @@ class Auth:
             return True
 
         token = self.get_access_token()
-        try:
-            authorized = await self.arborist_client.auth_request(
-                token, "gen3-workflow", method, resources
-            )
-        except ArboristError as e:
-            logger.error(f"Error while talking to arborist: {e}")
-            authorized = False
+        cache_key = f"{token}_{method}_{";".join(resources)}"
+        if not await self.is_token_close_to_expiry(token) and AUTHZ_CACHE.has(
+            cache_key
+        ):
+            authorized = AUTHZ_CACHE.get(cache_key)
+        else:
+            try:
+                authorized = await self.arborist_client.auth_request(
+                    token, "gen3-workflow", method, resources
+                )
+            except ArboristError as e:
+                logger.error(f"Error while talking to arborist: {e}")
+                authorized = False
+            else:
+                AUTHZ_CACHE.set(cache_key, authorized)
 
         if not authorized:
             token_claims = await self.get_token_claims() if token else {}
