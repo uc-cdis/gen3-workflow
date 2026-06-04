@@ -17,6 +17,10 @@ ARBORIST_URL:
 # /!\ only use for development! Allows running gen3workflow locally without Arborist interaction
 MOCK_AUTH: false
 
+# How long to cache user bucket information for. Defaults to 12 hours. Has to be at least 1 second
+# (does not allow 0 which means no expiration).
+USER_BUCKET_CACHE_SECONDS: 43200
+
 ##########
 # AWS S3 #
 ##########

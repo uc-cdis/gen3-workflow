@@ -16,6 +16,7 @@ python = ">=3.13,<4"
 authutils = {git = "https://github.com/uc-cdis/authutils", rev = "validate-aud"}
 boto3 = ">=1"
 botocore = "*"
+cachelib = "*"
 cdislogging = ">=1"
 cdispyutils = ">=2"
 fastapi = "<1"

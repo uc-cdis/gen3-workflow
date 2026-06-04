@@ -3,13 +3,16 @@ import random
 from typing import Tuple, Union
 
 import asyncio
-from fastapi import HTTPException
+from cachelib import SimpleCache
 import boto3
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
 
 from gen3workflow import logger
 from gen3workflow.config import config
+
+USER_BUCKET_CACHE = SimpleCache(default_timeout=config["USER_BUCKET_CACHE_SECONDS"])
 
 
 def dict_to_sorted_json_str(obj: dict) -> str:
@@ -125,6 +128,7 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
 def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
     """
     Create an IAM role that can be assumed by EC2 instances to access the specified S3 bucket and KMS keys (if enabled).
+    TODO do not update if not needed
 
     Args:
         user_id (str): The user's unique Gen3 ID
@@ -508,7 +512,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     return kms_key_arn
 
 
-async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
+async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
 
@@ -557,56 +561,68 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
-    lc_config = {
-        "Rules": [
-            {
-                "ID": f"ExpireAllAfter{expiration_days}Days",
-                "Expiration": {"Days": expiration_days},
-                "Status": "Enabled",
-                # apply to all objects:
-                "Filter": {"Prefix": ""},
-            },
-        ],
-    }
-    try:
-        s3_client.put_bucket_lifecycle_configuration(
-            Bucket=user_bucket_name,
-            LifecycleConfiguration=lc_config,
-            # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5,
-            # which is not allowed by FIPS. When FIPS mode is enabled, not specifying the algorithm
-            # causes this error: `Missing required header for this request: Content-MD5`.
-            ChecksumAlgorithm="SHA256",
-        )
-    except ClientError as e:
-        if e.response["Error"]["Code"] != "OperationAborted":
-            raise
-        # Gracefully handle race conditions: wait 2s + jitter before retrying.
-        await asyncio.sleep(2 + 0.1 * random.uniform(-1, 1))
-        s3_client.put_bucket_lifecycle_configuration(
-            Bucket=user_bucket_name,
-            LifecycleConfiguration=lc_config,
-            ChecksumAlgorithm="SHA256",
-        )
+    s3_client.put_bucket_lifecycle_configuration(
+        Bucket=user_bucket_name,
+        LifecycleConfiguration={
+            "Rules": [
+                {
+                    "ID": f"ExpireAllAfter{expiration_days}Days",
+                    "Expiration": {"Days": expiration_days},
+                    "Status": "Enabled",
+                    # apply to all objects:
+                    "Filter": {"Prefix": ""},
+                },
+            ],
+        },
+        # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5,
+        # which is not allowed by FIPS. When FIPS mode is enabled, not specifying the algorithm
+        # causes this error: `Missing required header for this request: Content-MD5`.
+        ChecksumAlgorithm="SHA256",
+    )
 
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
-        try:
-            kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
-        except ClientError as e:
-            if e.response["Error"]["Code"] != "OperationAborted":
-                raise
-            # Gracefully handle race conditions, for example:
-            # `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
-            # A conflicting conditional operation is currently in progress against this resource.`
-            # Wait 2s + jitter before retrying.
-            await asyncio.sleep(2 + 0.1 * random.uniform(-1, 1))
-            kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
+        kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
 
-    return user_bucket_name, "ga4gh-tes", config["USER_BUCKETS_REGION"], kms_key_arn
+    return user_bucket_name, kms_key_arn
+
+
+async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
+    """
+    Wrapper for `_create_user_bucket` that handles caching and retries.
+
+    Gracefully handles race conditions, for example:
+    `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
+    A conflicting conditional operation is currently in progress against this resource.`
+    """
+    if USER_BUCKET_CACHE.has(user_id):
+        return USER_BUCKET_CACHE.get(user_id)
+
+    max_tries = 3
+    retry_delay = 1
+    retry_backoff_factor = 2
+    for attempt in range(1, max_tries + 1):
+        try:
+            bucket_info = await _create_user_bucket(user_id)
+            USER_BUCKET_CACHE.set(user_id, bucket_info)
+            return bucket_info
+        except ClientError as e:
+            if (
+                e.response["Error"]["Code"] != "OperationAborted"
+                or attempt == max_tries
+            ):
+                raise
+            # retry with exponential backoff
+            delay = retry_delay * (retry_backoff_factor**attempt)
+            delay += delay * 0.1 * random.uniform(-1, 1)  # add jitter
+            logger.warning(
+                f"Exception during bucket creation: {e}. Retrying in {delay:.2f} seconds"
+            )
+            await asyncio.sleep(delay)
 
 
 def get_all_bucket_objects(user_bucket_name: str) -> list:

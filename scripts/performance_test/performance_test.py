@@ -6,6 +6,7 @@ Usage:
 - Save your API key at`~/.gen3/credentials.json`
 - Get your bucket and bucket region: `gen3 run sh -c 'curl -X GET <endpoint>/workflows/storage/setup --header "authorization: bearer $GEN3_TOKEN" | jq'`
 - Configure `ENDPOINT`, `BUCKET` and `BUCKET_REGION` below
+- Switch to this directory
 - Launch with `gen3 run python performance_test.py`
 """
 
@@ -418,6 +419,7 @@ async def run_tests(log_file_name):
 
 if __name__ == "__main__":
     LOG_FILE_NAME = f"{int(time.time())}_logs.txt"
+    print(f"Printing to {LOG_FILE_NAME}")
     log_file = open(LOG_FILE_NAME, "w")
     try:
         asyncio.run(run_tests(LOG_FILE_NAME))

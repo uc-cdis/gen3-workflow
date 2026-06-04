@@ -39,6 +39,7 @@ class Gen3WorkflowConfig(Config):
                 "PROXY_PREFIX": {"type": ["string", "null"]},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},
+                "USER_BUCKET_CACHE_SECONDS": {"type": "integer", "minimum": 1},
                 "USER_BUCKETS_REGION": {"type": "string"},
                 "S3_UPSTREAM_ENDPOINT": {"type": ["string", "null"]},
                 "S3_OBJECTS_EXPIRATION_DAYS": {"type": "integer", "minimum": 1},

@@ -21,6 +21,7 @@ def create_task(endpoint, body):
         f"{endpoint}/workflows/ga4gh/tes/v1/tasks",
         json=body,
         headers={"authorization": f"bearer {os.environ['GEN3_TOKEN']}"},
+        timeout=60,
     )
     assert response.status_code == 200, response.text
     data = response.json()
@@ -35,6 +36,7 @@ def monitor_task(endpoint, task_id):
         response = requests.get(
             f"{endpoint}/workflows/ga4gh/tes/v1/tasks/{task_id}?view=FULL",
             headers={"authorization": f"bearer {os.environ['GEN3_TOKEN']}"},
+            timeout=60,
         )
         assert response.status_code == 200, response.text
         data = response.json()
