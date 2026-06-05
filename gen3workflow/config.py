@@ -36,6 +36,7 @@ class Gen3WorkflowConfig(Config):
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
                 "HTTPX_DEBUG": {"type": "boolean"},
+                "N_WORKERS": {"type": "integer", "minimum": 1},
                 "PROXY_PREFIX": {"type": ["string", "null"]},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},
