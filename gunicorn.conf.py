@@ -47,7 +47,7 @@ logger_class = CustomLogger
 wsgi_app = "gen3workflow.app:app"
 bind = "0.0.0.0:8000"
 
-workers = 2
+workers = app_config["N_WORKERS"]
 
 # default was `30` for the 2 below
 timeout = 90
