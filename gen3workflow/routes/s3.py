@@ -307,7 +307,7 @@ async def s3_endpoint(path: str, request: Request):
     #     likely unnecessary.
     #   Note: Chunked uploads != multipart uploads.
     try:
-        body = await request.body()
+        body = b"".join([chunk async for chunk in request.stream()])
     except ClientDisconnect:  # catch this to avoid throwing 500 errors
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
@@ -317,7 +317,9 @@ async def s3_endpoint(path: str, request: Request):
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
     ):
         # parse the body and update the corresponding headers
+        logger.info(f"Raw body size before unchunking: {len(body)}")
         body = chunked_to_non_chunked_body(body)
+        logger.info(f"Body size after unchunking: {len(body)}")
         content_len = str(len(body))
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
