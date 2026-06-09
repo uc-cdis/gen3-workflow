@@ -475,6 +475,8 @@ async def s3_endpoint(path: str, request: Request):
         ),
         status_code=response.status_code,
         headers={
-            k: v for k, v in response.headers.items() if k != "x-amz-bucket-region"
+            k: v
+            for k, v in response.headers.items()
+            if k not in ("x-amz-bucket-region", "transfer-encoding")
         },
     )
