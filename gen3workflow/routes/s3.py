@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 import hashlib
+from logging import log
 import random
 from typing import Tuple
 import urllib.parse
@@ -280,6 +281,7 @@ async def s3_endpoint(path: str, request: Request):
     #   "For the purpose of calculating an authorization signature, only the host and any x-amz-*
     #   headers are required; [...] Do not include hop-by-hop headers that are frequently altered
     #   during transit across a complex system."
+    logger.debug(f"Incoming request headers: {request.headers}")
     for h in request.headers:
         if h.startswith("x-amz-"):
             headers[h] = request.headers[h]
@@ -403,7 +405,7 @@ async def s3_endpoint(path: str, request: Request):
     else:
         s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
-
+    logger.debug(f"Outgoing S3 request headers: {headers}")
     # forward the call to AWS S3 with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
     for attempt in range(1, S3_MAX_TRIES + 1):
