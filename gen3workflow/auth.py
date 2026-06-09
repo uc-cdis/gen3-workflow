@@ -98,9 +98,8 @@ class Auth:
             token_claims = await self.get_token_claims() if token else {}
             return token_claims.get("exp", 0) < time.time() + CACHE_SECONDS
         except Exception as e:
-            err_msg = "Unable to check access token expiration"
-            logger.error(f"{err_msg}: {e}")
-            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+            logger.error(f"Unable to check access token expiration: {e}")
+            raise HTTPException(HTTP_401_UNAUTHORIZED, e)
 
     async def authorize(
         self,
