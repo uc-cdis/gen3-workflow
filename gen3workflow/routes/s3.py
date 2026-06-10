@@ -307,11 +307,14 @@ async def s3_endpoint(path: str, request: Request):
     #     likely unnecessary.
     #   Note: Chunked uploads != multipart uploads.
     try:
-        body = b"".join([chunk async for chunk in request.stream()])
+        # body = b"".join([chunk async for chunk in request.stream()])
+        body = await request.body()
     except ClientDisconnect:  # catch this to avoid throwing 500 errors
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
+    logger.debug(f"S3 request headers: {dict(request.headers)}")
+    logger.debug(f"S3 request body length: {len(body)}")
     if (
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
@@ -458,6 +461,9 @@ async def s3_endpoint(path: str, request: Request):
             f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Retrying in {delay:.2f} seconds"
         )
         await asyncio.sleep(delay)
+
+    logger.debug(f"S3 response headers: {dict(response.headers)}")
+    logger.debug(f"S3 response content length: {len(response.content)}")
 
     # return the response from AWS S3.
     # - mask the details of 403 errors from the end user: authentication is done internally by this
