@@ -12,8 +12,7 @@ include = [
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4"
-#authutils = ">=7"
-authutils = {git = "https://github.com/uc-cdis/authutils", rev = "validate-aud"}
+authutils = ">=7"
 boto3 = ">=1"
 botocore = "*"
 cachelib = "*"
