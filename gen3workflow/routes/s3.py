@@ -280,9 +280,8 @@ async def s3_endpoint(path: str, request: Request):
     #   "For the purpose of calculating an authorization signature, only the host and any x-amz-*
     #   headers are required; [...] Do not include hop-by-hop headers that are frequently altered
     #   during transit across a complex system."
-    dropped_headers = {}
     for h in request.headers:
-        if h.startswith("x-amz-") or h.lower() in {
+        if h.lower().startswith("x-amz-") or h.lower() in {
             "range",
             "content-type",
             "content-md5",
@@ -293,9 +292,7 @@ async def s3_endpoint(path: str, request: Request):
             "if-unmodified-since",
         }:
             headers[h] = request.headers[h]
-        else:
-            dropped_headers[h] = request.headers[h]
-    logger.debug(f"Dropped headers: {dropped_headers}")
+    logger.debug(f"Dropped headers: {[h for h in request.headers if h not in headers]}")
 
     # - The Minio-go S3 client sets the `x-amz-server-side-encryption-context` header to
     #   `{"Context":{"Context":{"Context":{}}}}`, triggering this error: "The header
@@ -330,9 +327,7 @@ async def s3_endpoint(path: str, request: Request):
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
     ):
         # parse the body and update the corresponding headers
-        logger.info(f"Raw body size before unchunking: {len(body)}")
         body = chunked_to_non_chunked_body(body)
-        logger.info(f"Body size after unchunking: {len(body)}")
         content_len = str(len(body))
         headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
