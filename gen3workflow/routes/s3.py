@@ -281,8 +281,18 @@ async def s3_endpoint(path: str, request: Request):
     #   headers are required; [...] Do not include hop-by-hop headers that are frequently altered
     #   during transit across a complex system."
     for h in request.headers:
-        if h.startswith("x-amz-"):
+        if h.lower().startswith("x-amz-") or h.lower() in {
+            "range",
+            "content-type",
+            "content-md5",
+            "content-length",
+            "if-match",
+            "if-none-match",
+            "if-modified-since",
+            "if-unmodified-since",
+        }:
             headers[h] = request.headers[h]
+    logger.debug(f"Dropped headers: {[h for h in request.headers if h not in headers]}")
 
     # - The Minio-go S3 client sets the `x-amz-server-side-encryption-context` header to
     #   `{"Context":{"Context":{"Context":{}}}}`, triggering this error: "The header
