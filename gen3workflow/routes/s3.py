@@ -280,9 +280,22 @@ async def s3_endpoint(path: str, request: Request):
     #   "For the purpose of calculating an authorization signature, only the host and any x-amz-*
     #   headers are required; [...] Do not include hop-by-hop headers that are frequently altered
     #   during transit across a complex system."
+    dropped_headers = {}
     for h in request.headers:
-        if h.startswith("x-amz-"):
+        if h.startswith("x-amz-") or h.lower() in {
+            "range",
+            "content-type",
+            "content-md5",
+            "content-length",
+            "if-match",
+            "if-none-match",
+            "if-modified-since",
+            "if-unmodified-since",
+        }:
             headers[h] = request.headers[h]
+        else:
+            dropped_headers[h] = request.headers[h]
+    logger.debug(f"Dropped headers: {dropped_headers}")
 
     # - The Minio-go S3 client sets the `x-amz-server-side-encryption-context` header to
     #   `{"Context":{"Context":{"Context":{}}}}`, triggering this error: "The header
@@ -307,14 +320,11 @@ async def s3_endpoint(path: str, request: Request):
     #     likely unnecessary.
     #   Note: Chunked uploads != multipart uploads.
     try:
-        # body = b"".join([chunk async for chunk in request.stream()])
         body = await request.body()
     except ClientDisconnect:  # catch this to avoid throwing 500 errors
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
-    logger.debug(f"S3 request headers: {dict(request.headers)}")
-    logger.debug(f"S3 request body length: {len(body)}")
     if (
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
@@ -462,9 +472,6 @@ async def s3_endpoint(path: str, request: Request):
         )
         await asyncio.sleep(delay)
 
-    logger.debug(f"S3 response headers: {dict(response.headers)}")
-    logger.debug(f"S3 response content length: {len(response.content)}")
-
     # return the response from AWS S3.
     # - mask the details of 403 errors from the end user: authentication is done internally by this
     # function, so 403 errors are internal service errors
@@ -481,8 +488,6 @@ async def s3_endpoint(path: str, request: Request):
         ),
         status_code=response.status_code,
         headers={
-            k: v
-            for k, v in response.headers.items()
-            if k not in ("x-amz-bucket-region", "transfer-encoding")
+            k: v for k, v in response.headers.items() if k != "x-amz-bucket-region"
         },
     )
