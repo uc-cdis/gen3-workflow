@@ -214,6 +214,12 @@ authz:
         - gen3_workflow_creator
       resource_paths:
         - /services/workflow/gen3-workflow/tasks
+    - id: gen3_workflow_main_user_tasks_viewer
+      description: Allows access to view all of main@example.org's tasks
+      role_ids:
+        - gen3_workflow_reader
+      resource_paths:
+        - /services/workflow/gen3-workflow/tasks/1
     - id: gen3_workflow_storage_admin
       description: Allows access to manage all the user buckets
       role_ids:
@@ -228,6 +234,8 @@ authz:
             - name: gen3-workflow
               subresources:
                 - name: tasks
+                  subresources:
+                    - name: "1"  # 1 is main@example.org
                 - name: storage
   roles:
     - id: gen3_workflow_reader
@@ -262,7 +270,9 @@ users:
     admin: false
     policies:
       - gen3_workflow_user
-  user1@example.org: {}
+  user1@example.org:
+    policies:
+      - gen3_workflow_main_user_tasks_viewer
   user2@example.org: {}
   dummy-one@example.org: {}
   smarty-two@example.org: {}

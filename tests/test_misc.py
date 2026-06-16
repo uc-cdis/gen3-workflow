@@ -162,7 +162,12 @@ async def test_storage_setup(
                 "Action": "s3:PutObject",
                 "Resource": f"arn:aws:s3:::gen3wf-localhost-{NEW_TEST_USER_ID}/*",
                 "Condition": {
-                    "StringNotEquals": {"s3:x-amz-server-side-encryption": "aws:kms"}
+                    "Null": {
+                        "s3:x-amz-server-side-encryption": "false",
+                    },
+                    "StringNotEqualsIfExists": {
+                        "s3:x-amz-server-side-encryption": "aws:kms"
+                    },
                 },
             },
             {
@@ -172,9 +177,15 @@ async def test_storage_setup(
                 "Action": "s3:PutObject",
                 "Resource": f"arn:aws:s3:::gen3wf-localhost-{NEW_TEST_USER_ID}/*",
                 "Condition": {
-                    "StringNotEquals": {
-                        "s3:x-amz-server-side-encryption-aws-kms-key-id": kms_key_arn
-                    }
+                    "Null": {
+                        "s3:x-amz-server-side-encryption-aws-kms-key-id": "false",
+                    },
+                    "StringNotEqualsIfExists": {
+                        "s3:x-amz-server-side-encryption-aws-kms-key-id": [
+                            kms_key_arn,
+                            f"alias/gen3wf-localhost-{NEW_TEST_USER_ID}",
+                        ]
+                    },
                 },
             },
         ],
@@ -215,7 +226,7 @@ async def test_storage_setup(
     mock_arborist_request.assert_any_call(
         method="POST",
         path="/policy",
-        body=f'{{"id":"gen3_workflow_user_sub_{NEW_TEST_USER_ID}","description":"policy created by gen3-workflow for user \'test-username-{NEW_TEST_USER_ID}\'","role_ids":["gen3_workflow_admin"],"resource_paths":["/services/workflow/gen3-workflow/tasks/{NEW_TEST_USER_ID}","/services/workflow/gen3-workflow/storage/{NEW_TEST_USER_ID}"]}}',
+        body=f'{{"id":"gen3_workflow_user_sub_{NEW_TEST_USER_ID}","role_ids":["gen3_workflow_admin"],"resource_paths":["/services/workflow/gen3-workflow/tasks/{NEW_TEST_USER_ID}","/services/workflow/gen3-workflow/storage/{NEW_TEST_USER_ID}"],"description":"policy created by gen3-workflow for user \'test-username-{NEW_TEST_USER_ID}\' - HASH=570908522d-570908522d"}}',
         authorized=True,
     )
     mock_arborist_request.assert_any_call(

@@ -8,6 +8,9 @@ APP_DEBUG: false
 # httpx debug mode is very verbose, so the setting is separate from the main app debug mode
 HTTPX_DEBUG: false
 
+# number of gunicorn workers
+N_WORKERS: 2
+
 # For deployments that run the app behind a proxy. The value should start with a slash.
 PROXY_PREFIX:
 
@@ -16,6 +19,10 @@ ARBORIST_URL:
 
 # /!\ only use for development! Allows running gen3workflow locally without Arborist interaction
 MOCK_AUTH: false
+
+# How long to cache user bucket information for. Defaults to 12 hours. Has to be at least 1 second
+# (does not allow 0 which means no expiration).
+USER_BUCKET_CACHE_SECONDS: 43200
 
 ##########
 # AWS S3 #
@@ -65,14 +72,15 @@ PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
 ENABLE_OPTIMIZED_NODE_SCHEDULING: true
 
 # When Gen3Workflow runs on an EKS cluster, it relies on IAM Roles for Service Accounts (IRSA)
-# to provide AWS permissions to Funnel’s worker and executor pods.
+# to provide AWS permissions to Funnel's worker and executor pods.
 #
 # The parameters below are required for Gen3Workflow to:
-#   - Identify the Kubernetes namespace where worker pods run, to construct the correct IAM role trust relationship
+#   - Identify the Kubernetes namespace where the worker pods run, to construct
+#     the correct IAM role trust relationships
 #   - Fetch cluster's OIDC provider URL based on the given cluster name and region
 #
 # In short: these values allow Gen3Workflow to generate per-user IAM roles that EKS will recognize and associate
 # with the corresponding service accounts used by Funnel pods.
-WORKER_PODS_NAMESPACE: default-namespace
 EKS_CLUSTER_NAME: ""
 EKS_CLUSTER_REGION: us-east-1
+WORKER_PODS_NAMESPACE: default-namespace

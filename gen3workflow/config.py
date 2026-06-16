@@ -36,9 +36,11 @@ class Gen3WorkflowConfig(Config):
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
                 "HTTPX_DEBUG": {"type": "boolean"},
+                "N_WORKERS": {"type": "integer", "minimum": 1},
                 "PROXY_PREFIX": {"type": ["string", "null"]},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},
+                "USER_BUCKET_CACHE_SECONDS": {"type": "integer", "minimum": 1},
                 "USER_BUCKETS_REGION": {"type": "string"},
                 "S3_UPSTREAM_ENDPOINT": {"type": ["string", "null"]},
                 "S3_OBJECTS_EXPIRATION_DAYS": {"type": "integer", "minimum": 1},
@@ -50,9 +52,9 @@ class Gen3WorkflowConfig(Config):
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
                 "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
                 "ENABLE_OPTIMIZED_NODE_SCHEDULING": {"type": "boolean"},
-                "WORKER_PODS_NAMESPACE": {"type": "string"},
                 "EKS_CLUSTER_NAME": {"type": "string"},
                 "EKS_CLUSTER_REGION": {"type": "string"},
+                "WORKER_PODS_NAMESPACE": {"type": "string"},
             },
         }
         validate(instance=self, schema=schema)

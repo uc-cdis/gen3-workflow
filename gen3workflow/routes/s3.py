@@ -28,7 +28,7 @@ s3_root_router = APIRouter(include_in_schema=False)
 s3_router = APIRouter(prefix="/s3")
 
 
-S3_MAX_RETRIES = 3
+S3_MAX_TRIES = 3
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
@@ -142,7 +142,7 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     return key_signing
 
 
-def chunked_to_non_chunked_body(body: str) -> str:
+def chunked_to_non_chunked_body(body: bytes) -> bytes:
     """
     Turn a chunked body into a non-chunked body.
 
@@ -152,9 +152,27 @@ def chunked_to_non_chunked_body(body: str) -> str:
     Final chunk:
         0;chunk-signature=<sig>\r\n\r\n
 
-    Strip and return the data without the chunk signatures.
+    Parse the chunks and return a non-chunked body.
     """
-    return b"".join([e for e in body.split(b"\r\n") if b";chunk-signature=" not in e])
+    result = []
+    i = 0
+    while i < len(body):
+        # find the end of the chunk
+        line_end = body.index(b"\r\n", i)
+        line = body[i:line_end]
+        i = line_end + 2  # skip the separator `\r\n`
+
+        # strip chunk extensions (such as the signature) and extract the chunk size
+        chunk_size_hex = line.split(b";")[0]
+        chunk_size = int(chunk_size_hex, 16)
+
+        if chunk_size == 0:
+            break  # final chunk
+
+        result.append(body[i : i + chunk_size])  # extract exactly `chunk_size` bytes
+        i += chunk_size + 2  # skip chunk data + the separator `\r\n`
+
+    return b"".join(result)
 
 
 @s3_root_router.api_route(
@@ -237,6 +255,11 @@ async def s3_endpoint(path: str, request: Request):
     region = config["USER_BUCKETS_REGION"]
     service = "s3"
 
+    if path_style:
+        host = config["S3_UPSTREAM_ENDPOINT"].split("://")[1]  # remove the protocol
+    else:
+        host = f"{user_bucket}.s3.{region}.amazonaws.com"
+
     timestamp = request.headers.get("x-amz-date")
     if not timestamp and request.headers.get("date"):
         # assume RFC 1123 format, convert to ISO 8601 basic YYYYMMDD'T'HHMMSS'Z' format
@@ -247,41 +270,58 @@ async def s3_endpoint(path: str, request: Request):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
-    # Generate the request headers. Chunked payload support:
-    # - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
-    #   The body includes chunks and checksums. It can be forwarded to AWS without changes as long
-    #   as the necessary headers are forwarded as well.
-    # - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
-    #   Funnel uses this client.
-    #   We overwrite the original `x-amz-content-sha256` header value with the body hash and we
-    #   strip the body of the chunk signatures => protocol translation from a chunk-signed streaming
-    #   request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4 HTTP PUT).
-    #   We could also implement chunked signing but it's not straightforward and likely unnecessary.
-    # Note: Chunked uploads != multipart uploads.
+    # Generate the request headers
+    headers = {
+        "host": host,
+    }
+
+    # - Copy all relevant headers from the incoming request
+    #   https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html:
+    #   "For the purpose of calculating an authorization signature, only the host and any x-amz-*
+    #   headers are required; [...] Do not include hop-by-hop headers that are frequently altered
+    #   during transit across a complex system."
+    for h in request.headers:
+        if h.lower().startswith("x-amz-") or h.lower() in {
+            "range",
+            "content-type",
+            "content-md5",
+            "content-length",
+            "if-match",
+            "if-none-match",
+            "if-modified-since",
+            "if-unmodified-since",
+        }:
+            headers[h] = request.headers[h]
+    logger.debug(f"Dropped headers: {[h for h in request.headers if h not in headers]}")
+
+    # - The Minio-go S3 client sets the `x-amz-server-side-encryption-context` header to
+    #   `{"Context":{"Context":{"Context":{}}}}`, triggering this error: "The header
+    #   'x-amz-server-side-encryption-context' shall be Base64-encoded UTF-8 string holding JSON
+    #   which represents a string-string map". Band-aid fix: drop it
+    #   See https://github.com/minio/minio-go/issues/2235
+    headers.pop("x-amz-server-side-encryption-context", None)
+
+    # - Add the `x-amz-date` header if it wasn't there
+    headers["x-amz-date"] = timestamp
+
+    # - Chunked payload support:
+    #   - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
+    #     The body includes chunks and checksums. It can be forwarded to AWS without changes as long
+    #     as the necessary headers are forwarded as well.
+    #   - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
+    #     Funnel uses this client.
+    #     We overwrite the original `x-amz-content-sha256` header value with the body hash and we
+    #     strip the body of the chunk signatures => protocol translation from a chunk-signed
+    #     streaming request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4
+    #     HTTP PUT). We could also implement chunked signing but it's not straightforward and
+    #     likely unnecessary.
+    #   Note: Chunked uploads != multipart uploads.
     try:
         body = await request.body()
     except ClientDisconnect:  # catch this to avoid throwing 500 errors
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
-    if path_style:
-        host = config["S3_UPSTREAM_ENDPOINT"].split("://")[1]  # remove the protocol
-    else:
-        host = f"{user_bucket}.s3.{region}.amazonaws.com"
-    headers = {
-        "host": host,
-        "x-amz-date": timestamp,
-    }
-    for h in [
-        "content-encoding",
-        "content-length",
-        "x-amz-content-sha256",
-        "x-amz-decoded-content-length",
-        "x-amz-trailer",
-        "x-amz-copy-source",
-    ]:
-        if h in request.headers:
-            headers[h] = request.headers[h]
     if (
         request.headers.get("x-amz-content-sha256")
         == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
@@ -346,7 +386,7 @@ async def s3_endpoint(path: str, request: Request):
         f"{canonical_headers}"
         f"\n"
         f"{signed_headers}\n"
-        f"{headers['x-amz-content-sha256']}"
+        f"{headers.get('x-amz-content-sha256', '')}"
     )
 
     # construct the string to sign based on the canonical request
@@ -376,7 +416,7 @@ async def s3_endpoint(path: str, request: Request):
 
     # forward the call to AWS S3 with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
-    for attempt in range(1, S3_MAX_RETRIES + 1):
+    for attempt in range(1, S3_MAX_TRIES + 1):
         proceed = True
         exception = None
         try:
@@ -411,9 +451,9 @@ async def s3_endpoint(path: str, request: Request):
         # retries
         if proceed:
             break
-        if attempt == S3_MAX_RETRIES:
+        if attempt == S3_MAX_TRIES:
             logger.error(
-                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_RETRIES}). Giving up"
+                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Giving up"
             )
             if exception:
                 raise exception
@@ -423,7 +463,7 @@ async def s3_endpoint(path: str, request: Request):
         delay = S3_RETRY_BASE_DELAY * (S3_RETRY_BACKOFF_FACTOR**attempt)
         delay += delay * 0.1 * random.uniform(-1, 1)  # add jitter
         logger.warning(
-            f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_RETRIES}). Retrying in {delay:.2f} seconds"
+            f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Retrying in {delay:.2f} seconds"
         )
         await asyncio.sleep(delay)
 

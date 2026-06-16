@@ -60,7 +60,7 @@ The purpose of this container is to keep Funnel configuration in sync with Kuber
 
 * Funnel is configured with a lightweight init container named **`config-updater`**, defined under `.Values.funnel.image.initContainers` ([here](https://github.com/uc-cdis/gen3-helm/blob/03227ec/helm/funnel/values.yaml#L142)).
 
-* At startup, this init container ensures Funnel’s runtime configuration is populated with the latest values from Kubernetes secrets before the main Funnel container starts.
+* At startup, this init container ensures Funnel's runtime configuration is populated with the latest values from Kubernetes secrets before the main Funnel container starts.
 
 * `config-updater` updates the following:
 

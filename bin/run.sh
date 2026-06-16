@@ -15,6 +15,5 @@ poetry run gunicorn \
   gen3workflow.app:app \
   -k uvicorn.workers.UvicornWorker \
   -c gunicorn.conf.py \
-  --reload \
   --access-logfile - \
   --error-logfile -
