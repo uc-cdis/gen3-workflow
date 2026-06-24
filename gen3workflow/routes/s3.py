@@ -291,7 +291,8 @@ async def s3_endpoint(path: str, request: Request):
     #   'x-amz-server-side-encryption-context' shall be Base64-encoded UTF-8 string holding JSON
     #   which represents a string-string map". Band-aid fix: drop it
     #   See https://github.com/minio/minio-go/issues/2235
-    headers.pop("x-amz-server-side-encryption-context", None)
+    # headers.pop("x-amz-server-side-encryption-context", None)
+    logger.debug(f"{headers.get('x-amz-server-side-encryption-context')=}")
 
     # - Add the `x-amz-date` header if it wasn't there
     headers["x-amz-date"] = timestamp
