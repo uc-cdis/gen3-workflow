@@ -45,6 +45,7 @@ s3_client = get_boto3_client("s3", region_name=config["USER_BUCKETS_REGION"])
 kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
 sts_client = get_boto3_client("sts")
 eks_client = get_boto3_client("eks", region_name=config["EKS_CLUSTER_REGION"])
+s3files_client = get_boto3_client("s3files", region_name=config["USER_BUCKETS_REGION"])
 
 
 def get_safe_name_from_hostname(
@@ -378,6 +379,83 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     return kms_key_arn
 
 
+def enable_bucket_versioning(bucket_name: str) -> None:
+    """
+    Enable versioning on the specified S3 bucket.
+
+    Args:
+        bucket_name (str): name of the bucket to enable versioning on
+    """
+    try:
+        existing_versioning = s3_client.get_bucket_versioning(Bucket=bucket_name)
+        if existing_versioning.get("Status") != "Enabled":
+            s3_client.put_bucket_versioning(
+                Bucket=bucket_name,
+                VersioningConfiguration={"Status": "Enabled"},
+            )
+            logger.debug(f"Enabled versioning on bucket '{bucket_name}'")
+        else:
+            logger.debug(f"Bucket '{bucket_name}' already has versioning enabled")
+    except ClientError as e:
+        logger.error(
+            f"Failed to enable versioning on bucket '{bucket_name}': {e.response['Error']['Message']}"
+        )
+        raise
+
+
+def get_or_create_s3_files_system(bucket_name: str, region: str, role_arn: str) -> str:
+    """
+    Checks if an Amazon S3 Files filesystem already exists for a bucket.
+    If yes, returns the FileSystemId. If no, creates it and returns the new ID.
+    """
+    # Standard S3 Files buckets require full ARN strings
+    bucket_arn = f"arn:aws:s3:::{bucket_name}"
+    logger.debug(f"Checking for existing S3Files mounts assigned to: {bucket_name}...")
+    try:
+        # List all file systems managed in this region
+        paginator = s3files_client.get_paginator("list_file_systems")
+        for page in paginator.paginate():
+            for fs in page.get("FileSystems", []):
+                # Match against the underlying bucket ARN
+                if fs.get("Bucket") == bucket_arn:
+                    fs_id = fs["FileSystemId"]
+                    logger.debug(
+                        f"Found existing S3Files system! ID: {fs_id} (State: {fs['LifeCycleState']})"
+                    )
+                    return fs_id
+    except ClientError as e:
+        logger.error(
+            f"Failed to list S3 Files filesystems: {e.response['Error']['Message']}"
+        )
+        raise
+
+    # If not found, create a new S3 Files filesystem
+    try:
+        response = s3files_client.create_file_system(
+            bucket=bucket_arn,
+            StorageType="S3",
+            prefix="funnel-temp-files",
+            StorageConfiguration={"BucketName": bucket_name},
+            FileSystemTypeVersion="1.0",
+            RoleArn=role_arn,
+            Tags=[{"Key": "Name", "Value": get_safe_name_from_hostname(user_id=None)}],
+        )
+        file_system_id = response["FileSystemId"]
+        logger.debug(
+            f"Created new S3 Files filesystem '{file_system_id}' for bucket '{bucket_name}'"
+        )
+        return file_system_id
+    except ClientError as e:
+        logger.error(
+            f"Failed to create S3 Files filesystem for bucket '{bucket_name}': {e.response['Error']['Message']}"
+        )
+        raise
+
+
+def create_mount_target_for_s3_files(file_system_id: str, region: str) -> None:
+    pass
+
+
 async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
@@ -453,6 +531,9 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
+
+    enable_bucket_versioning(user_bucket_name)
+    # Create S3 Files Filesystem ID
 
     return user_bucket_name, kms_key_arn
 
