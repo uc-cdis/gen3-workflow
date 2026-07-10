@@ -65,12 +65,11 @@ class Auth:
             )
 
         try:
-            # TODO: remove "user" - it's a workaround to accept old-fence tokens that do not have
-            # the updated aud and that are not aud-validated
+            configured_audience = config["VALID_AUTHZ_AUDIENCE"]
             token_claims = await access_token(
                 "user",
                 "openid",
-                audience=["user", "gen3", "WORKFLOW"],
+                audience=configured_audience,
                 purpose="access",
             )(self.bearer_token)
         except Exception as e:
