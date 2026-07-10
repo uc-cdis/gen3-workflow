@@ -98,6 +98,15 @@ paths:
     get:
       description: List the user's GA4GH TES tasks
       operationId: list_tasks
+      parameters:
+      - in: query
+        name: all
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: All
       responses:
         '200':
           content:
@@ -107,6 +116,12 @@ paths:
                 title: Response List Tasks
                 type: object
           description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
       security:
       - HTTPBearer: []
       summary: List Tasks
