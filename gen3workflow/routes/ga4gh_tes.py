@@ -37,6 +37,13 @@ TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
 TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
 
 
+def get_auth_string_for_user(user_id: str) -> str:
+    """
+    Get the authz_resource string for a user
+    """
+    return f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
+
+
 async def get_request_body(request: Request) -> dict:
     """
     Extract the body from a FastAPI request
@@ -161,9 +168,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         )
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-    authz_resource = (
-        f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
-    )
+    authz_resource = get_auth_string_for_user(user_id)
     body["tags"]["_AUTHZ"] = authz_resource
 
     if config["EKS_CLUSTER_NAME"]:
@@ -238,7 +243,9 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 
 @router.get("/tasks", status_code=HTTP_200_OK)
 @router.get("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
-async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
+async def list_tasks(
+    request: Request, auth=Depends(Auth), all: str | None = None
+) -> dict:
     """
     List the user's GA4GH TES tasks
     """
@@ -262,7 +269,18 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     requested_view = query_params.get("view")
     query_params["view"] = "FULL"
 
-    # get all the tasks, regardless of access
+    if all is None:
+        query_params["tag_key"] = "_AUTHZ"
+        # get the user_id and construct an authz value
+        token_claims = await auth.get_token_claims()
+        user_id = token_claims.get("sub")
+        if not user_id:
+            err_msg = "No user sub in token"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        authz_resource = get_auth_string_for_user(user_id)
+        query_params["tag_value"] = authz_resource
+
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client, "get", url, params=query_params

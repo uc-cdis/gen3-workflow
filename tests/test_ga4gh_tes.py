@@ -5,6 +5,7 @@ import pytest
 import pytest_asyncio
 
 from gen3workflow.config import config
+from gen3workflow.routes.ga4gh_tes import get_auth_string_for_user
 from tests.conftest import (
     mock_arborist_request,
     mock_tes_server_request,
@@ -476,26 +477,43 @@ async def test_create_task_optimized_node_scheduling(
     )
 
 
+def test_get_authz_string():
+    """
+    Test that the get_authz_string_for_user returns the correct format.
+    """
+    user_id = TEST_USER_ID
+    assert get_auth_string_for_user(user_id) == (
+        f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
+@pytest.mark.parametrize("get_all", [False, True])
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
-async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
+async def test_list_tasks(client, access_token_patcher, get_all, view, trailing_slash):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
     unsupported query params should be filtered out. Tasks the user does not have access
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
-    url = f"/ga4gh/tes/v1/tasks?state=COMPLETE&unsupported_param=value{'/' if trailing_slash else ''}"
+    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
     if view:
         url += f"&view={view}"
+    if get_all:
+        url += "&all"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
     # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    query_params = {"state": "COMPLETE", "view": "FULL"}
+    if not get_all:
+        query_params["tag_key"] = "_AUTHZ"
+        query_params["tag_value"] = get_auth_string_for_user(TEST_USER_ID)
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
-        query_params={"state": "COMPLETE", "view": "FULL"},
+        query_params=query_params,
         body="",
         status_code=client.tes_resp_code,
     )
