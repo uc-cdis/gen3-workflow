@@ -31,6 +31,7 @@ VALID_AUTHZ_AUDIENCE:
   # TODO: remove "user" - it's a workaround to accept old-fence tokens that do not have
   # the updated aud and that are not aud-validated
   - "user"
+  - "gen3"
 
 ##########
 # AWS S3 #
