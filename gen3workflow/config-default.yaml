@@ -24,6 +24,15 @@ MOCK_AUTH: false
 # (does not allow 0 which means no expiration).
 USER_BUCKET_CACHE_SECONDS: 43200
 
+# /!\ WARNING: Changing this would involve coordinating a change in task token config in the auth service (e.g. Fence).
+# This is because the auth service needs to know what audience to use when issuing task tokens, and the workflow service needs to know what audience to expect when validating task tokens.
+VALID_AUTHZ_AUDIENCE:
+  - "WORKFLOW"
+  # TODO: remove "user" - it's a workaround to accept old-fence tokens that do not have
+  # the updated aud and that are not aud-validated
+  - "user"
+  - "gen3"
+
 ##########
 # AWS S3 #
 ##########
