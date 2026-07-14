@@ -567,6 +567,40 @@ async def test_list_tasks(client, access_token_patcher, get_all, view, trailing_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "client",
+    [
+        pytest.param({"tes_resp_code": 200}, id="no user"),
+    ],
+    indirect=True,
+)
+@pytest.mark.usefixtures("access_token_patcher")
+@pytest.mark.parametrize("access_token_patcher", [{"user_id": None}], indirect=True)
+@pytest.mark.parametrize("method", ["get", "post"])
+async def test_tasks_error_no_user(
+    client, access_token_patcher, method, trailing_slash
+):
+    """
+    Calls to `GET|POST /ga4gh/tes/v1/tasks` should return an error when the user_id
+    from authz is None. TES server should not be called.
+    """
+    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}"
+    if method == "get":
+        res = await client.get(
+            url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
+    if method == "post":
+        res = await client.post(
+            url,
+            json={"name": "test-task"},
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        )
+    assert res.status_code == 401, res.text
+    assert res.json() == {"detail": "No user sub in token"}
+    mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 async def test_delete_task(client, access_token_patcher, trailing_slash):
     """
