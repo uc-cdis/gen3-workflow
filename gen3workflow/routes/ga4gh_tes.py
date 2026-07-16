@@ -8,7 +8,7 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 import json
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import (
     HTTP_200_OK,
@@ -37,7 +37,7 @@ TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
 TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
 
 
-def get_auth_string_for_user(user_id: str) -> str:
+def get_authz_string_for_user(user_id: str) -> str:
     """
     Get the authz_resource string for a user
     """
@@ -168,7 +168,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         )
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-    authz_resource = get_auth_string_for_user(user_id)
+    authz_resource = get_authz_string_for_user(user_id)
     body["tags"]["_AUTHZ"] = authz_resource
 
     if config["EKS_CLUSTER_NAME"]:
@@ -244,7 +244,11 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 @router.get("/tasks", status_code=HTTP_200_OK)
 @router.get("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
 async def list_tasks(
-    request: Request, auth=Depends(Auth), all: str | None = None
+    request: Request,
+    auth=Depends(Auth),
+    all: str = Query(
+        None, description="Get all TES tasks without pre-filtering on _AUTHZ"
+    ),
 ) -> dict:
     """
     List the user's GA4GH TES tasks
@@ -278,7 +282,7 @@ async def list_tasks(
             err_msg = "No user sub in token"
             logger.error(err_msg)
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-        authz_resource = get_auth_string_for_user(user_id)
+        authz_resource = get_authz_string_for_user(user_id)
         query_params["tag_value"] = authz_resource
 
     url = f"{config['TES_SERVER_URL']}/tasks"
@@ -311,6 +315,7 @@ async def list_tasks(
         raise HTTPException(e.code, e.message)
 
     # filter out tasks the current user does not have access to
+    # this should be redundant if all is None but is included in case pre-filtering fails
     listed_tasks["tasks"] = [
         apply_view_to_task(requested_view, task)
         for task in listed_tasks.get("tasks", [])

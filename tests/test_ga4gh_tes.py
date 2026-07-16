@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 
 from gen3workflow.config import config
-from gen3workflow.routes.ga4gh_tes import get_auth_string_for_user
+from gen3workflow.routes.ga4gh_tes import get_authz_string_for_user
 from tests.conftest import (
     mock_arborist_request,
     mock_tes_server_request,
@@ -482,7 +482,7 @@ def test_get_authz_string():
     Test that the get_authz_string_for_user returns the correct format.
     """
     user_id = TEST_USER_ID
-    assert get_auth_string_for_user(user_id) == (
+    assert get_authz_string_for_user(user_id) == (
         f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
     )
 
@@ -509,7 +509,7 @@ async def test_list_tasks(client, access_token_patcher, get_all, view, trailing_
     query_params = {"state": "COMPLETE", "view": "FULL"}
     if not get_all:
         query_params["tag_key"] = "_AUTHZ"
-        query_params["tag_value"] = get_auth_string_for_user(TEST_USER_ID)
+        query_params["tag_value"] = get_authz_string_for_user(TEST_USER_ID)
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
