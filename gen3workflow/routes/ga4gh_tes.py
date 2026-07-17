@@ -247,7 +247,8 @@ async def list_tasks(
     request: Request,
     auth=Depends(Auth),
     all: str = Query(
-        None, description="Get all TES tasks without pre-filtering on _AUTHZ"
+        None,
+        description="If true, retrieves all the TES tasks you may have access to, instead of just your own. Default: false",
     ),
 ) -> dict:
     """
@@ -315,7 +316,7 @@ async def list_tasks(
         raise HTTPException(e.code, e.message)
 
     # filter out tasks the current user does not have access to
-    # this should be redundant if all is None but is included in case pre-filtering fails
+    # this should be redundant if all is None but is included in case server-side filtering fails
     listed_tasks["tasks"] = [
         apply_view_to_task(requested_view, task)
         for task in listed_tasks.get("tasks", [])
