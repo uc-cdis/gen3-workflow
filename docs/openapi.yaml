@@ -99,12 +99,14 @@ paths:
       description: List the user's GA4GH TES tasks
       operationId: list_tasks
       parameters:
-      - description: Get all TES tasks without pre-filtering on _AUTHZ
+      - description: 'If true, retrieves all the TES tasks you may have access to,
+          instead of just your own. Default: false'
         in: query
         name: all
         required: false
         schema:
-          description: Get all TES tasks without pre-filtering on _AUTHZ
+          description: 'If true, retrieves all the TES tasks you may have access to,
+            instead of just your own. Default: false'
           title: All
           type: string
       responses:
