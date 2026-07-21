@@ -181,26 +181,23 @@ def _get_available_az_to_subnet(discovery_tag: str) -> dict[str, str]:
     return {subnet["AvailabilityZoneId"]: subnet["SubnetId"] for subnet in subnets}
 
 
-def _get_eks_security_groups() -> list[tuple[str, str]]:
+def _get_eks_security_group() -> tuple[str, str]:
     """
     Return (sg_id, sg_name) for every security group that Karpenter could attach
     to an EKS worker node in this cluster (workflow and jupyter node pools).
     """
-    security_groups = ec2_client.describe_security_groups(
+    eks_sg_name = f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg"
+    security_group = ec2_client.describe_security_groups(
         Filters=[
             {
-                "Name": "tag:karpenter.sh/discovery",
-                "Values": [
-                    config["EKS_CLUSTER_NAME"],
-                    f'{config["EKS_CLUSTER_NAME"]}-jupyter',
-                ],
+                "Name": "group-name",
+                "Values": [eks_sg_name],
             }
         ]
-    )
-    return [
-        (group["GroupId"], group["GroupName"])
-        for group in security_groups["SecurityGroups"]
-    ]
+    )["SecurityGroups"][0]
+    if not security_group:
+        raise f"Missing eks security group {eks_sg_name}"
+    return security_group["GroupId"], security_group["GroupName"]
 
 
 def _get_or_create_security_groups(bucket_name: str, vpc_id: str) -> str:
@@ -208,15 +205,15 @@ def _get_or_create_security_groups(bucket_name: str, vpc_id: str) -> str:
     Ensure the mount target security group exists and has the correct bidirectional
     NFS rules in place against every EKS worker security group:
 
-        | Security group | Rule type | Protocol | Port | Source/destination           |
-        |-----------------|-----------|----------|------|-------------------------------|
-        | Compute SG      | Outbound  | TCP      | 2049 | Mount target security group   |
-        | Mount target SG | Inbound   | TCP      | 2049 | Compute security group        |
+    | Security group | Rule type | Protocol | Port | Source/destination           |
+    |-----------------|-----------|----------|------|-------------------------------|
+    | Compute SG      | Outbound  | TCP      | 2049 | Mount target security group   |
+    | Mount target SG | Inbound   | TCP      | 2049 | Compute security group        |
 
     Returns:
         The mount target security group ID.
     """
-    compute_security_groups = _get_eks_security_groups()
+    compute_security_group_id, compute_security_group_name = _get_eks_security_group()
 
     mount_target_sg_name = f"{bucket_name}-mount-target-sg"
     existing = ec2_client.describe_security_groups(
@@ -250,61 +247,64 @@ def _get_or_create_security_groups(bucket_name: str, vpc_id: str) -> str:
                     "IpProtocol": "tcp",
                     "FromPort": NFS_PORT,
                     "ToPort": NFS_PORT,
-                    "UserIdGroupPairs": [
-                        {"GroupId": sg_id} for sg_id, _ in compute_security_groups
-                    ],
+                    "UserIdGroupPairs": [{"GroupId": compute_security_group_id}],
                 }
             ],
         )
         logger.info(
-            "Authorized inbound TCP/%s on %s from %s",
+            "Authorized inbound TCP/%s on %s (%s) from %s (%s)",
             NFS_PORT,
+            mount_target_sg_name,
             mount_target_sg_id,
-            compute_security_groups,
+            compute_security_group_name,
+            compute_security_group_id,
         )
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
             logger.info(
-                "Inbound TCP/%s on %s from %s already exists; skipping.",
+                "Inbound TCP/%s on %s (%s) from %s (%s) already exists; skipping.",
                 NFS_PORT,
+                mount_target_sg_name,
                 mount_target_sg_id,
-                compute_security_groups,
+                compute_security_group_name,
+                compute_security_group_id,
             )
         else:
             raise
 
     # Outbound: each compute SG allows NFS to the mount target SG, idempotently.
-    for compute_sg_id, compute_sg_name in compute_security_groups:
-        try:
-            ec2_client.authorize_security_group_egress(
-                GroupId=compute_sg_id,
-                IpPermissions=[
-                    {
-                        "IpProtocol": "tcp",
-                        "FromPort": NFS_PORT,
-                        "ToPort": NFS_PORT,
-                        "UserIdGroupPairs": [{"GroupId": mount_target_sg_id}],
-                    }
-                ],
-            )
+    try:
+        ec2_client.authorize_security_group_egress(
+            GroupId=compute_security_group_id,
+            IpPermissions=[
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": NFS_PORT,
+                    "ToPort": NFS_PORT,
+                    "UserIdGroupPairs": [{"GroupId": mount_target_sg_id}],
+                }
+            ],
+        )
+        logger.info(
+            "Authorized outbound TCP/%s on %s (%s) to %s (%s)",
+            NFS_PORT,
+            compute_security_group_id,
+            compute_security_group_name,
+            mount_target_sg_id,
+            mount_target_sg_name,
+        )
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
             logger.info(
-                "Authorized outbound TCP/%s on %s (%s) to %s",
+                "Outbound TCP/%s on %s (%s) to %s (%s) already exists; skipping.",
                 NFS_PORT,
-                compute_sg_id,
-                compute_sg_name,
+                compute_security_group_id,
+                compute_security_group_name,
                 mount_target_sg_id,
+                mount_target_sg_name,
             )
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
-                logger.info(
-                    "Outbound TCP/%s on %s (%s) to %s already exists; skipping.",
-                    NFS_PORT,
-                    compute_sg_id,
-                    compute_sg_name,
-                    mount_target_sg_id,
-                )
-            else:
-                raise
+        else:
+            raise
 
     return mount_target_sg_id
 
