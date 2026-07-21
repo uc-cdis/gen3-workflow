@@ -10,6 +10,7 @@ from starlette.status import (
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
+from gen3workflow.aws.s3_files import get_filesystem_status
 from gen3workflow.config import config
 
 router = APIRouter(prefix="/storage")
@@ -36,10 +37,10 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    bucket_name, kms_key_arn = await aws_utils.create_user_bucket(user_id)
+    bucket_name, kms_key_arn, fs_id = await aws_utils.create_user_bucket(user_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
-
+    filesystem_status = get_filesystem_status(fs_id)
     try:
         await auth.grant_user_access_to_their_own_data(
             username=username, user_id=user_id
@@ -55,6 +56,8 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         "kms_key_arn": (
             kms_key_arn if config["KMS_ENCRYPTION_ENABLED"] and kms_key_arn else None
         ),
+        "s3files_filesystem_id": fs_id,
+        "status": filesystem_status,
     }
 
 

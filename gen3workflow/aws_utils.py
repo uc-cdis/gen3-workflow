@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
 
 from gen3workflow import logger
+from gen3workflow.aws.s3_files import get_s3_files_system, setup_s3_filesystem
 from gen3workflow.config import config
 
 USER_BUCKET_CACHE = SimpleCache(default_timeout=config["USER_BUCKET_CACHE_SECONDS"])
@@ -46,6 +47,7 @@ kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
 sts_client = get_boto3_client("sts")
 eks_client = get_boto3_client("eks", region_name=config["EKS_CLUSTER_REGION"])
 s3files_client = get_boto3_client("s3files", region_name=config["USER_BUCKETS_REGION"])
+ec2_client = get_boto3_client("ec2", region_name=config["USER_BUCKETS_REGION"])
 
 
 def get_safe_name_from_hostname(
@@ -403,59 +405,6 @@ def enable_bucket_versioning(bucket_name: str) -> None:
         raise
 
 
-def get_or_create_s3_files_system(bucket_name: str, region: str, role_arn: str) -> str:
-    """
-    Checks if an Amazon S3 Files filesystem already exists for a bucket.
-    If yes, returns the FileSystemId. If no, creates it and returns the new ID.
-    """
-    # Standard S3 Files buckets require full ARN strings
-    bucket_arn = f"arn:aws:s3:::{bucket_name}"
-    logger.debug(f"Checking for existing S3Files mounts assigned to: {bucket_name}...")
-    try:
-        # List all file systems managed in this region
-        paginator = s3files_client.get_paginator("list_file_systems")
-        for page in paginator.paginate():
-            for fs in page.get("FileSystems", []):
-                # Match against the underlying bucket ARN
-                if fs.get("Bucket") == bucket_arn:
-                    fs_id = fs["FileSystemId"]
-                    logger.debug(
-                        f"Found existing S3Files system! ID: {fs_id} (State: {fs['LifeCycleState']})"
-                    )
-                    return fs_id
-    except ClientError as e:
-        logger.error(
-            f"Failed to list S3 Files filesystems: {e.response['Error']['Message']}"
-        )
-        raise
-
-    # If not found, create a new S3 Files filesystem
-    try:
-        response = s3files_client.create_file_system(
-            bucket=bucket_arn,
-            StorageType="S3",
-            prefix="funnel-temp-files",
-            StorageConfiguration={"BucketName": bucket_name},
-            FileSystemTypeVersion="1.0",
-            RoleArn=role_arn,
-            Tags=[{"Key": "Name", "Value": get_safe_name_from_hostname(user_id=None)}],
-        )
-        file_system_id = response["FileSystemId"]
-        logger.debug(
-            f"Created new S3 Files filesystem '{file_system_id}' for bucket '{bucket_name}'"
-        )
-        return file_system_id
-    except ClientError as e:
-        logger.error(
-            f"Failed to create S3 Files filesystem for bucket '{bucket_name}': {e.response['Error']['Message']}"
-        )
-        raise
-
-
-def create_mount_target_for_s3_files(file_system_id: str, region: str) -> None:
-    pass
-
-
 async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
@@ -464,7 +413,7 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         user_id (str): The user's unique Gen3 ID
 
     Returns:
-        tuple: (bucket name, prefix where the user stores objects in the bucket, bucket region, kms key ARN)
+        tuple: (bucket name, kms key ARN, S3 files filesystem ID)
     """
     user_bucket_name = get_bucket_name_from_user_id(user_id)
     try:
@@ -533,9 +482,12 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
 
     enable_bucket_versioning(user_bucket_name)
-    # Create S3 Files Filesystem ID
+    fs_id = get_s3_files_system(user_bucket_name)
+    if not fs_id:
+        # Create S3 Files Filesystem ID if not exists
+        fs_id = setup_s3_filesystem(user_bucket_name)
 
-    return user_bucket_name, kms_key_arn
+    return user_bucket_name, kms_key_arn, fs_id
 
 
 async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
