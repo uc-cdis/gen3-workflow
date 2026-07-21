@@ -73,9 +73,9 @@ def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
     try:
         response = s3files_client.create_file_system(
             bucket=bucket_arn,
-            prefix="funnel-temp-files",
+            prefix="funnel-temp-files/",
             roleArn=role_arn,
-            tags=[{"Key": "app-name", "Value": "gen3-workflow"}],
+            tags=[{"key": "app-name", "value": "gen3-workflow"}],
         )
         file_system_id = response["fileSystemId"]
         logger.debug(
@@ -201,8 +201,8 @@ def _get_eks_security_group() -> tuple[str, str]:
 
 
 # TODO: Investigate if this can be moved to server startup logic or elsewhere?
-# Since the `create` part is only needed once per deployed environment.
-def _get_or_create_security_groups(bucket_name: str, vpc_id: str) -> str:
+# Since the `create` part is only needed once per cluster.
+def _get_or_create_security_groups(vpc_id: str) -> str:
     """
     Ensure the mount target security group exists and has the correct bidirectional
     NFS rules in place against every EKS worker security group:
@@ -217,7 +217,7 @@ def _get_or_create_security_groups(bucket_name: str, vpc_id: str) -> str:
     """
     compute_security_group_id, compute_security_group_name = _get_eks_security_group()
 
-    mount_target_sg_name = f"{bucket_name}-mount-target-sg"
+    mount_target_sg_name = "gen3wf-s3files-mount-target-sg"
     existing = ec2_client.describe_security_groups(
         Filters=[{"Name": "group-name", "Values": [mount_target_sg_name]}]
     )["SecurityGroups"]
@@ -354,9 +354,7 @@ def setup_s3_filesystem(bucket_name: str) -> str:
         bucket_name=bucket_name, region=region
     )
 
-    file_system_id = _create_s3_files_system(
-        bucket_name, region=region, role_arn=role_arn
-    )
+    file_system_id = _create_s3_files_system(bucket_name, role_arn=role_arn)
 
     available_az_to_subnet_mapping = _get_available_az_to_subnet(
         discovery_tag=config["EKS_CLUSTER_NAME"]
