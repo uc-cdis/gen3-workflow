@@ -200,6 +200,8 @@ def _get_eks_security_group() -> tuple[str, str]:
     return security_group["GroupId"], security_group["GroupName"]
 
 
+# TODO: Investigate if this can be moved to server startup logic or elsewhere?
+# Since the `create` part is only needed once per deployed environment.
 def _get_or_create_security_groups(bucket_name: str, vpc_id: str) -> str:
     """
     Ensure the mount target security group exists and has the correct bidirectional
@@ -329,7 +331,7 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
         ARN of the (new or existing) IAM role.
     """
     # TODO: implementation
-    pass
+    return "arn:aws:iam::707767160287:role/Gen3WorkflowS3FilesPOC"
 
 
 # --------------------------------------------------------------------------- #
