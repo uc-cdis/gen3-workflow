@@ -183,8 +183,8 @@ def _get_available_az_to_subnet(discovery_tag: str) -> dict[str, str]:
 
 def _get_eks_security_group() -> tuple[str, str]:
     """
-    Return (sg_id, sg_name) for every security group that Karpenter could attach
-    to an EKS worker node in this cluster (workflow and jupyter node pools).
+    Return (sg_id, sg_name) for the EKS security group that Karpenter attaches
+    to an EKS worker node in this cluster.
     """
     eks_sg_name = f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg"
     security_group = ec2_client.describe_security_groups(
