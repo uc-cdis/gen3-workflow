@@ -31,11 +31,11 @@ def get_s3_files_system(bucket_name: str) -> str | None:
     try:
         paginator = s3files_client.get_paginator("list_file_systems")
         for page in paginator.paginate():
-            for fs in page.get("FileSystems", []):
-                if fs.get("Bucket") == bucket_arn:
-                    fs_id = fs["FileSystemId"]
+            for fs in page.get("fileSystems", []):
+                if fs.get("bucket") == bucket_arn:
+                    fs_id = fs["fileSystemId"]
                     logger.debug(
-                        f"Found existing S3 Files file system '{fs_id}' (state: {fs['LifeCycleState']})"
+                        f"Found existing S3 Files file system '{fs_id}' (state: {fs['status']})"
                     )
                     return fs_id
     except ClientError as e:
@@ -77,12 +77,23 @@ def get_filesystem_status(file_system_id: str) -> tuple[str | None, str | None]:
 
 
 def get_mount_target_status(file_system_id: str):
+    """
     # TODO: list mount targets and get their statuses, and unify into a single
     # usable status (e.g. "ready" only once all expected mount targets
     # are in an available state).
 
-    # TODO: What if new AZs are added to the node after initial bucket setup? Filesystem may need new mount targets in these AZs too.
-    # This should not be the responsibility of this function, but where to put it?
+    # Note: We assume new AZs are not added to the node after initial bucket setup?
+    # Filesystem may need new mount targets in these AZs if they are ever created.
+    """
+
+    return "Not ready"
+
+
+def get_s3files_setup_status(filesystem_id):
+    """
+    #TODO: This orchestrates both filesystem status and mount target statuses
+    and informs whether or not this storage setup is ready to use or not.
+    """
 
     return "Not ready"
 
@@ -375,11 +386,21 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
 
 
 def wait_for_file_system_ready(fs_id: str):
+    """
+    Waits for file system to be ready.
+
+    Raises: Exception if file system could not be created.
+    """
     fs_status, reason = get_filesystem_status(fs_id)
     logger.debug(f"Waiting for Filesystem: `{fs_id}`to be ready.")
     while fs_status in ["creating", "updating"]:
+        # TODO: Make it async
         time.sleep(2)
         fs_status, reason = get_filesystem_status(fs_id)
+        if reason:
+            logger.debug(
+                f"Filesystem `{fs_id}` is currently in {fs_status=} with {reason=}"
+            )
     if fs_status != "available":
         raise Exception(f"Failed to create file system.\nReason: {reason}")
     logger.debug(f"Filesystem: `{fs_id}` ready.")
