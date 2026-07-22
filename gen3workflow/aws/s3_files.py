@@ -65,7 +65,7 @@ def get_filesystem_status(file_system_id: str) -> tuple[str | None, str | None]:
 
     try:
         fs = s3files_client.get_file_system(fileSystemId=file_system_id)
-    except s3files_client.exceptions.FileSystemNotFound:
+    except s3files_client.exceptions.ResourceNotFoundException:
         return None, f"File system with file_system_id={file_system_id} does not exist"
     except ClientError as e:
         return None, f"Failed to fetch file system {file_system_id}: {e}"
