@@ -12,6 +12,13 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from gen3workflow import logger
 from gen3workflow.aws.s3_files import get_s3_files_system, setup_s3_filesystem
 from gen3workflow.config import config
+from gen3workflow.aws.clients import (
+    eks_client,
+    sts_client,
+    iam_client,
+    kms_client,
+    s3_client,
+)
 
 USER_BUCKET_CACHE = SimpleCache(default_timeout=config["USER_BUCKET_CACHE_SECONDS"])
 
@@ -22,32 +29,6 @@ def dict_to_sorted_json_str(obj: dict) -> str:
     Use case: when comparing JSON objects returned by AWS, comparisons are deterministic and less flaky
     """
     return json.dumps(obj, sort_keys=True, separators=(",", ":"))
-
-
-def get_boto3_client(service_name: str, **kwargs):
-    """
-    Create a boto3 client for the specified AWS service,
-    using credentials from the config if provided,
-    otherwise using IRSA as a fallback in the credential provider chain.
-    """
-    if service_name == "s3":
-        if config["S3_UPSTREAM_ENDPOINT"]:
-            kwargs["endpoint_url"] = config["S3_UPSTREAM_ENDPOINT"]
-        if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
-            kwargs["aws_access_key_id"] = config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]
-            kwargs["aws_secret_access_key"] = config[
-                "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"
-            ]
-    return boto3.client(service_name, **kwargs)
-
-
-iam_client = get_boto3_client("iam")
-s3_client = get_boto3_client("s3", region_name=config["USER_BUCKETS_REGION"])
-kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
-sts_client = get_boto3_client("sts")
-eks_client = get_boto3_client("eks", region_name=config["EKS_CLUSTER_REGION"])
-s3files_client = get_boto3_client("s3files", region_name=config["USER_BUCKETS_REGION"])
-ec2_client = get_boto3_client("ec2", region_name=config["USER_BUCKETS_REGION"])
 
 
 def get_safe_name_from_hostname(
