@@ -3,7 +3,7 @@ import time
 
 from gen3workflow import logger
 from gen3workflow.config import config
-from aws_utils import s3files_client, eks_client, ec2_client
+from gen3workflow.aws_utils import s3files_client, eks_client, ec2_client
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
 NFS_PORT = 2049
