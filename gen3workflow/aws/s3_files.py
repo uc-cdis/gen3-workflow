@@ -1,5 +1,5 @@
 from botocore.exceptions import ClientError
-
+import time
 
 from gen3workflow import logger
 from gen3workflow.config import config
@@ -47,13 +47,43 @@ def get_s3_files_system(bucket_name: str) -> str | None:
     return None
 
 
-def get_filesystem_status(file_system_id: str):
-    # TODO: fetch file system status + list mount targets and get their statuses, and unify into a single
-    # usable status (e.g. "ready" only once the FS and all expected mount targets
+def get_filesystem_status(file_system_id: str) -> tuple[str | None, str | None]:
+    """
+    Fetch the status of an S3 Files file system.
+
+    Args:
+        file_system_id: The ID of the file system to check.
+
+    Returns:
+        A tuple of (status, status_message):
+        - (status, status_message) on success, e.g. ("AVAILABLE", None)
+        - (None, error_message) if the file system doesn't exist or the
+          lookup fails.
+    """
+    if not file_system_id:
+        return None, "file_system_id must not be empty"
+
+    try:
+        fs = s3files_client.get_file_system(fileSystemId=file_system_id)
+    except s3files_client.exceptions.FileSystemNotFound:
+        return None, f"File system with file_system_id={file_system_id} does not exist"
+    except ClientError as e:
+        return None, f"Failed to fetch file system {file_system_id}: {e}"
+
+    if not fs:
+        return None, f"File system with file_system_id={file_system_id} does not exist"
+
+    return fs.get("status"), fs.get("statusMessage")
+
+
+def get_mount_target_status(file_system_id: str):
+    # TODO: list mount targets and get their statuses, and unify into a single
+    # usable status (e.g. "ready" only once all expected mount targets
     # are in an available state).
 
     # TODO: What if new AZs are added to the node after initial bucket setup? Filesystem may need new mount targets in these AZs too.
     # This should not be the responsibility of this function, but where to put it?
+
     return "Not ready"
 
 
@@ -181,27 +211,25 @@ def _get_available_az_to_subnet(discovery_tag: str) -> dict[str, str]:
     return {subnet["AvailabilityZoneId"]: subnet["SubnetId"] for subnet in subnets}
 
 
-def _get_eks_security_group() -> tuple[str, str]:
+def _get_eks_security_groups() -> tuple[str, str]:
     """
     Return (sg_id, sg_name) for the EKS security group that Karpenter attaches
     to an EKS worker node in this cluster.
     """
-    eks_sg_name = f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg"
-    security_group = ec2_client.describe_security_groups(
-        Filters=[
-            {
-                "Name": "group-name",
-                "Values": [eks_sg_name],
-            }
-        ]
-    )["SecurityGroups"][0]
-    if not security_group:
-        raise f"Missing eks security group {eks_sg_name}"
-    return security_group["GroupId"], security_group["GroupName"]
+    # TODO: Determine if these need to be configurable.
+    eks_sg_names = [
+        f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg",
+        f"{config["EKS_CLUSTER_NAME"]}_EKS_nodepool_jupyter_sg",
+    ]
+    security_groups = ec2_client.describe_security_groups(
+        Filters=[{"Name": "group-name", "Values": eks_sg_names}]
+    )["SecurityGroups"]
+    return [(group["GroupId"], group["GroupName"]) for group in security_groups]
 
 
 # TODO: Investigate if this can be moved to server startup logic or elsewhere?
-# Since the `create` part is only needed once per cluster.
+# Since the `create` part is only needed once per cluster, no need to run for every bucket.
+# This takes approximately 2 seconds to run everytime it is invoked.
 def _get_or_create_security_groups(vpc_id: str) -> str:
     """
     Ensure the mount target security group exists and has the correct bidirectional
@@ -215,7 +243,7 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
     Returns:
         The mount target security group ID.
     """
-    compute_security_group_id, compute_security_group_name = _get_eks_security_group()
+    compute_security_groups = _get_eks_security_groups()
 
     mount_target_sg_name = "gen3wf-s3files-mount-target-sg"
     existing = ec2_client.describe_security_groups(
@@ -249,64 +277,69 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
                     "IpProtocol": "tcp",
                     "FromPort": NFS_PORT,
                     "ToPort": NFS_PORT,
-                    "UserIdGroupPairs": [{"GroupId": compute_security_group_id}],
+                    "UserIdGroupPairs": [
+                        {"GroupId": compute_security_group_id}
+                        for compute_security_group_id, _ in compute_security_groups
+                    ],
                 }
             ],
         )
         logger.info(
-            "Authorized inbound TCP/%s on %s (%s) from %s (%s)",
+            "Authorized inbound TCP/%s on %s (%s) from %s",
             NFS_PORT,
             mount_target_sg_name,
             mount_target_sg_id,
-            compute_security_group_name,
-            compute_security_group_id,
+            compute_security_groups,
         )
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
             logger.info(
-                "Inbound TCP/%s on %s (%s) from %s (%s) already exists; skipping.",
+                "Inbound TCP/%s on %s (%s) from %s already exists; skipping.",
                 NFS_PORT,
                 mount_target_sg_name,
                 mount_target_sg_id,
-                compute_security_group_name,
-                compute_security_group_id,
+                compute_security_groups,
             )
         else:
             raise
 
     # Outbound: each compute SG allows NFS to the mount target SG, idempotently.
-    try:
-        ec2_client.authorize_security_group_egress(
-            GroupId=compute_security_group_id,
-            IpPermissions=[
-                {
-                    "IpProtocol": "tcp",
-                    "FromPort": NFS_PORT,
-                    "ToPort": NFS_PORT,
-                    "UserIdGroupPairs": [{"GroupId": mount_target_sg_id}],
-                }
-            ],
-        )
-        logger.info(
-            "Authorized outbound TCP/%s on %s (%s) to %s (%s)",
-            NFS_PORT,
-            compute_security_group_id,
-            compute_security_group_name,
-            mount_target_sg_id,
-            mount_target_sg_name,
-        )
-    except ClientError as exc:
-        if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
+    for (
+        compute_security_group_id,
+        compute_security_group_name,
+    ) in compute_security_groups:
+        try:
+            ec2_client.authorize_security_group_egress(
+                GroupId=compute_security_group_id,
+                IpPermissions=[
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": NFS_PORT,
+                        "ToPort": NFS_PORT,
+                        "UserIdGroupPairs": [{"GroupId": mount_target_sg_id}],
+                    }
+                ],
+            )
             logger.info(
-                "Outbound TCP/%s on %s (%s) to %s (%s) already exists; skipping.",
+                "Authorized outbound TCP/%s on %s (%s) to %s (%s)",
                 NFS_PORT,
                 compute_security_group_id,
                 compute_security_group_name,
                 mount_target_sg_id,
                 mount_target_sg_name,
             )
-        else:
-            raise
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
+                logger.info(
+                    "Outbound TCP/%s on %s (%s) to %s (%s) already exists; skipping.",
+                    NFS_PORT,
+                    compute_security_group_id,
+                    compute_security_group_name,
+                    mount_target_sg_id,
+                    mount_target_sg_name,
+                )
+            else:
+                raise
 
     return mount_target_sg_id
 
@@ -334,6 +367,24 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
     return "arn:aws:iam::707767160287:role/Gen3WorkflowS3FilesPOC"
 
 
+# ---------
+# Wait for resource creation
+# S3Files client does not have any built-in waiters as of yet.
+# Writing custom waiters for our use case.
+# ----------
+
+
+def wait_for_file_system_ready(fs_id: str):
+    fs_status, reason = get_filesystem_status(fs_id)
+    logger.debug(f"Waiting for Filesystem: `{fs_id}`to be ready.")
+    while fs_status in ["creating", "updating"]:
+        time.sleep(2)
+        fs_status, reason = get_filesystem_status(fs_id)
+    if fs_status != "available":
+        raise Exception(f"Failed to create file system.\nReason: {reason}")
+    logger.debug(f"Filesystem: `{fs_id}` ready.")
+
+
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
@@ -355,6 +406,7 @@ def setup_s3_filesystem(bucket_name: str) -> str:
     )
 
     file_system_id = _create_s3_files_system(bucket_name, role_arn=role_arn)
+    wait_for_file_system_ready(file_system_id)
 
     available_az_to_subnet_mapping = _get_available_az_to_subnet(
         discovery_tag=config["EKS_CLUSTER_NAME"]
@@ -377,9 +429,7 @@ def setup_s3_filesystem(bucket_name: str) -> str:
     #      target security group in the bucket's region.
     mount_target_vpc_id = _get_vpc_id()
 
-    mount_target_sg_id = _get_or_create_security_groups(
-        bucket_name=bucket_name, vpc_id=mount_target_vpc_id
-    )
+    mount_target_sg_id = _get_or_create_security_groups(vpc_id=mount_target_vpc_id)
 
     # Create new m.t.s of this file system ID for each missing az from the az_to_subnet_dict
     az_with_mount_targets = {mt["availabilityZoneId"] for mt in mount_targets}
