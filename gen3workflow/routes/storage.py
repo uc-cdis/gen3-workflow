@@ -1,5 +1,5 @@
 from gen3authz.client.arborist.errors import ArboristError
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, HTTPException
 from starlette.status import (
     HTTP_200_OK,
     HTTP_202_ACCEPTED,
@@ -18,7 +18,9 @@ router = APIRouter(prefix="/storage")
 
 @router.get("/setup", status_code=HTTP_200_OK)
 @router.get("/setup/", status_code=HTTP_200_OK, include_in_schema=False)
-async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
+async def storage_setup(
+    request: Request, background_tasks: BackgroundTasks, auth=Depends(Auth)
+) -> dict:
     """
     Return details about the current user's storage setup.
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
@@ -59,6 +61,7 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         if not fs_id:
             # Create S3 Files Filesystem ID if not exists
             fs_id = s3_files.setup_s3_filesystem(bucket_name)
+            background_tasks.add_task(s3_files.provision_mount_targets, fs_id)
 
         filesystem_status = s3_files.get_s3files_setup_status(fs_id)
 

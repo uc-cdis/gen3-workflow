@@ -19,3 +19,7 @@ For Helm-based deployments, set:
 ## Prerequisites
 * Gen3Workflow must be deployed on an EKS cluster.
 * The EKS cluster must support S3 Files, provisioned via the [EFS CSI driver](https://github.com/kubernetes-sigs/aws-efs-csi-driver).
+
+
+#### NOTE:
+* Currently Gen3Workflow with S3Files only supports user bucket and the EKS cluster being present in the same region. Support shall be added in the future.

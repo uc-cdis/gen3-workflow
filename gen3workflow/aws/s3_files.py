@@ -77,9 +77,6 @@ def get_filesystem_status(file_system_id: str) -> tuple[str | None, str | None]:
     except ClientError as e:
         return None, f"Failed to fetch file system {file_system_id}: {e}"
 
-    if not fs:
-        return None, f"File system with file_system_id={file_system_id} does not exist"
-
     return fs.get("status"), fs.get("statusMessage")
 
 
@@ -101,6 +98,7 @@ def get_s3files_setup_status(filesystem_id):
     #TODO: This orchestrates both filesystem status and mount target statuses
     and informs whether or not this storage setup is ready to use or not.
     """
+    fs_status = get_filesystem_status(file_system_id=filesystem_id)
 
     return "Not ready"
 
@@ -550,9 +548,7 @@ def wait_for_file_system_ready(fs_id: str):
 
 def setup_s3_filesystem(bucket_name: str) -> str:
     """
-    Ensure an S3 Files file system exists for `bucket_name`, with one mount target
-    per AZ the EKS cluster's nodes can run in, and the security groups needed for
-    pods to reach those mount targets over NFS.
+    Ensure an S3 Files file system exists for `bucket_name`
 
     Returns:
         The file system ID.
@@ -563,12 +559,22 @@ def setup_s3_filesystem(bucket_name: str) -> str:
         bucket_name=bucket_name, region=region
     )
 
-    file_system_id = _create_s3_files_system(bucket_name, role_arn=role_arn)
-    wait_for_file_system_ready(file_system_id)
+    return _create_s3_files_system(bucket_name, role_arn=role_arn)
+
+
+def provision_mount_targets(file_system_id: str):
+    """
+    Provisions one mount target per AZ where the EKS cluster's nodes can run in,
+    and the security groups needed for pods to reach those mount targets over NFS.
+    """
+    # NOTE: To avoid blocking `/storage/setup` call, setting s3 filesystem just returns
+    # the filesystem id and continue with the rest of the steps asynchronously?
 
     available_az_to_subnet_mapping = _get_available_az_to_subnet(
         discovery_tag=config["EKS_CLUSTER_NAME"]
     )
+
+    wait_for_file_system_ready(file_system_id)
     mount_targets = list_mount_targets_for_file_system(file_system_id)
 
     # ASSUMPTION: this implementation currently requires the S3 bucket and the EKS
