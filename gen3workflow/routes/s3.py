@@ -299,7 +299,7 @@ async def s3_endpoint(path: str, request: Request):
     #   'x-amz-server-side-encryption-context' shall be Base64-encoded UTF-8 string holding JSON
     #   which represents a string-string map". Band-aid fix: drop it
     #   See https://github.com/minio/minio-go/issues/2235
-    # TODO: this should be fixed in the latest version of Funnel... test it
+    # TODO: fixed in https://github.com/calypr/funnel/pull/1428 - to be tested
     out_headers.pop("x-amz-server-side-encryption-context", None)
 
     # - Add the `x-amz-date` header if it wasn't there
