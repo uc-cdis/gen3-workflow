@@ -46,6 +46,9 @@ S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY:
 
 KMS_ENCRYPTION_ENABLED: true
 
+# Acceptable values are EBS and S3Files
+STORAGE_TYPE: EBS
+
 #############
 # GA4GH TES #
 #############

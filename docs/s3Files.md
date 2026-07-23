@@ -1,0 +1,21 @@
+# S3 Files Setup
+
+## Overview
+TES worker and executor pods use **S3 Files** (Amazon's EFS-backed service) to interact with a user's S3 bucket. While pod lifecycle is managed by the underlying execution engine (Funnel), Gen3Workflow is responsible for provisioning the supporting AWS resources — file systems, mount targets, IAM roles, and security groups — required for S3 Files to function.
+
+## Enabling S3 Files
+Set the following in your config:
+
+```yaml
+STORAGE_TYPE: S3Files
+```
+
+For Helm-based deployments, set:
+
+```yaml
+{{ .Values.gen3WorkflowConfig.storageType }}: "S3Files"
+```
+
+## Prerequisites
+* Gen3Workflow must be deployed on an EKS cluster.
+* The EKS cluster must support S3 Files, provisioned via the [EFS CSI driver](https://github.com/kubernetes-sigs/aws-efs-csi-driver).

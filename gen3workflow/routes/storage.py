@@ -10,7 +10,7 @@ from starlette.status import (
 
 from gen3workflow import aws_utils, logger
 from gen3workflow.auth import Auth
-from gen3workflow.aws.s3_files import get_filesystem_status
+from gen3workflow.aws import s3_files
 from gen3workflow.config import config
 
 router = APIRouter(prefix="/storage")
@@ -40,7 +40,28 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     bucket_name, kms_key_arn, fs_id = await aws_utils.create_user_bucket(user_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
-    filesystem_status = get_filesystem_status(fs_id)
+
+    storage_info = {
+        "bucket": bucket_name,
+        "workdir": f"s3://{bucket_name}/{bucket_prefix}",
+        "region": bucket_region,
+        "kms_key_arn": (
+            kms_key_arn if config["KMS_ENCRYPTION_ENABLED"] and kms_key_arn else None
+        ),
+    }
+
+    if config["STORAGE_TYPE"] == "S3Files":
+
+        fs_id = s3_files.get_s3_files_system(bucket_name)
+        if not fs_id:
+            # Create S3 Files Filesystem ID if not exists
+            fs_id = s3_files.setup_s3_filesystem(bucket_name)
+
+        filesystem_status = s3_files.get_s3files_setup_status(fs_id)
+
+        storage_info["s3files_filesystem_id"] = fs_id
+        storage_info["status"] = filesystem_status
+
     try:
         await auth.grant_user_access_to_their_own_data(
             username=username, user_id=user_id
@@ -49,16 +70,7 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
-    return {
-        "bucket": bucket_name,
-        "workdir": f"s3://{bucket_name}/{bucket_prefix}",
-        "region": bucket_region,
-        "kms_key_arn": (
-            kms_key_arn if config["KMS_ENCRYPTION_ENABLED"] and kms_key_arn else None
-        ),
-        "s3files_filesystem_id": fs_id,
-        "status": filesystem_status,
-    }
+    return storage_info
 
 
 @router.delete("/user-bucket", status_code=HTTP_202_ACCEPTED)

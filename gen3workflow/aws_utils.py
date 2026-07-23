@@ -454,6 +454,8 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         ChecksumAlgorithm="SHA256",
     )
 
+    enable_bucket_versioning(user_bucket_name)
+
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
         kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
@@ -462,13 +464,7 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         s3_client.delete_bucket_policy(Bucket=user_bucket_name)
 
-    enable_bucket_versioning(user_bucket_name)
-    fs_id = get_s3_files_system(user_bucket_name)
-    if not fs_id:
-        # Create S3 Files Filesystem ID if not exists
-        fs_id = setup_s3_filesystem(user_bucket_name)
-
-    return user_bucket_name, kms_key_arn, fs_id
+    return user_bucket_name, kms_key_arn
 
 
 async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
