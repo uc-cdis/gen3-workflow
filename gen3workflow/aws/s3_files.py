@@ -1,9 +1,16 @@
 from botocore.exceptions import ClientError
 import time
+import json
 
 from gen3workflow import logger
 from gen3workflow.config import config
-from gen3workflow.aws.clients import s3files_client, eks_client, ec2_client
+from gen3workflow.aws.clients import (
+    s3files_client,
+    eks_client,
+    ec2_client,
+    iam_client,
+    sts_client,
+)
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
 NFS_PORT = 2049
@@ -374,8 +381,138 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
     Returns:
         ARN of the (new or existing) IAM role.
     """
-    # TODO: implementation
-    return "arn:aws:iam::707767160287:role/Gen3WorkflowS3FilesPOC"
+    # TODO: Make it such that it is under 64 characters
+    role_name = f"{bucket_name}-s3files-role"
+    account_id = sts_client.get_caller_identity()["Account"]
+    bucket_arn = f"arn:aws:s3:::{bucket_name}"
+
+    try:
+        role = iam_client.get_role(RoleName=role_name)
+        role_arn = role["Role"]["Arn"]
+        logger.info("IAM role '%s' already exists (%s)", role_name, role_arn)
+        return role_arn
+    except iam_client.exceptions.NoSuchEntityException:
+        pass
+
+    trust_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "AllowS3FilesAssumeRole",
+                "Effect": "Allow",
+                "Principal": {"Service": "elasticfilesystem.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+                "Condition": {
+                    "StringEquals": {"aws:SourceAccount": account_id},
+                    "ArnLike": {
+                        "aws:SourceArn": f"arn:aws:s3files:{region}:{account_id}:file-system/*"
+                    },
+                },
+            }
+        ],
+    }
+
+    # NOTE: includes the KMS statement unconditionally. If the kmsEncryptionEnabled is false,
+    # this statement is simply unused -- harmless
+    inline_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "S3BucketPermissions",
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
+                "Resource": bucket_arn,
+                "Condition": {"StringEquals": {"aws:ResourceAccount": account_id}},
+            },
+            {
+                "Sid": "S3ObjectPermissions",
+                "Effect": "Allow",
+                "Action": [
+                    "s3:AbortMultipartUpload",
+                    "s3:DeleteObject*",
+                    "s3:GetObject*",
+                    "s3:List*",
+                    "s3:PutObject*",
+                ],
+                "Resource": f"{bucket_arn}/*",
+                "Condition": {"StringEquals": {"aws:ResourceAccount": account_id}},
+            },
+            {
+                "Sid": "UseKmsKeyWithS3Files",
+                "Effect": "Allow",
+                "Action": [
+                    "kms:GenerateDataKey",
+                    "kms:Encrypt",
+                    "kms:Decrypt",
+                    "kms:ReEncryptFrom",
+                    "kms:ReEncryptTo",
+                ],
+                "Condition": {
+                    "StringLike": {
+                        "kms:ViaService": f"s3.{region}.amazonaws.com",
+                        "kms:EncryptionContext:aws:s3:arn": [
+                            bucket_arn,
+                            f"{bucket_arn}/*",
+                        ],
+                    }
+                },
+                "Resource": f"arn:aws:kms:{region}:{account_id}:*",
+            },
+            {
+                "Sid": "EventBridgeManage",
+                "Effect": "Allow",
+                "Action": [
+                    "events:DeleteRule",
+                    "events:DisableRule",
+                    "events:EnableRule",
+                    "events:PutRule",
+                    "events:PutTargets",
+                    "events:RemoveTargets",
+                ],
+                "Condition": {
+                    "StringEquals": {
+                        "events:ManagedBy": "elasticfilesystem.amazonaws.com"
+                    }
+                },
+                "Resource": ["arn:aws:events:*:*:rule/DO-NOT-DELETE-S3-Files*"],
+            },
+            {
+                "Sid": "EventBridgeRead",
+                "Effect": "Allow",
+                "Action": [
+                    "events:DescribeRule",
+                    "events:ListRuleNamesByTarget",
+                    "events:ListRules",
+                    "events:ListTargetsByRule",
+                ],
+                "Resource": ["arn:aws:events:*:*:rule/*"],
+            },
+        ],
+    }
+
+    try:
+        response = iam_client.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(trust_policy),
+            Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
+            Tags=[{"Key": "app-name", "Value": "gen3-workflow"}],
+        )
+        role_arn = response["Role"]["Arn"]
+
+        iam_client.put_role_policy(
+            RoleName=role_name,
+            PolicyName="S3FilesBucketAccess",
+            PolicyDocument=json.dumps(inline_policy),
+        )
+        logger.info(
+            "Created IAM role '%s' (%s) for S3 Files bucket access", role_name, role_arn
+        )
+        return role_arn
+    except ClientError as e:
+        logger.error(
+            f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
+        )
+        raise
 
 
 # ---------
