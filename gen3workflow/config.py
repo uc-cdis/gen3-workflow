@@ -42,6 +42,10 @@ class Gen3WorkflowConfig(Config):
                 "MOCK_AUTH": {"type": "boolean"},
                 "USER_BUCKET_CACHE_SECONDS": {"type": "integer", "minimum": 1},
                 "USER_BUCKETS_REGION": {"type": "string"},
+                "VALID_AUTHZ_AUDIENCE": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
                 "S3_UPSTREAM_ENDPOINT": {"type": ["string", "null"]},
                 "S3_OBJECTS_EXPIRATION_DAYS": {"type": "integer", "minimum": 1},
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
