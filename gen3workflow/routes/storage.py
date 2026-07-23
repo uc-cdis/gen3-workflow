@@ -37,7 +37,7 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    bucket_name, kms_key_arn, fs_id = await aws_utils.create_user_bucket(user_id)
+    bucket_name, kms_key_arn = await aws_utils.create_user_bucket(user_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
 
@@ -50,7 +50,10 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         ),
     }
 
-    if config["STORAGE_TYPE"] == "S3Files":
+    if config["ENABLE_S3_FILES"]:
+
+        # Bucket versioning is necessary for S3Files
+        aws_utils.enable_bucket_versioning(bucket_name)
 
         fs_id = s3_files.get_s3_files_system(bucket_name)
         if not fs_id:

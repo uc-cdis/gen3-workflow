@@ -7,13 +7,13 @@ TES worker and executor pods use **S3 Files** (Amazon's EFS-backed service) to i
 Set the following in your config:
 
 ```yaml
-STORAGE_TYPE: S3Files
+ENABLE_S3_FILES: true
 ```
 
 For Helm-based deployments, set:
 
 ```yaml
-{{ .Values.gen3WorkflowConfig.storageType }}: "S3Files"
+{{ .Values.gen3WorkflowConfig.enableS3Files }}: true
 ```
 
 ## Prerequisites

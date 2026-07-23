@@ -454,8 +454,6 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         ChecksumAlgorithm="SHA256",
     )
 
-    enable_bucket_versioning(user_bucket_name)
-
     kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
         kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
