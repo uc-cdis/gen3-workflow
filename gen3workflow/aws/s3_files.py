@@ -100,7 +100,7 @@ def get_s3files_setup_status(filesystem_id):
     and informs whether or not this storage setup is ready to use or not.
     """
     fs_status = get_filesystem_status(file_system_id=filesystem_id)
-
+    mt_status = get_mount_target_status(filesystem_id)
     return "Not ready"
 
 
