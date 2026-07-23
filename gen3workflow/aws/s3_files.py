@@ -89,6 +89,7 @@ def get_mount_target_status(file_system_id: str):
     # Note: We assume new AZs are not added to the node after initial bucket setup?
     # Filesystem may need new mount targets in these AZs if they are ever created.
     """
+    mount_targets = list_mount_targets_for_file_system(file_system_id)
 
     return "Not ready"
 
@@ -567,9 +568,6 @@ def provision_mount_targets(file_system_id: str):
     Provisions one mount target per AZ where the EKS cluster's nodes can run in,
     and the security groups needed for pods to reach those mount targets over NFS.
     """
-    # NOTE: To avoid blocking `/storage/setup` call, setting s3 filesystem just returns
-    # the filesystem id and continue with the rest of the steps asynchronously?
-
     available_az_to_subnet_mapping = _get_available_az_to_subnet(
         discovery_tag=config["EKS_CLUSTER_NAME"]
     )
