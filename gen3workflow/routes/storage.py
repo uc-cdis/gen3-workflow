@@ -8,9 +8,14 @@ from starlette.status import (
     HTTP_404_NOT_FOUND,
 )
 
-from gen3workflow import aws_utils, logger
+from gen3workflow import logger
 from gen3workflow.auth import Auth
-from gen3workflow.aws import s3_files
+from gen3workflow.aws import aws_utils, s3_files
+from gen3workflow.aws.bucket import (
+    cleanup_user_bucket,
+    create_user_bucket,
+    enable_bucket_versioning,
+)
 from gen3workflow.config import config
 
 router = APIRouter(prefix="/storage")
@@ -39,7 +44,7 @@ async def storage_setup(
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    bucket_name, kms_key_arn = await aws_utils.create_user_bucket(user_id)
+    bucket_name, kms_key_arn = await create_user_bucket(user_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
 
@@ -55,7 +60,7 @@ async def storage_setup(
     if config["ENABLE_S3_FILES"]:
 
         # Bucket versioning is necessary for S3Files
-        aws_utils.enable_bucket_versioning(bucket_name)
+        enable_bucket_versioning(bucket_name)
 
         fs_id = s3_files.get_s3_files_system(bucket_name)
         if not fs_id:
@@ -97,7 +102,7 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
     logger.info(f"User '{user_id}' deleting their storage bucket")
-    deleted_bucket_name = aws_utils.cleanup_user_bucket(user_id, delete_bucket=True)
+    deleted_bucket_name = cleanup_user_bucket(user_id, delete_bucket=True)
 
     if not deleted_bucket_name:
         raise HTTPException(
@@ -133,7 +138,7 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
     logger.info(f"User '{user_id}' emptying their storage bucket")
-    deleted_bucket_name = aws_utils.cleanup_user_bucket(user_id)
+    deleted_bucket_name = cleanup_user_bucket(user_id)
 
     if not deleted_bucket_name:
         raise HTTPException(

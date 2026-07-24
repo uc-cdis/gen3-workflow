@@ -21,7 +21,8 @@ from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
 from gen3workflow.routes.utils import make_tes_server_request
-from gen3workflow import aws_utils
+from gen3workflow.aws import aws_utils
+from gen3workflow.aws.bucket import create_iam_role_for_funnel_bucket_access
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
@@ -150,6 +151,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(f"{err_msg}. Allowed images: {config['TASK_IMAGE_WHITELIST']}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
+    # TODO: For S3Files based deployments, verify if there is atleast one mount target that is available for the filesystem
     # Add internal tags
     if "tags" not in body:
         body["tags"] = {}
@@ -168,7 +170,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
-            aws_utils.create_iam_role_for_funnel_bucket_access(user_id)
+            create_iam_role_for_funnel_bucket_access(user_id)
         )
         body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
 

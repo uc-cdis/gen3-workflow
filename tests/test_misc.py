@@ -12,8 +12,8 @@ from tests.conftest import (
     NEW_TEST_USER_ID,
     mock_arborist_request,
 )
-from gen3workflow import aws_utils
-from gen3workflow.aws_utils import get_safe_name_from_hostname
+from gen3workflow.aws import aws_utils, bucket, clients
+from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
 
 
@@ -33,20 +33,20 @@ def mock_aws_services():
     Mock all AWS services
     """
     with mock_aws():
-        aws_utils.iam_client = boto3.client("iam")
-        aws_utils.kms_client = boto3.client(
+        clients.iam_client = boto3.client("iam")
+        clients.kms_client = boto3.client(
             "kms", region_name=config["USER_BUCKETS_REGION"]
         )
-        aws_utils.s3_client = boto3.client("s3")
-        aws_utils.sts_client = boto3.client("sts")
-        aws_utils.eks_client = boto3.client(
+        clients.s3_client = boto3.client("s3")
+        clients.sts_client = boto3.client("sts")
+        clients.eks_client = boto3.client(
             "eks", region_name=os.environ.get("EKS_CLUSTER_REGION", "us-east-1")
         )
 
         # Setup: Create a mock EKS cluster in the virtual environment
         cluster_name = "test-cluster"
 
-        aws_utils.eks_client.create_cluster(
+        clients.eks_client.create_cluster(
             name=cluster_name,
             roleArn="arn:aws:iam::123456789012:role/mock-eks-role",
             resourcesVpcConfig={"subnetIds": ["subnet-12345"]},
@@ -107,7 +107,7 @@ async def test_storage_setup(
 
     # Bucket must not exist before this test
     with pytest.raises(ClientError) as e:
-        aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+        clients.s3_client.head_bucket(Bucket=expected_bucket_name)
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket exists: {e.value}"
@@ -119,7 +119,7 @@ async def test_storage_setup(
     )
     assert res.status_code == 200, res.text
 
-    kms_key = aws_utils.kms_client.describe_key(KeyId=f"alias/{expected_bucket_name}")
+    kms_key = clients.kms_client.describe_key(KeyId=f"alias/{expected_bucket_name}")
     kms_key_arn = kms_key["KeyMetadata"]["Arn"]
 
     storage_info = res.json()
@@ -131,11 +131,11 @@ async def test_storage_setup(
     }
 
     # check that the bucket was created after the call to `/storage/setup`
-    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=expected_bucket_name)
+    bucket_exists = clients.s3_client.head_bucket(Bucket=expected_bucket_name)
     assert bucket_exists, "Bucket does not exist"
 
     # check that the bucket is setup with KMS encryption
-    bucket_encryption = aws_utils.s3_client.get_bucket_encryption(
+    bucket_encryption = clients.s3_client.get_bucket_encryption(
         Bucket=expected_bucket_name
     )
     assert bucket_encryption.get("ServerSideEncryptionConfiguration") == {
@@ -151,7 +151,7 @@ async def test_storage_setup(
     }
 
     # check the bucket policy, which should enforce KMS encryption
-    bucket_policy = aws_utils.s3_client.get_bucket_policy(Bucket=expected_bucket_name)
+    bucket_policy = clients.s3_client.get_bucket_policy(Bucket=expected_bucket_name)
     assert json.loads(bucket_policy.get("Policy", "{}")) == {
         "Version": "2012-10-17",
         "Statement": [
@@ -192,7 +192,7 @@ async def test_storage_setup(
     }
 
     # check the bucket's lifecycle configuration
-    lifecycle_config = aws_utils.s3_client.get_bucket_lifecycle_configuration(
+    lifecycle_config = clients.s3_client.get_bucket_lifecycle_configuration(
         Bucket=expected_bucket_name
     )
     assert lifecycle_config.get("Rules") == [
@@ -259,11 +259,9 @@ async def test_bucket_enforces_encryption(
     storage_info = res.json()
 
     with pytest.raises(ClientError, match="Forbidden"):
-        aws_utils.s3_client.put_object(
-            Bucket=storage_info["bucket"], Key="test-file.txt"
-        )
+        clients.s3_client.put_object(Bucket=storage_info["bucket"], Key="test-file.txt")
 
-    unauthorized_kms_key_arn = aws_utils.kms_client.create_key(
+    unauthorized_kms_key_arn = clients.kms_client.create_key(
         Tags=[
             {
                 "TagKey": "Name",
@@ -272,7 +270,7 @@ async def test_bucket_enforces_encryption(
         ]
     )["KeyMetadata"]["Arn"]
     with pytest.raises(ClientError, match="Forbidden"):
-        aws_utils.s3_client.put_object(
+        clients.s3_client.put_object(
             Bucket=storage_info["bucket"],
             Key="test-file.txt",
             ServerSideEncryption="aws:kms",
@@ -283,8 +281,8 @@ async def test_bucket_enforces_encryption(
     # in `moto.mock_aws`. This test works well when ran against the real AWS.
     # Against the real AWS, the 2 calls above also raise `AccessDenied` instead of `Forbidden`.
 
-    # authorized_kms_key_arn = aws_utils.kms_client.describe_key(KeyId=f"alias/{storage_info['bucket']}")["KeyMetadata"]["Arn"]
-    # aws_utils.s3_client.put_object(
+    # authorized_kms_key_arn = clients.kms_client.describe_key(KeyId=f"alias/{storage_info['bucket']}")["KeyMetadata"]["Arn"]
+    # clients.s3_client.put_object(
     #     Bucket=storage_info["bucket"],
     #     Key="test-file.txt",
     #     ServerSideEncryption="aws:kms",
@@ -307,7 +305,7 @@ async def test_delete_user_bucket(
     bucket_name = res.json()["bucket"]
 
     # Verify the bucket exists
-    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    bucket_exists = clients.s3_client.head_bucket(Bucket=bucket_name)
     assert bucket_exists, "Bucket does not exist"
 
     # Delete the bucket
@@ -319,7 +317,7 @@ async def test_delete_user_bucket(
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
-        aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+        clients.s3_client.head_bucket(Bucket=bucket_name)
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket still exists: {e.value}"
@@ -357,18 +355,18 @@ async def test_delete_user_bucket_with_files(
     # Remove the bucket policy enforcing KMS encryption
     # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
     # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
-    aws_utils.s3_client.delete_bucket_policy(Bucket=bucket_name)
+    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
 
     # Upload more than 1000 objects to ensure batching is working correctly. Not too many so the
     # test doesn't take too long to run.
     object_count = 1050
     for i in range(object_count):
-        aws_utils.s3_client.put_object(
+        clients.s3_client.put_object(
             Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
         )
 
     # Verify all the objects in the bucket are fetched even when bucket has more than 1000 objects
-    object_list = aws_utils.get_all_bucket_objects(bucket_name)
+    object_list = bucket.get_all_bucket_objects(bucket_name)
     assert len(object_list) == object_count
 
     # Delete the bucket
@@ -379,7 +377,7 @@ async def test_delete_user_bucket_with_files(
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
-        aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+        clients.s3_client.head_bucket(Bucket=bucket_name)
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket still exists: {e.value}"
@@ -392,7 +390,7 @@ async def test_delete_user_bucket_no_token(client, mock_aws_services):
     """
     mock_delete_bucket = MagicMock()
     # Delete the bucket
-    with patch("gen3workflow.aws_utils.cleanup_user_bucket", mock_delete_bucket):
+    with patch("gen3workflow.aws.bucket.cleanup_user_bucket", mock_delete_bucket):
         res = await client.delete("/storage/user-bucket")
         assert res.status_code == 401, res.text
         assert res.json() == {"detail": "Must provide an access token"}
@@ -414,7 +412,7 @@ async def test_delete_user_bucket_unauthorized(
     """
     mock_delete_bucket = MagicMock()
     # Delete the bucket
-    with patch("gen3workflow.aws_utils.cleanup_user_bucket", mock_delete_bucket):
+    with patch("gen3workflow.aws.bucket.cleanup_user_bucket", mock_delete_bucket):
         res = await client.delete(
             "/storage/user-bucket",
             headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
@@ -442,11 +440,11 @@ async def test_delete_user_bucket_objects_with_existing_files(
     # Remove the bucket policy enforcing KMS encryption
     # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
     # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
-    aws_utils.s3_client.delete_bucket_policy(Bucket=bucket_name)
+    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
 
     object_count = 10
     for i in range(object_count):
-        aws_utils.s3_client.put_object(
+        clients.s3_client.put_object(
             Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
         )
 
@@ -458,11 +456,11 @@ async def test_delete_user_bucket_objects_with_existing_files(
     assert res.status_code == 204, res.text
 
     # Verify the bucket still exists
-    bucket_exists = aws_utils.s3_client.head_bucket(Bucket=bucket_name)
+    bucket_exists = clients.s3_client.head_bucket(Bucket=bucket_name)
     assert bucket_exists, f"Bucket '{bucket_name} is expected to exist but not found"
 
     # Verify all the objects in the bucket are deleted
-    object_list = aws_utils.get_all_bucket_objects(bucket_name)
+    object_list = bucket.get_all_bucket_objects(bucket_name)
     assert (
         len(object_list) == 0
     ), f"Expected bucket to have no objects, but found {len(object_list)}.\n{object_list=}"

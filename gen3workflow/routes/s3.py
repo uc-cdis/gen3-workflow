@@ -20,8 +20,10 @@ from starlette.status import (
     HTTP_404_NOT_FOUND,
 )
 
-from gen3workflow import aws_utils, logger
+from gen3workflow import logger
 from gen3workflow.auth import Auth
+from gen3workflow.aws import aws_utils
+from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
 from gen3workflow.config import config
 
 s3_root_router = APIRouter(include_in_schema=False)
@@ -357,7 +359,7 @@ async def s3_endpoint(path: str, request: Request):
         and request.method in ["PUT", "POST"]
         and "uploadId" not in query_params
     ):
-        _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
+        _, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
             err_msg = "Bucket misconfigured. Hit the `GET /storage/setup` endpoint and try again."
             logger.error(
