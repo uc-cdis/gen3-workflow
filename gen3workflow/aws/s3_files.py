@@ -101,6 +101,10 @@ def get_s3files_setup_status(filesystem_id):
     """
     fs_status = get_filesystem_status(file_system_id=filesystem_id)
     mt_status = get_mount_target_status(filesystem_id)
+
+    # For a very brief moment when filesystem is created but mount targets are not created,
+    # mt_status would result in an empty list, this status endpoint must still return
+    # NOT ready (or maybe 'provisioning') in that case.
     return "Not ready"
 
 
@@ -244,7 +248,7 @@ def _get_eks_security_groups() -> tuple[str, str]:
     return [(group["GroupId"], group["GroupName"]) for group in security_groups]
 
 
-# TODO: Investigate if this can be moved to server startup logic or elsewhere?
+# TODO: Investigate if this can be moved to server startup logic or elsewhere? Terraform maybe?
 # Since the `create` part is only needed once per cluster, no need to run for every bucket.
 # This takes approximately 2 seconds to run everytime it is invoked.
 def _get_or_create_security_groups(vpc_id: str) -> str:
