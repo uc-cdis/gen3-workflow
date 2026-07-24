@@ -375,7 +375,7 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     object_key = f"test_s3_upload_file{'_multipart' if multipart else ''}.txt"
 
     with patch(
-        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
+        "gen3workflow.routes.s3.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "test_kms_key_arn"),
     ):
         with tempfile.NamedTemporaryFile(delete=True) as file_to_upload:
