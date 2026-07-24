@@ -473,6 +473,7 @@ def get_all_bucket_objects(user_bucket_name: str) -> list:
     return object_list
 
 
+# TODO: Handle `delete_all_bucket_objects` when bucket versioning is enabled. Needed for CI, when S3Files is enabled.
 def delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
     """
     Deletes all objects from the specified S3 bucket.
