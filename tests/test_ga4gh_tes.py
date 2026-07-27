@@ -2,7 +2,6 @@ import json
 from unittest.mock import patch
 
 import pytest
-import pytest_asyncio
 
 from gen3workflow.config import config
 from gen3workflow.routes.ga4gh_tes import get_authz_string_for_user
@@ -10,7 +9,6 @@ from tests.conftest import (
     mock_arborist_request,
     mock_tes_server_request,
     TEST_USER_ID,
-    NEW_TEST_USER_ID,
     TEST_USER_TOKEN,
 )
 
