@@ -27,6 +27,25 @@ def reset_config_hostname():
     config["HOSTNAME"] = original_hostname
 
 
+class S3FilesResourceNotFoundException(ClientError):
+    """
+    Stand-in for the `ResourceNotFoundException` that the AWS S3 Files boto3 client exposes
+    as `s3files_client.exceptions.ResourceNotFoundException`.
+
+    It subclasses `ClientError`, same as the real botocore-generated exception, so that a
+    `S3FilesResourceNotFoundException` is also caught by any broader `except ClientError`
+    that appears after it.
+    """
+
+    def __init__(self, message: str = "File system not found"):
+        super().__init__(
+            error_response={
+                "Error": {"Code": "ResourceNotFoundException", "Message": message}
+            },
+            operation_name="GetFileSystem",
+        )
+
+
 @pytest.fixture(scope="function")
 def mock_aws_services():
     """
@@ -41,6 +60,13 @@ def mock_aws_services():
         clients.sts_client = boto3.client("sts")
         clients.eks_client = boto3.client(
             "eks", region_name=os.environ.get("EKS_CLUSTER_REGION", "us-east-1")
+        )
+        clients.ec2_client = boto3.client(
+            "ec2", region_name=config["USER_BUCKETS_REGION"]
+        )
+        clients.s3files_client = MagicMock(name="s3files_client")
+        clients.s3files_client.exceptions.ResourceNotFoundException = (
+            S3FilesResourceNotFoundException
         )
 
         # Setup: Create a mock EKS cluster in the virtual environment

@@ -4,13 +4,7 @@ import json
 
 from gen3workflow import logger
 from gen3workflow.config import config
-from gen3workflow.aws.clients import (
-    s3files_client,
-    eks_client,
-    ec2_client,
-    iam_client,
-    sts_client,
-)
+from gen3workflow.aws import clients
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
 NFS_PORT = 2049
@@ -36,7 +30,7 @@ def get_s3_files_system(bucket_name: str) -> str | None:
     )
 
     try:
-        paginator = s3files_client.get_paginator("list_file_systems")
+        paginator = clients.s3files_client.get_paginator("list_file_systems")
         for page in paginator.paginate():
             for fs in page.get("fileSystems", []):
                 if fs.get("bucket") == bucket_arn:
@@ -71,8 +65,8 @@ def get_filesystem_status(file_system_id: str) -> tuple[str | None, str | None]:
         return None, "file_system_id must not be empty"
 
     try:
-        fs = s3files_client.get_file_system(fileSystemId=file_system_id)
-    except s3files_client.exceptions.ResourceNotFoundException:
+        fs = clients.s3files_client.get_file_system(fileSystemId=file_system_id)
+    except clients.s3files_client.exceptions.ResourceNotFoundException:
         return None, f"File system with file_system_id={file_system_id} does not exist"
     except ClientError as e:
         return None, f"Failed to fetch file system {file_system_id}: {e}"
@@ -122,7 +116,7 @@ def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
     bucket_arn = f"arn:aws:s3:::{bucket_name}"
 
     try:
-        response = s3files_client.create_file_system(
+        response = clients.s3files_client.create_file_system(
             bucket=bucket_arn,
             prefix="funnel-temp-files/",
             roleArn=role_arn,
@@ -157,7 +151,7 @@ def create_mount_target_for_file_system(
         mount_target_sg_id: security group to attach to the mount target's ENI.
     """
     try:
-        response = s3files_client.create_mount_target(
+        response = clients.s3files_client.create_mount_target(
             fileSystemId=file_system_id,
             subnetId=subnet_id,
             securityGroups=[mount_target_sg_id],
@@ -196,7 +190,7 @@ def list_mount_targets_for_file_system(file_system_id: str) -> list[dict]:
     """
     mount_targets = []
     try:
-        paginator = s3files_client.get_paginator("list_mount_targets")
+        paginator = clients.s3files_client.get_paginator("list_mount_targets")
         for page in paginator.paginate(fileSystemId=file_system_id):
             mount_targets.extend(page.get("mountTargets", []))
     except ClientError as e:
@@ -217,7 +211,7 @@ def _get_vpc_id() -> str:
     Return the VPC ID the EKS cluster's nodes run in. Used to determine which VPC
     the S3 Files mount targets should be created in.
     """
-    cluster = eks_client.describe_cluster(name=config["EKS_CLUSTER_NAME"])
+    cluster = clients.eks_client.describe_cluster(name=config["EKS_CLUSTER_NAME"])
     return cluster["cluster"]["resourcesVpcConfig"]["vpcId"]
 
 
@@ -226,7 +220,7 @@ def _get_available_az_to_subnet(discovery_tag: str) -> dict[str, str]:
     Get one subnet ID per AZ where EKS pods can be scheduled, so that one S3 Files
     mount target can be created per AZ.
     """
-    subnets = ec2_client.describe_subnets(
+    subnets = clients.ec2_client.describe_subnets(
         Filters=[{"Name": "tag:karpenter.sh/discovery", "Values": [discovery_tag]}],
     )["Subnets"]
     return {subnet["AvailabilityZoneId"]: subnet["SubnetId"] for subnet in subnets}
@@ -242,7 +236,7 @@ def _get_eks_security_groups() -> tuple[str, str]:
         f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg",
         f"{config["EKS_CLUSTER_NAME"]}_EKS_nodepool_jupyter_sg",
     ]
-    security_groups = ec2_client.describe_security_groups(
+    security_groups = clients.ec2_client.describe_security_groups(
         Filters=[{"Name": "group-name", "Values": eks_sg_names}]
     )["SecurityGroups"]
     return [(group["GroupId"], group["GroupName"]) for group in security_groups]
@@ -267,7 +261,7 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
     compute_security_groups = _get_eks_security_groups()
 
     mount_target_sg_name = "gen3wf-s3files-mount-target-sg"
-    existing = ec2_client.describe_security_groups(
+    existing = clients.ec2_client.describe_security_groups(
         Filters=[{"Name": "group-name", "Values": [mount_target_sg_name]}]
     )["SecurityGroups"]
 
@@ -279,7 +273,7 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
             mount_target_sg_id,
         )
     else:
-        response = ec2_client.create_security_group(
+        response = clients.ec2_client.create_security_group(
             GroupName=mount_target_sg_name,
             Description="S3 Files mount target SG -- allows inbound NFS (2049) from Funnel compute SGs only.",
             VpcId=vpc_id,
@@ -291,7 +285,7 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
 
     # Inbound: mount target SG allows NFS from every compute SG, idempotently.
     try:
-        ec2_client.authorize_security_group_ingress(
+        clients.ec2_client.authorize_security_group_ingress(
             GroupId=mount_target_sg_id,
             IpPermissions=[
                 {
@@ -330,7 +324,7 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
         compute_security_group_name,
     ) in compute_security_groups:
         try:
-            ec2_client.authorize_security_group_egress(
+            clients.ec2_client.authorize_security_group_egress(
                 GroupId=compute_security_group_id,
                 IpPermissions=[
                     {
@@ -386,15 +380,15 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
     """
     # TODO: Make it such that it is under 64 characters
     role_name = f"{bucket_name}-s3files-role"
-    account_id = sts_client.get_caller_identity()["Account"]
+    account_id = clients.sts_client.get_caller_identity()["Account"]
     bucket_arn = f"arn:aws:s3:::{bucket_name}"
 
     try:
-        role = iam_client.get_role(RoleName=role_name)
+        role = clients.iam_client.get_role(RoleName=role_name)
         role_arn = role["Role"]["Arn"]
         logger.info("IAM role '%s' already exists (%s)", role_name, role_arn)
         return role_arn
-    except iam_client.exceptions.NoSuchEntityException:
+    except clients.iam_client.exceptions.NoSuchEntityException:
         pass
 
     trust_policy = {
@@ -494,7 +488,7 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
     }
 
     try:
-        response = iam_client.create_role(
+        response = clients.iam_client.create_role(
             RoleName=role_name,
             AssumeRolePolicyDocument=json.dumps(trust_policy),
             Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
@@ -502,7 +496,7 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
         )
         role_arn = response["Role"]["Arn"]
 
-        iam_client.put_role_policy(
+        clients.iam_client.put_role_policy(
             RoleName=role_name,
             PolicyName="S3FilesBucketAccess",
             PolicyDocument=json.dumps(inline_policy),
