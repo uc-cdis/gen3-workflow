@@ -700,14 +700,14 @@ tomli = {version = ">=2.0.1", markers = "python_full_version < \"3.15.0\""}
 
 [[package]]
 name = "fastapi"
-version = "0.139.0"
+version = "0.140.6"
 description = "FastAPI framework, high performance, easy to learn, fast to code, ready for production"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "fastapi-0.139.0-py3-none-any.whl", hash = "sha256:cf15e1e9e667ddb0ad63811e60bd11390d1aac838ca4a7a23f421807b2308189"},
-    {file = "fastapi-0.139.0.tar.gz", hash = "sha256:99ab7b2d92223c76d6cf10757ab3f89d45b38267fc20b2a136cf02f6beac3145"},
+    {file = "fastapi-0.140.6-py3-none-any.whl", hash = "sha256:5f141f4341f82cfd916bb3860c576275966936060e3a6de04b2b7055da165893"},
+    {file = "fastapi-0.140.6.tar.gz", hash = "sha256:ca7bc6d8233210d26409424209cf5202533fd5ca24c16b2d43ac67c64e5fb3f3"},
 ]
 
 [package.dependencies]
