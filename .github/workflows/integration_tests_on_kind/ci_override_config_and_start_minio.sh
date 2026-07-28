@@ -68,15 +68,15 @@ rm temp-fence.yaml
 # and reset the DB config so Funnel uses a local postgres pod:
 # https://github.com/uc-cdis/ohsu-funnel-helm-charts/blob/b4095e4/charts/funnel/values.yaml#L274-L278
 yq eval -i '.funnel.postgres.dbCreate = false' funnel.yaml
-yq eval -i '.funnel.funnel.postgresql.enabled = false' funnel.yaml
-yq eval -i '.funnel.funnel.Kubernetes.NodeSelector = {}' funnel.yaml
-yq eval -i '.funnel.funnel.Kubernetes.Tolerations = []' funnel.yaml
-yq eval -i '.funnel.funnel.Kubernetes.Worker.PriorityClassName = ""' funnel.yaml
+yq eval -i '.funnel.postgresql.enabled = false' funnel.yaml
+yq eval -i '.funnel.Kubernetes.NodeSelector = {}' funnel.yaml
+yq eval -i '.funnel.Kubernetes.Tolerations = []' funnel.yaml
+yq eval -i '.funnel.Kubernetes.Worker.PriorityClassName = ""' funnel.yaml
 # Configure `endpoint_url`, `authenticationSource` and `stsRegion` so the PVs talk to Minio
 # instead of AWS S3.
-MINIO_SERVICE_URL=$MINIO_SERVICE_URL yq eval -i '.funnel.funnel.endpoint_url = strenv(MINIO_SERVICE_URL)' funnel.yaml
-yq eval -i '.funnel.funnel.authenticationSource = "driver"' funnel.yaml
-yq eval -i '.funnel.funnel.stsRegion = ""' funnel.yaml
+MINIO_SERVICE_URL=$MINIO_SERVICE_URL yq eval -i '.funnel.endpoint_url = strenv(MINIO_SERVICE_URL)' funnel.yaml
+yq eval -i '.funnel.authenticationSource = "driver"' funnel.yaml
+yq eval -i '.funnel.stsRegion = ""' funnel.yaml
 
 # Disable unnecessary services. Master list:
 # https://github.com/uc-cdis/gen3-gitops/tree/160a135/ci/default/values
