@@ -89,9 +89,15 @@ def mock_aws_services():
                 "statusMessage": None,
             }
         )
-        clients.eks_client.describe_cluster = lambda *args, **kwargs: {
-            "cluster": {"resourcesVpcConfig": {"vpcId": "vpc-abc123"}}
-        }
+        original_eks_client_describe_cluster = clients.eks_client.describe_cluster
+
+        def mocked_eks_client_describe_cluster(**kwargs):
+            res = original_eks_client_describe_cluster(**kwargs)
+            # add the `vpcId` field used by `_get_vpc_id` to the original moto response
+            res["cluster"]["resourcesVpcConfig"]["vpcId"] = "vpc-abc123"
+            return res
+
+        clients.eks_client.describe_cluster = mocked_eks_client_describe_cluster
 
         # Setup: Create a mock EKS cluster in the virtual environment
         cluster_name = "test-cluster"
