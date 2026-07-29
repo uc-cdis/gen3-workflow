@@ -83,10 +83,12 @@ def mock_aws_services():
         clients.s3files_client.exceptions.ResourceNotFoundException = (
             S3FilesResourceNotFoundException
         )
-        clients.s3files_client.get_file_system = lambda fileSystemId: {
-            "status": "available",
-            "statusMessage": None,
-        }
+        clients.s3files_client.get_file_system = MagicMock(
+            side_effect=lambda fileSystemId: {
+                "status": "available",
+                "statusMessage": None,
+            }
+        )
         clients.eks_client.describe_cluster = lambda *args, **kwargs: {
             "cluster": {"resourcesVpcConfig": {"vpcId": "vpc-abc123"}}
         }
