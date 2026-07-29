@@ -446,35 +446,7 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             await asyncio.sleep(delay)
 
 
-def get_all_bucket_objects(user_bucket_name: str) -> list:
-    """
-    Get all objects from the specified S3 bucket.
-    """
-    response = clients.s3_client.list_objects_v2(Bucket=user_bucket_name)
-    object_list = response.get("Contents", [])
-
-    # list_objects_v2 can utmost return 1000 objects in a single response
-    # if there are more objects, the response will have a key "IsTruncated" set to True
-    # and a key "NextContinuationToken" which can be used to get the next set of objects
-
-    # TODO:
-    # Currently, all objects are loaded into memory, which can be problematic for large buckets.
-    # To optimize, convert this function into a generator that accepts a `batch_size` parameter
-    # (capped at 1,000) and yields objects in batches.
-    # This is fine for now because this code is only called during integration tests, with a small
-    # number of files in the bucket.
-    while response.get("IsTruncated"):
-        response = clients.s3_client.list_objects_v2(
-            Bucket=user_bucket_name,
-            ContinuationToken=response.get("NextContinuationToken"),
-        )
-        object_list += response.get("Contents", [])
-
-    return object_list
-
-
-# TODO: Handle `delete_all_bucket_objects` when bucket versioning is enabled. Needed for CI, when S3Files is enabled.
-def delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
+def _delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
     """
     Deletes all objects from the specified S3 bucket.
 
@@ -482,35 +454,30 @@ def delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
         user_id (str): The user's unique Gen3 ID.
         user_bucket_name (str): The name of the S3 bucket.
     """
-    object_list = get_all_bucket_objects(user_bucket_name)
-
-    if not object_list:
-        return
-
     logger.debug(
         f"Deleting all contents from '{user_bucket_name}' for user '{user_id}' before deleting the bucket"
     )
-    keys = [{"Key": obj.get("Key")} for obj in object_list]
+    bucket = clients.s3_resource.Bucket(user_bucket_name)
 
-    # According to the docs, up to 1000 objects can be deleted in a single request:
-    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.delete_objects
+    # Cancel incomplete multipart uploads to avoid storage charges for orphaned parts
+    for upload in bucket.multipart_uploads.all():
+        upload.abort()
 
-    # TODO: When `get_all_bucket_objects` is converted to a generator,
-    # we can remove this batching logic and retrieve objects in batches of 1,000 for deletion.
-    limit = 1000
-    for offset in range(0, len(keys), limit):
-        response = clients.s3_client.delete_objects(
-            Bucket=user_bucket_name,
-            Delete={"Objects": keys[offset : offset + limit]},
-        )
+    for response in bucket.object_versions.delete():
+        # boto returns one response for each underlying batch
         if response.get("Errors"):
-            logger.error(
-                f"Failed to delete objects from bucket '{user_bucket_name}' for user '{user_id}': {response}"
+            raise Exception(
+                f"Unable to delete bucket object versions: {response['Errors']}"
             )
-            raise Exception(response)
+
+    for response in bucket.objects.delete():
+        if response.get("Errors"):
+            raise Exception(
+                f"Unable to delete bucket object versions: {response['Errors']}"
+            )
 
 
-def cleanup_user_bucket(user_id: str, delete_bucket: bool = False) -> Union[str, None]:
+def cleanup_user_bucket(user_id: str, delete_bucket: bool) -> Union[str, None]:
     """
     Empty a user's S3 bucket and optionally delete the bucket.
 
@@ -538,7 +505,7 @@ def cleanup_user_bucket(user_id: str, delete_bucket: bool = False) -> Union[str,
             )
             return None
     try:
-        delete_all_bucket_objects(user_id, user_bucket_name)
+        _delete_all_bucket_objects(user_id, user_bucket_name)
         if delete_bucket:
             logger.info(
                 f"Initializing delete for bucket '{user_bucket_name}' for user '{user_id}'"

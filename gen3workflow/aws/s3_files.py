@@ -57,7 +57,7 @@ def get_filesystem_status(file_system_id: str) -> tuple[str | None, str | None]:
 
     Returns:
         A tuple of (status, status_message):
-        - (status, status_message) on success, e.g. ("AVAILABLE", None)
+        - (status, status_message) on success, e.g. ("available", None)
         - (None, error_message) if the file system doesn't exist or the
           lookup fails.
     """

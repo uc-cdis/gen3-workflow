@@ -12,7 +12,7 @@ from tests.conftest import (
     NEW_TEST_USER_ID,
     mock_arborist_request,
 )
-from gen3workflow.aws import aws_utils, bucket, clients
+from gen3workflow.aws import bucket, clients
 from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
 
@@ -25,6 +25,18 @@ def reset_config_hostname():
     original_hostname = config["HOSTNAME"]
     yield
     config["HOSTNAME"] = original_hostname
+
+
+@pytest.fixture(scope="function")
+def enable_s3_files():
+    """
+    Enable S3Files for the duration of the test, and reset the `ENABLE_S3_FILES` configuration
+    at the end of the test
+    """
+    original_hostname = config["ENABLE_S3_FILES"]
+    config["ENABLE_S3_FILES"] = True
+    yield
+    config["ENABLE_S3_FILES"] = original_hostname
 
 
 class S3FilesResourceNotFoundException(ClientError):
@@ -57,6 +69,7 @@ def mock_aws_services():
             "kms", region_name=config["USER_BUCKETS_REGION"]
         )
         clients.s3_client = boto3.client("s3")
+        clients.s3_resource = boto3.resource("s3")
         clients.sts_client = boto3.client("sts")
         clients.eks_client = boto3.client(
             "eks", region_name=os.environ.get("EKS_CLUSTER_REGION", "us-east-1")
@@ -64,10 +77,19 @@ def mock_aws_services():
         clients.ec2_client = boto3.client(
             "ec2", region_name=config["USER_BUCKETS_REGION"]
         )
+
+        # S3Files custom mocking (since `moto` does not support it yet)
         clients.s3files_client = MagicMock(name="s3files_client")
         clients.s3files_client.exceptions.ResourceNotFoundException = (
             S3FilesResourceNotFoundException
         )
+        clients.s3files_client.get_file_system = lambda fileSystemId: {
+            "status": "available",
+            "statusMessage": None,
+        }
+        clients.eks_client.describe_cluster = lambda *args, **kwargs: {
+            "cluster": {"resourcesVpcConfig": {"vpcId": "vpc-abc123"}}
+        }
 
         # Setup: Create a mock EKS cluster in the virtual environment
         cluster_name = "test-cluster"
@@ -391,9 +413,21 @@ async def test_delete_user_bucket_with_files(
             Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
         )
 
-    # Verify all the objects in the bucket are fetched even when bucket has more than 1000 objects
-    object_list = bucket.get_all_bucket_objects(bucket_name)
-    assert len(object_list) == object_count
+    # Start a multipart upload, don't complete it, and check that the bucket can still be emptied
+    # and deleted
+    response = clients.s3_client.create_multipart_upload(
+        Bucket=bucket_name, Key="large_file.zip"
+    )
+    upload_id = response["UploadId"]
+    clients.s3_client.upload_part(
+        Bucket=bucket_name,
+        Key="large_file.zip",
+        PartNumber=1,
+        UploadId=upload_id,
+        Body="file contents",
+    )
+    res = clients.s3_client.list_multipart_uploads(Bucket=bucket_name)
+    assert res["Uploads"][0]["UploadId"] == upload_id
 
     # Delete the bucket
     res = await client.delete(
@@ -486,7 +520,59 @@ async def test_delete_user_bucket_objects_with_existing_files(
     assert bucket_exists, f"Bucket '{bucket_name} is expected to exist but not found"
 
     # Verify all the objects in the bucket are deleted
-    object_list = bucket.get_all_bucket_objects(bucket_name)
+    response = clients.s3_client.list_objects_v2(Bucket=bucket_name)
+    object_list = response.get("Contents", [])
     assert (
         len(object_list) == 0
     ), f"Expected bucket to have no objects, but found {len(object_list)}.\n{object_list=}"
+
+
+@pytest.mark.asyncio
+async def test_delete_user_bucket_with_versioning(
+    client, access_token_patcher, mock_aws_services, enable_s3_files
+):
+    """
+    Attempt to delete all the objects in non-empty bucket with versioning enabled (when S3Files
+    is enabled, versioning is enabled on the user's bucket.
+    """
+
+    # Create the bucket if it doesn't exist
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    bucket_name = res.json()["bucket"]
+
+    # Remove the bucket policy enforcing KMS encryption
+    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
+    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
+    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
+
+    # Create a file
+    clients.s3_client.put_object(
+        Bucket=bucket_name, Key=f"file", Body=b"Dummy file contents"
+    )
+    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    versions = response.get("Versions", [])
+    assert len(versions) == 1
+
+    # Create a new version of the file
+    clients.s3_client.put_object(
+        Bucket=bucket_name, Key=f"file", Body=b"Updated file contents"
+    )
+    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    versions = response.get("Versions", [])
+    assert len(versions) == 2
+
+    # Delete all the bucket objects
+    res = await client.delete(
+        "/storage/user-bucket/objects",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 204, res.text
+
+    # Verify all the versions in the bucket are deleted
+    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    versions = response.get("Versions", [])
+    delete_markers = response.get("DeleteMarkers", [])
+    assert len(versions) == 0
+    assert len(delete_markers) == 0

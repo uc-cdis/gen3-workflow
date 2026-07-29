@@ -2,7 +2,7 @@ import boto3
 from gen3workflow.config import config
 
 
-def get_boto3_client(service_name: str, **kwargs):
+def get_boto3_client(service_name: str, type: str = "client", **kwargs):
     """
     Create a boto3 client for the specified AWS service,
     using credentials from the config if provided,
@@ -16,11 +16,17 @@ def get_boto3_client(service_name: str, **kwargs):
             kwargs["aws_secret_access_key"] = config[
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"
             ]
-    return boto3.client(service_name, **kwargs)
+    if type == "client":
+        return boto3.client(service_name, **kwargs)
+    else:
+        return boto3.resource(service_name, **kwargs)
 
 
 iam_client = get_boto3_client("iam")
 s3_client = get_boto3_client("s3", region_name=config["USER_BUCKETS_REGION"])
+s3_resource = get_boto3_client(
+    "s3", type="resource", region_name=config["USER_BUCKETS_REGION"]
+)
 kms_client = get_boto3_client("kms", region_name=config["USER_BUCKETS_REGION"])
 sts_client = get_boto3_client("sts")
 eks_client = get_boto3_client("eks", region_name=config["EKS_CLUSTER_REGION"])
