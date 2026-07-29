@@ -173,12 +173,12 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         )
     )
     if image_pull_policy:
-        k8s_image_pull_policies = ["Always", "IfNotPresent", "Never"]
-        if image_pull_policy in k8s_image_pull_policies:
+        allowed_image_pull_policies = ["Always", "IfNotPresent"]
+        if image_pull_policy in allowed_image_pull_policies:
             body["tags"]["_IMAGE_PULL_POLICY"] = image_pull_policy
         else:
             # NOTE: the default is defined in Funnel, not Gen3-Workflow
-            err_msg = f"_IMAGE_PULL_POLICY must be one of {k8s_image_pull_policies} (default: Always)"
+            err_msg = f"_IMAGE_PULL_POLICY must be one of {allowed_image_pull_policies} (default: Always)"
             logger.error(err_msg)
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
