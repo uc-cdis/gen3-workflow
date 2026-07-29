@@ -172,16 +172,15 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
             "_IMAGE_PULL_POLICY", body["tags"].get("_image_pull_policy", "")
         )
     )
-    k8s_image_pull_policies = ["Always", "IfNotPresent", "Never"]
-    if image_pull_policy in k8s_image_pull_policies:
-        body["tags"]["_IMAGE_PULL_POLICY"] = image_pull_policy
-    else:
-        # NOTE: the default is defined in Funnel, not Gen3-Workflow
-        err_msg = (
-            f"_IMAGE_PULL_POLICY must be one of {image_pull_policy} (default: Always)"
-        )
-        logger.error(err_msg)
-        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+    if image_pull_policy:
+        k8s_image_pull_policies = ["Always", "IfNotPresent", "Never"]
+        if image_pull_policy in k8s_image_pull_policies:
+            body["tags"]["_IMAGE_PULL_POLICY"] = image_pull_policy
+        else:
+            # NOTE: the default is defined in Funnel, not Gen3-Workflow
+            err_msg = f"_IMAGE_PULL_POLICY must be one of {k8s_image_pull_policies} (default: Always)"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
