@@ -124,14 +124,16 @@ def test_get_filesystem_status_empty_id(empty_id, mock_aws_services):
     """
     An empty/`None` file_system_id short-circuits without calling AWS.
     """
-    status, message = s3_files.get_filesystem_status(empty_id)
+    with pytest.raises(ValueError):
+        status, message = s3_files.get_filesystem_status(empty_id)
 
-    assert status is None
-    assert message == "file_system_id must not be empty"
     clients.s3files_client.get_file_system.assert_not_called()
 
 
 def test_get_filesystem_status_success(mock_aws_services):
+    """
+    Happy path for getting file system status
+    """
     clients.s3files_client.get_file_system.return_value = {
         "status": "available",
         "statusMessage": None,
@@ -148,17 +150,13 @@ def test_get_filesystem_status_success(mock_aws_services):
 
 def test_get_filesystem_status_not_found(mock_aws_services):
     """
-    A `ResourceNotFoundException` is translated into a `(None, <message>)` tuple
-    instead of propagating.
+    A `ResourceNotFoundException` is translated into a `FileSystemNotFoundError` and propogated.
     """
     clients.s3files_client.get_file_system.side_effect = (
         S3FilesResourceNotFoundException()
     )
-
-    status, message = s3_files.get_filesystem_status("fs-missing")
-
-    assert status is None
-    assert message == "File system with file_system_id=fs-missing does not exist"
+    with pytest.raises(s3_files.FileSystemNotFoundError):
+        status, message = s3_files.get_filesystem_status("fs-missing")
 
 
 def test_get_filesystem_status_generic_client_error(mock_aws_services):
@@ -169,12 +167,8 @@ def test_get_filesystem_status_generic_client_error(mock_aws_services):
     clients.s3files_client.get_file_system.side_effect = _client_error(
         "InternalError", "server exploded", "GetFileSystem"
     )
-
-    status, message = s3_files.get_filesystem_status("fs-123")
-
-    assert status is None
-    assert "Failed to fetch file system fs-123" in message
-    assert "server exploded" in message
+    with pytest.raises(ClientError):
+        status, message = s3_files.get_filesystem_status("fs-123")
 
 
 # --------------------------------------------------------------------------- #
@@ -187,7 +181,10 @@ def test_get_filesystem_status_generic_client_error(mock_aws_services):
 # --------------------------------------------------------------------------- #
 
 
-def test_get_mount_target_status_calls_list_and_returns_not_ready():
+def test_get_mount_target_status():
+    """
+    Test verifies whether mount target status is being called
+    """
     with patch.object(
         s3_files, "list_mount_targets_for_file_system", return_value=[]
     ) as list_mts:
@@ -197,7 +194,10 @@ def test_get_mount_target_status_calls_list_and_returns_not_ready():
     assert result == "Not ready"
 
 
-def test_get_s3files_setup_status_calls_dependencies_and_returns_not_ready():
+def test_get_s3files_setup_status():
+    """
+    Test verifies whether get s3files setup calls required dependent functions
+    """
     with patch.object(
         s3_files, "get_filesystem_status", return_value=("available", None)
     ) as get_fs_status, patch.object(
@@ -216,6 +216,9 @@ def test_get_s3files_setup_status_calls_dependencies_and_returns_not_ready():
 
 
 def test_create_s3_files_system_success(mock_aws_services):
+    """
+    Tests S3Files create file system happy path.
+    """
     clients.s3files_client.create_file_system.return_value = {"fileSystemId": "fs-new"}
 
     result = s3_files._create_s3_files_system(
@@ -228,7 +231,7 @@ def test_create_s3_files_system_success(mock_aws_services):
         bucket="arn:aws:s3:::test-bucket",
         prefix="funnel-temp-files/",
         roleArn="arn:aws:iam::123456789012:role/s3files-role",
-        tags=[{"key": "app-name", "value": "gen3-workflow"}],
+        tags=[{"Key": "Name", "Value": "gen3wf-localhost"}],
     )
 
 

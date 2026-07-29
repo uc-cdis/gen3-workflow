@@ -221,12 +221,16 @@ async def test_storage_setup(
     lifecycle_config = clients.s3_client.get_bucket_lifecycle_configuration(
         Bucket=expected_bucket_name
     )
+
     assert lifecycle_config.get("Rules") == [
         {
             "Expiration": {"Days": config["S3_OBJECTS_EXPIRATION_DAYS"]},
             "ID": f"ExpireAllAfter{config['S3_OBJECTS_EXPIRATION_DAYS']}Days",
             "Filter": {"Prefix": ""},
             "Status": "Enabled",
+            "NoncurrentVersionExpiration": {
+                "NoncurrentDays": bucket.NONCURRENT_VERSION_EXPIRATION_DAYS
+            },
         }
     ]
 

@@ -58,22 +58,18 @@ async def storage_setup(
     }
 
     if config["ENABLE_S3_FILES"]:
-
-        # Bucket versioning is necessary for S3Files
-        enable_bucket_versioning(bucket_name)
-
         fs_id = s3_files.get_s3_files_system(bucket_name)
         if not fs_id:
             # Create S3 Files Filesystem ID if not exists
             fs_id = s3_files.setup_s3_filesystem(bucket_name)
             # NOTE: To avoid blocking `/storage/setup` call, setting s3 filesystem just returns
-            # the filesystem id and continue with the rest of the steps asynchronously?
+            # the filesystem id and continue with the rest of the steps asynchronously
             background_tasks.add_task(s3_files.provision_mount_targets, fs_id)
 
-        filesystem_status = s3_files.get_s3files_setup_status(fs_id)
-
         storage_info["s3files_filesystem_id"] = fs_id
-        storage_info["status"] = filesystem_status
+        # TODO: Tracked in ticket -- https://ctds-planx.atlassian.net/browse/MIDRC-1321
+        # filesystem_status = s3_files.get_s3files_setup_status(fs_id)
+        # storage_info["status"] = filesystem_status
 
     try:
         await auth.grant_user_access_to_their_own_data(

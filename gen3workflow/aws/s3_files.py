@@ -1,8 +1,11 @@
+from typing import List
+
 from botocore.exceptions import ClientError
 import time
 import json
 
 from gen3workflow import logger
+from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
 from gen3workflow.aws import clients
 
@@ -48,6 +51,10 @@ def get_s3_files_system(bucket_name: str) -> str | None:
     return None
 
 
+class FileSystemNotFoundError(Exception):
+    """Raised when the file system does not exist."""
+
+
 def get_filesystem_status(file_system_id: str) -> tuple[str | None, str | None]:
     """
     Fetch the status of an S3 Files file system.
@@ -59,24 +66,32 @@ def get_filesystem_status(file_system_id: str) -> tuple[str | None, str | None]:
         A tuple of (status, status_message):
         - (status, status_message) on success, e.g. ("AVAILABLE", None)
         - (None, error_message) if the file system doesn't exist or the
-          lookup fails.
+            lookup fails.
+
+    Raises: Exception if file system is not available or could not be retrieved.
     """
     if not file_system_id:
-        return None, "file_system_id must not be empty"
+        raise ValueError("file_system_id must not be empty")
 
     try:
         fs = clients.s3files_client.get_file_system(fileSystemId=file_system_id)
+        return fs.get("status"), fs.get("statusMessage")
     except clients.s3files_client.exceptions.ResourceNotFoundException:
-        return None, f"File system with file_system_id={file_system_id} does not exist"
+        logger.debug(f"File system with file_system_id={file_system_id} does not exist")
+        raise FileSystemNotFoundError(
+            f"File system with file_system_id={file_system_id} does not exist"
+        )
     except ClientError as e:
-        return None, f"Failed to fetch file system {file_system_id}: {e}"
-
-    return fs.get("status"), fs.get("statusMessage")
+        logger.debug(
+            f"Client error while retrieving file system with file_system_id={file_system_id} : {e}"
+        )
+        raise
 
 
 def get_mount_target_status(file_system_id: str):
     """
-    # TODO: list mount targets and get their statuses, and unify into a single
+    # TODO: -- https://ctds-planx.atlassian.net/browse/MIDRC-1321
+    # list mount targets and get their statuses, and unify into a single
     # usable status (e.g. "ready" only once all expected mount targets
     # are in an available state).
 
@@ -90,7 +105,8 @@ def get_mount_target_status(file_system_id: str):
 
 def get_s3files_setup_status(filesystem_id):
     """
-    #TODO: This orchestrates both filesystem status and mount target statuses
+    #TODO: -- https://ctds-planx.atlassian.net/browse/MIDRC-1321
+    # This orchestrates both filesystem status and mount target statuses
     and informs whether or not this storage setup is ready to use or not.
     """
     fs_status = get_filesystem_status(file_system_id=filesystem_id)
@@ -118,9 +134,15 @@ def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
     try:
         response = clients.s3files_client.create_file_system(
             bucket=bucket_arn,
+            # prefix as configured in the Funnel worker PV
             prefix="funnel-temp-files/",
             roleArn=role_arn,
-            tags=[{"key": "app-name", "value": "gen3-workflow"}],
+            tags=[
+                {
+                    "Key": "Name",
+                    "Value": get_safe_name_from_hostname(user_id=None),
+                }
+            ],
         )
         file_system_id = response["fileSystemId"]
         logger.debug(
@@ -226,9 +248,9 @@ def _get_available_az_to_subnet(discovery_tag: str) -> dict[str, str]:
     return {subnet["AvailabilityZoneId"]: subnet["SubnetId"] for subnet in subnets}
 
 
-def _get_eks_security_groups() -> tuple[str, str]:
+def _get_eks_security_groups() -> List[tuple[str, str]]:
     """
-    Return (sg_id, sg_name) for the EKS security group that Karpenter attaches
+    Return a list of tuples consisting of (sg_id, sg_name) for the EKS security group that Karpenter attaches
     to an EKS worker node in this cluster.
     """
     # TODO: Determine if these need to be configurable.
@@ -492,10 +514,22 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
             RoleName=role_name,
             AssumeRolePolicyDocument=json.dumps(trust_policy),
             Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
-            Tags=[{"Key": "app-name", "Value": "gen3-workflow"}],
+            Tags=[
+                {
+                    "Key": "Name",
+                    "Value": get_safe_name_from_hostname(user_id=None),
+                }
+            ],
         )
         role_arn = response["Role"]["Arn"]
 
+    except ClientError as e:
+        logger.error(
+            f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
+        )
+        raise
+
+    try:
         clients.iam_client.put_role_policy(
             RoleName=role_name,
             PolicyName="S3FilesBucketAccess",
@@ -507,7 +541,7 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
         return role_arn
     except ClientError as e:
         logger.error(
-            f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
+            f"Failed to put IAM policy for role {role_arn} for bucket '{bucket_name}': {e.response['Error']['Message']}"
         )
         raise
 
@@ -519,22 +553,54 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
 # ----------
 
 
-def wait_for_file_system_ready(fs_id: str):
+def wait_for_file_system_ready(
+    fs_id: str,
+    timeout_seconds: int = 600,
+    poll_interval_seconds: int = 2,
+    max_consecutive_failure_tolerance: int = 3,
+):
     """
     Waits for file system to be ready.
 
     Raises: Exception if file system could not be created.
     """
-    fs_status, reason = get_filesystem_status(fs_id)
-    logger.debug(f"Waiting for Filesystem: `{fs_id}`to be ready.")
-    while fs_status in ["creating", "updating"]:
-        # TODO: Make it async
-        time.sleep(2)
-        fs_status, reason = get_filesystem_status(fs_id)
+
+    start_time = time.monotonic()
+    consecutive_failures = 0
+
+    while True:
+        elapsed = time.monotonic() - start_time
+        if elapsed > timeout_seconds:
+            raise TimeoutError(
+                f"Timed out after {elapsed:.0f}s waiting for filesystem `{fs_id}` "
+                f"to become ready (last status: {fs_status!r}, reason: {reason!r})."
+            )
+        try:
+            fs_status, reason = get_filesystem_status(fs_id)
+            consecutive_failures = 0
+        except FileSystemNotFoundError as e:
+            # Not a transient error so not continuing to poll.
+            raise
+        except Exception as e:
+            consecutive_failures += 1
+            logger.debug(
+                f"Lookup failed for filesystem `{fs_id}` "
+                f"({consecutive_failures}/{max_consecutive_failure_tolerance}): {e}"
+            )
+            if consecutive_failures >= max_consecutive_failure_tolerance:
+                raise
+
+        if fs_status not in ["creating", "updating"]:
+            break
+
+        logger.debug(f"Waiting for Filesystem `{fs_id}`to be ready.")
+        time.sleep(poll_interval_seconds)
+
         if reason:
             logger.debug(
                 f"Filesystem `{fs_id}` is currently in {fs_status=} with {reason=}"
             )
+
     if fs_status != "available":
         raise Exception(f"Failed to create file system.\nReason: {reason}")
     logger.debug(f"Filesystem: `{fs_id}` ready.")
