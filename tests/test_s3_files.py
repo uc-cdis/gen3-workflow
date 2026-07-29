@@ -9,6 +9,8 @@ module (`iam`, `ec2`, `eks`, `sts`) are mocked with `moto`, consistent with the
 rest of this test suite (see `tests/test_aws_utils.py`).
 """
 
+# pylint: disable=protected-access
+
 import json
 import time
 from unittest.mock import MagicMock, patch
@@ -236,6 +238,9 @@ def test_create_s3_files_system_success(mock_aws_services):
 
 
 def test_create_s3_files_system_client_error_reraises(mock_aws_services):
+    """
+    A `ClientError` while creating the file system is re-raised, not swallowed.
+    """
     clients.s3files_client.create_file_system.side_effect = _client_error(
         "ValidationException", "bad bucket", "CreateFileSystem"
     )
@@ -253,6 +258,9 @@ def test_create_s3_files_system_client_error_reraises(mock_aws_services):
 
 
 def test_create_mount_target_for_file_system_success(mock_aws_services):
+    """
+    Tests happy path for creating a mount target for a file system.
+    """
     clients.s3files_client.create_mount_target.return_value = {
         "mountTargetId": "fsmt-1",
         "status": "creating",
@@ -270,6 +278,9 @@ def test_create_mount_target_for_file_system_success(mock_aws_services):
 def test_create_mount_target_for_file_system_client_error_reraises(
     mock_aws_services,
 ):
+    """
+    A `ClientError` while creating a mount target is re-raised, not swallowed.
+    """
     clients.s3files_client.create_mount_target.side_effect = _client_error(
         "ValidationException", "bad subnet", "CreateMountTarget"
     )
@@ -286,6 +297,9 @@ def test_create_mount_target_for_file_system_client_error_reraises(
 
 
 def test_list_mount_targets_for_file_system_flattens_pages(mock_aws_services):
+    """
+    Mount targets spread across multiple pages are flattened into a single list.
+    """
     paginator = MagicMock()
     paginator.paginate.return_value = [
         {"mountTargets": [{"mountTargetId": "fsmt-1"}]},
@@ -301,6 +315,9 @@ def test_list_mount_targets_for_file_system_flattens_pages(mock_aws_services):
 
 
 def test_list_mount_targets_for_file_system_empty(mock_aws_services):
+    """
+    An empty page of mount targets results in an empty list.
+    """
     paginator = MagicMock()
     paginator.paginate.return_value = [{"mountTargets": []}]
     clients.s3files_client.get_paginator.return_value = paginator
@@ -311,6 +328,9 @@ def test_list_mount_targets_for_file_system_empty(mock_aws_services):
 def test_list_mount_targets_for_file_system_client_error_reraises(
     mock_aws_services,
 ):
+    """
+    A `ClientError` while listing mount targets is re-raised, not swallowed.
+    """
     clients.s3files_client.get_paginator.side_effect = _client_error(
         "InternalError", "boom", "ListMountTargets"
     )
@@ -330,6 +350,9 @@ def test_list_mount_targets_for_file_system_client_error_reraises(
 
 
 def test_get_vpc_id():
+    """
+    The VPC ID is read from the EKS cluster's `resourcesVpcConfig`.
+    """
     fake_eks_client = MagicMock()
     fake_eks_client.describe_cluster.return_value = {
         "cluster": {"resourcesVpcConfig": {"vpcId": "vpc-abc123"}}
@@ -350,6 +373,9 @@ def test_get_vpc_id():
 
 
 def test_get_available_az_to_subnet(mock_aws_services):
+    """
+    Only subnets tagged for discovery are returned, mapped by availability zone.
+    """
 
     # Create dummy VPC through moto with subnets and tags
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
@@ -376,6 +402,9 @@ def test_get_available_az_to_subnet(mock_aws_services):
 
 
 def test_get_available_az_to_subnet_no_matches(mock_aws_services):
+    """
+    No subnets tagged for discovery results in an empty mapping.
+    """
     result = s3_files._get_available_az_to_subnet(discovery_tag="nonexistent-tag")
     assert result == {}
 
@@ -386,6 +415,9 @@ def test_get_available_az_to_subnet_no_matches(mock_aws_services):
 
 
 def test_get_eks_security_groups(mock_aws_services):
+    """
+    Only security groups matching the EKS worker/nodepool naming convention are returned.
+    """
 
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
 
@@ -409,6 +441,9 @@ def test_get_eks_security_groups(mock_aws_services):
 
 
 def test_get_eks_security_groups_none_found(mock_aws_services):
+    """
+    No matching security groups results in an empty list.
+    """
     assert s3_files._get_eks_security_groups() == []
 
 
@@ -418,6 +453,10 @@ def test_get_eks_security_groups_none_found(mock_aws_services):
 
 
 def test_get_or_create_security_groups_creates_new_sg(mock_aws_services):
+    """
+    When no mount target security group exists yet, one is created with the
+    expected ingress/egress NFS rules.
+    """
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
     compute_sg = clients.ec2_client.create_security_group(
         GroupName="test-cluster_EKS_workers_sg", Description="workers", VpcId=vpc_id
@@ -561,6 +600,10 @@ def test_get_or_create_security_groups_egress_reraises_non_duplicate_error(
 
 
 def test_get_or_create_s3_files_bucket_role_creates_new_role(mock_aws_services):
+    """
+    When no bucket role exists yet, one is created with the expected trust
+    policy and inline access policy.
+    """
     bucket_name = "test-bucket"
     region = "us-east-1"
 
@@ -637,6 +680,9 @@ def test_get_or_create_s3_files_bucket_role_returns_existing_role(
 def test_get_or_create_s3_files_bucket_role_client_error_reraises(
     mock_aws_services,
 ):
+    """
+    A `ClientError` while creating the bucket role is re-raised, not swallowed.
+    """
     with patch.object(
         clients.iam_client,
         "create_role",
@@ -654,6 +700,9 @@ def test_get_or_create_s3_files_bucket_role_client_error_reraises(
 
 
 def test_wait_for_file_system_ready_already_available():
+    """
+    If the file system is already available, no polling/sleeping occurs.
+    """
     with patch.object(
         s3_files, "get_filesystem_status", return_value=("available", None)
     ), patch.object(time, "sleep") as sleep_mock:
@@ -663,6 +712,9 @@ def test_wait_for_file_system_ready_already_available():
 
 
 def test_wait_for_file_system_ready_polls_until_available():
+    """
+    The function polls (sleeping between calls) until the file system becomes available.
+    """
     statuses = [("creating", None), ("updating", None), ("available", None)]
 
     with patch.object(
@@ -699,6 +751,9 @@ def test_wait_for_file_system_ready_logs_status_message_while_polling():
 
 
 def test_wait_for_file_system_ready_raises_on_failure():
+    """
+    An `error` status causes the wait to raise, surfacing the failure reason.
+    """
     with patch.object(
         s3_files,
         "get_filesystem_status",
@@ -714,6 +769,9 @@ def test_wait_for_file_system_ready_raises_on_failure():
 
 
 def test_setup_s3_filesystem_orchestrates_role_and_filesystem_creation():
+    """
+    The bucket role is created/fetched first, then used to create the file system.
+    """
     with patch.object(
         s3_files,
         "_get_or_create_s3_files_bucket_role",
