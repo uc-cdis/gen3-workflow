@@ -567,16 +567,17 @@ def wait_for_file_system_ready(
 
     start_time = time.monotonic()
     consecutive_failures = 0
+    fs_status = None
+    statusMessage = None
 
     while True:
         elapsed = time.monotonic() - start_time
         if elapsed > timeout_seconds:
-            raise TimeoutError(
-                f"Timed out after {elapsed:.0f}s waiting for filesystem `{fs_id}` "
-                f"to become ready (last status: {fs_status!r}, reason: {reason!r})."
-            )
+            timeout_msg = f"Timed out after {elapsed:.0f}s waiting for filesystem `{fs_id}` to become ready (last status: {fs_status!r}, reason: {statusMessage!r})."
+            logger.debug(timeout_msg)
+            raise TimeoutError(timeout_msg)
         try:
-            fs_status, reason = get_filesystem_status(fs_id)
+            fs_status, statusMessage = get_filesystem_status(fs_id)
             consecutive_failures = 0
         except FileSystemNotFoundError as e:
             # Not a transient error so not continuing to poll.
@@ -590,19 +591,19 @@ def wait_for_file_system_ready(
             if consecutive_failures >= max_consecutive_failure_tolerance:
                 raise
 
-        if fs_status not in ["creating", "updating"]:
+        if fs_status and fs_status not in ["creating", "updating"]:
             break
 
         logger.debug(f"Waiting for Filesystem `{fs_id}`to be ready.")
         time.sleep(poll_interval_seconds)
 
-        if reason:
+        if statusMessage:
             logger.debug(
-                f"Filesystem `{fs_id}` is currently in {fs_status=} with {reason=}"
+                f"Filesystem `{fs_id}` is currently in {fs_status=} with {statusMessage=}"
             )
 
     if fs_status != "available":
-        raise Exception(f"Failed to create file system.\nReason: {reason}")
+        raise Exception(f"Failed to create file system.\nReason: {statusMessage}")
     logger.debug(f"Filesystem: `{fs_id}` ready.")
 
 

@@ -50,6 +50,11 @@ class S3FilesResourceNotFoundException(ClientError):
 def mock_aws_services():
     """
     Mock all AWS services
+
+    S3 Files is a very new AWS service. As of this writing, `moto` has no mock backend
+    for it, so calls through `s3files_client` are stubbed out by hand with
+    `unittest.mock` rather than relying on `moto.mock_aws`.
+    All the *other* AWS services (`iam`, `ec2`, `eks`, `sts`) are mocked with `moto`.
     """
     with mock_aws():
         clients.iam_client = boto3.client("iam")

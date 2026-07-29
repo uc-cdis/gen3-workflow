@@ -1,12 +1,5 @@
 """
 Unit tests for `gen3workflow.aws.s3_files`.
-
-S3 Files is a very new AWS service. As of this writing, `moto` has no mock backend
-for it, so calls through `s3files_client` are stubbed out by hand with
-`unittest.mock` (see the `mock_s3_files_aws_clients` fixture in `conftest.py`)
-rather than relying on `moto.mock_aws`. All the *other* AWS services used by this
-module (`iam`, `ec2`, `eks`, `sts`) are mocked with `moto`, consistent with the
-rest of this test suite (see `tests/test_aws_utils.py`).
 """
 
 # pylint: disable=protected-access
@@ -152,7 +145,7 @@ def test_get_filesystem_status_success(mock_aws_services):
 
 def test_get_filesystem_status_not_found(mock_aws_services):
     """
-    A `ResourceNotFoundException` is translated into a `FileSystemNotFoundError` and propogated.
+    A `ResourceNotFoundException` is translated into a `FileSystemNotFoundError` and propagated.
     """
     clients.s3files_client.get_file_system.side_effect = (
         S3FilesResourceNotFoundException()
@@ -761,6 +754,74 @@ def test_wait_for_file_system_ready_raises_on_failure():
     ), patch.object(time, "sleep"):
         with pytest.raises(Exception, match="something went wrong"):
             s3_files.wait_for_file_system_ready("fs-123")
+
+
+def test_wait_for_file_system_ready_file_system_not_found_reraises_immediately():
+    """
+    A `FileSystemNotFoundError` is not treated as transient; it's re-raised on
+    the very first failure, without retrying or sleeping.
+    """
+    with patch.object(
+        s3_files,
+        "get_filesystem_status",
+        side_effect=s3_files.FileSystemNotFoundError("fs not found"),
+    ) as get_status_mock, patch.object(time, "sleep") as sleep_mock:
+        with pytest.raises(s3_files.FileSystemNotFoundError):
+            s3_files.wait_for_file_system_ready("fs-123")
+
+    get_status_mock.assert_called_once_with("fs-123")
+    sleep_mock.assert_not_called()
+
+
+def test_wait_for_file_system_ready_recovers_from_transient_failure():
+    """
+    A transient (non-`FileSystemNotFoundError`) exception below the failure
+    tolerance is retried rather than raised, and polling continues until the
+    file system becomes available.
+    """
+    statuses = [Exception("transient blip"), ("available", None)]
+
+    with patch.object(
+        s3_files, "get_filesystem_status", side_effect=statuses
+    ) as get_status_mock, patch.object(time, "sleep") as sleep_mock:
+        s3_files.wait_for_file_system_ready("fs-123")
+
+    assert get_status_mock.call_count == 2
+    assert sleep_mock.call_count == 1
+
+
+def test_wait_for_file_system_ready_raises_after_exceeding_failure_tolerance():
+    """
+    Once consecutive transient failures reach `max_consecutive_failure_tolerance`,
+    the underlying exception is raised instead of continuing to retry.
+    """
+    with patch.object(
+        s3_files,
+        "get_filesystem_status",
+        side_effect=Exception("boom"),
+    ) as get_status_mock, patch.object(time, "sleep") as sleep_mock:
+        with pytest.raises(Exception, match="boom"):
+            s3_files.wait_for_file_system_ready(
+                "fs-123", max_consecutive_failure_tolerance=2
+            )
+
+    assert get_status_mock.call_count == 2
+    assert sleep_mock.call_count == 1
+
+
+def test_wait_for_file_system_ready_times_out():
+    """
+    If the elapsed time exceeds `timeout_seconds`, a `TimeoutError` is raised
+    without ever calling `get_filesystem_status`.
+    """
+    with patch.object(time, "monotonic", side_effect=[0, 5]), patch.object(
+        s3_files, "get_filesystem_status"
+    ) as get_status_mock, patch.object(time, "sleep") as sleep_mock:
+        with pytest.raises(TimeoutError, match="Timed out"):
+            s3_files.wait_for_file_system_ready("fs-123", timeout_seconds=1)
+
+    get_status_mock.assert_not_called()
+    sleep_mock.assert_not_called()
 
 
 # --------------------------------------------------------------------------- #
