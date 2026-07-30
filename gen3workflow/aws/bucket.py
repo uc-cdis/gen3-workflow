@@ -421,8 +421,10 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     Wrapper for `_create_user_bucket` that handles caching and retries.
 
     Gracefully handles race conditions, for example:
-    `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
-    A conflicting conditional operation is currently in progress against this resource.`
+    - `An error occurred (OperationAborted) when calling the PutBucketEncryption operation:
+      A conflicting conditional operation is currently in progress against this resource.`
+    - `An error occurred (AlreadyExistsException) when calling the CreateAlias operation:
+      An alias with the name XYZ already exists`
     """
     if USER_BUCKET_CACHE.has(user_id):
         return USER_BUCKET_CACHE.get(user_id)
@@ -437,7 +439,8 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             return bucket_info
         except ClientError as e:
             if (
-                e.response["Error"]["Code"] != "OperationAborted"
+                e.response["Error"]["Code"]
+                not in ["OperationAborted", "AlreadyExistsException"]
                 or attempt == max_tries
             ):
                 raise
