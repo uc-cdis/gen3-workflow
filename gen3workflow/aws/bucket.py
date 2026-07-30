@@ -437,7 +437,8 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             return bucket_info
         except ClientError as e:
             if (
-                e.response["Error"]["Code"] != "OperationAborted"
+                e.response["Error"]["Code"]
+                not in ["OperationAborted", "AlreadyExistsException"]
                 or attempt == max_tries
             ):
                 raise
