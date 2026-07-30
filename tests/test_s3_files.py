@@ -13,7 +13,7 @@ from botocore.exceptions import ClientError
 
 from gen3workflow.aws import clients, s3_files
 from gen3workflow.config import config
-from tests.test_misc import S3FilesResourceNotFoundException, mock_aws_services
+from tests.conftest import S3FilesResourceNotFoundException
 
 
 def _client_error(code: str, message: str = "error", operation_name: str = "Operation"):
