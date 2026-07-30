@@ -414,12 +414,14 @@ def test_get_eks_security_groups(mock_aws_services, monkeypatch):
 
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
 
-    workers_sg = clients.ec2_client.create_security_group(
-        GroupName="test-cluster_EKS_workers_sg", Description="workers", VpcId=vpc_id
+    mocked_sg_name1 = "foo_sg"
+    sg1 = clients.ec2_client.create_security_group(
+        GroupName=mocked_sg_name1, Description="sg1", VpcId=vpc_id
     )
-    jupyter_sg = clients.ec2_client.create_security_group(
-        GroupName="test-cluster_EKS_nodepool_jupyter_sg",
-        Description="jupyter",
+    mocked_sg_name2 = "bar_sg"
+    sg2 = clients.ec2_client.create_security_group(
+        GroupName=mocked_sg_name2,
+        Description="sg2",
         VpcId=vpc_id,
     )
     # an unrelated security group should not be returned
@@ -430,13 +432,13 @@ def test_get_eks_security_groups(mock_aws_services, monkeypatch):
     monkeypatch.setitem(
         config,
         "EKS_SECURITY_GROUP_NAMES",
-        ["test-cluster_EKS_workers_sg", "test-cluster_EKS_nodepool_jupyter_sg"],
+        [mocked_sg_name1, mocked_sg_name2],
     )
 
     result = s3_files._get_eks_security_groups()
 
     result_ids = {sg_id for sg_id, _ in result}
-    assert result_ids == {workers_sg["GroupId"], jupyter_sg["GroupId"]}
+    assert result_ids == {sg1["GroupId"], sg2["GroupId"]}
 
 
 def test_get_eks_security_groups_none_found(mock_aws_services):
@@ -458,7 +460,9 @@ def test_get_or_create_security_groups_creates_new_sg(mock_aws_services):
     """
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
     compute_sg = clients.ec2_client.create_security_group(
-        GroupName="test-cluster_EKS_workers_sg", Description="workers", VpcId=vpc_id
+        GroupName=config["EKS_SECURITY_GROUP_NAMES"][0],
+        Description="workers",
+        VpcId=vpc_id,
     )
 
     mount_target_sg_id = s3_files._get_or_create_security_groups(vpc_id=vpc_id)
@@ -507,7 +511,9 @@ def test_get_or_create_security_groups_reuses_existing_sg(mock_aws_services):
     """
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
     clients.ec2_client.create_security_group(
-        GroupName="test-cluster_EKS_workers_sg", Description="workers", VpcId=vpc_id
+        GroupName=config["EKS_SECURITY_GROUP_NAMES"][0],
+        Description="workers",
+        VpcId=vpc_id,
     )
     existing_mount_target_sg = clients.ec2_client.create_security_group(
         GroupName="gen3wf-s3files-mount-target-sg", Description="existing", VpcId=vpc_id
@@ -534,7 +540,9 @@ def test_get_or_create_security_groups_is_idempotent(mock_aws_services):
     """
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
     clients.ec2_client.create_security_group(
-        GroupName="test-cluster_EKS_workers_sg", Description="workers", VpcId=vpc_id
+        GroupName=config["EKS_SECURITY_GROUP_NAMES"][0],
+        Description="workers",
+        VpcId=vpc_id,
     )
 
     first_result = s3_files._get_or_create_security_groups(vpc_id=vpc_id)
@@ -552,7 +560,9 @@ def test_get_or_create_security_groups_ingress_reraises_non_duplicate_error(
     """
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
     clients.ec2_client.create_security_group(
-        GroupName="test-cluster_EKS_workers_sg", Description="workers", VpcId=vpc_id
+        GroupName=config["EKS_SECURITY_GROUP_NAMES"][0],
+        Description="workers",
+        VpcId=vpc_id,
     )
 
     with patch.object(
@@ -577,7 +587,9 @@ def test_get_or_create_security_groups_egress_reraises_non_duplicate_error(
 
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
     clients.ec2_client.create_security_group(
-        GroupName="test-cluster_EKS_workers_sg", Description="workers", VpcId=vpc_id
+        GroupName=config["EKS_SECURITY_GROUP_NAMES"][0],
+        Description="workers",
+        VpcId=vpc_id,
     )
 
     with patch.object(

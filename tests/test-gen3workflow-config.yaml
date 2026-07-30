@@ -15,3 +15,4 @@ TASK_IMAGE_WHITELIST:
 WORKER_PODS_NAMESPACE: test-namespace
 EKS_CLUSTER_NAME: test-cluster
 EKS_CLUSTER_REGION: us-east-1
+EKS_SECURITY_GROUP_NAMES: ["test-cluster_EKS_workers_sg"]
