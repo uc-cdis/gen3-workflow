@@ -226,7 +226,7 @@ def test_create_s3_files_system_success(mock_aws_services):
         bucket="arn:aws:s3:::test-bucket",
         prefix="funnel-temp-files/",
         roleArn="arn:aws:iam::123456789012:role/s3files-role",
-        tags=[{"Key": "Name", "Value": "gen3wf-localhost"}],
+        tags=[{"key": "Name", "value": "gen3wf-localhost"}],
     )
 
 
