@@ -7,6 +7,7 @@ import asyncio
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
+from cachelib import SimpleCache
 
 from gen3workflow import logger
 from gen3workflow.aws.aws_utils import (
@@ -19,15 +20,11 @@ from gen3workflow.config import config
 
 from gen3workflow.aws import clients
 
-# (
-#     eks_client,
-#     sts_client,
-#     clients.iam_client,
-#     clients.kms_client,
-#     clients.s3_client,
-# )
-
 USER_BUCKET_CACHE = SimpleCache(default_timeout=config["USER_BUCKET_CACHE_SECONDS"])
+
+# Arbitrarily set expiration of older versions of bucket objects,
+# required when bucket versioning is enabled.
+NONCURRENT_VERSION_EXPIRATION_DAYS = 3
 
 
 def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
@@ -333,7 +330,7 @@ def enable_bucket_versioning(bucket_name: str) -> None:
         raise
 
 
-async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
+async def _create_user_bucket(user_id: str) -> Tuple[str, str]:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
 
@@ -341,7 +338,7 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         user_id (str): The user's unique Gen3 ID
 
     Returns:
-        tuple: (bucket name, kms key ARN, S3 files filesystem ID)
+        tuple: (bucket name, kms key ARN)
     """
     user_bucket_name = get_bucket_name_from_user_id(user_id)
     try:
@@ -381,6 +378,7 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
+
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
     clients.s3_client.put_bucket_lifecycle_configuration(
         Bucket=user_bucket_name,
@@ -389,6 +387,9 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
                 {
                     "ID": f"ExpireAllAfter{expiration_days}Days",
                     "Expiration": {"Days": expiration_days},
+                    "NoncurrentVersionExpiration": {
+                        "NoncurrentDays": NONCURRENT_VERSION_EXPIRATION_DAYS
+                    },
                     "Status": "Enabled",
                     # apply to all objects:
                     "Filter": {"Prefix": ""},
@@ -408,6 +409,10 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str, str]:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         clients.s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
         clients.s3_client.delete_bucket_policy(Bucket=user_bucket_name)
+
+    if config["ENABLE_S3_FILES"]:
+        # Bucket versioning is necessary for S3Files
+        enable_bucket_versioning(user_bucket_name)
 
     return user_bucket_name, kms_key_arn
 

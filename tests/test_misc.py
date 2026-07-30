@@ -12,7 +12,7 @@ from tests.conftest import (
     NEW_TEST_USER_ID,
     mock_arborist_request,
 )
-from gen3workflow.aws import bucket, clients
+from gen3workflow.aws import aws_utils, bucket, clients
 from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
 
@@ -25,6 +25,25 @@ def reset_config_hostname():
     original_hostname = config["HOSTNAME"]
     yield
     config["HOSTNAME"] = original_hostname
+
+
+class S3FilesResourceNotFoundException(ClientError):
+    """
+    Stand-in for the `ResourceNotFoundException` that the AWS S3 Files boto3 client exposes
+    as `s3files_client.exceptions.ResourceNotFoundException`.
+
+    It subclasses `ClientError`, same as the real botocore-generated exception, so that a
+    `S3FilesResourceNotFoundException` is also caught by any broader `except ClientError`
+    that appears after it.
+    """
+
+    def __init__(self, message: str = "File system not found"):
+        super().__init__(
+            error_response={
+                "Error": {"Code": "ResourceNotFoundException", "Message": message}
+            },
+            operation_name="GetFileSystem",
+        )
 
 
 @pytest.fixture(scope="function")
@@ -62,6 +81,11 @@ class S3FilesResourceNotFoundException(ClientError):
 def mock_aws_services():
     """
     Mock all AWS services
+
+    S3 Files is a very new AWS service. As of this writing, `moto` has no mock backend
+    for it, so calls through `s3files_client` are stubbed out by hand with
+    `unittest.mock` rather than relying on `moto.mock_aws`.
+    All the *other* AWS services (`iam`, `ec2`, `eks`, `sts`) are mocked with `moto`.
     """
     with mock_aws():
         clients.iam_client = boto3.client("iam")
@@ -251,12 +275,16 @@ async def test_storage_setup(
     lifecycle_config = clients.s3_client.get_bucket_lifecycle_configuration(
         Bucket=expected_bucket_name
     )
+
     assert lifecycle_config.get("Rules") == [
         {
             "Expiration": {"Days": config["S3_OBJECTS_EXPIRATION_DAYS"]},
             "ID": f"ExpireAllAfter{config['S3_OBJECTS_EXPIRATION_DAYS']}Days",
             "Filter": {"Prefix": ""},
             "Status": "Enabled",
+            "NoncurrentVersionExpiration": {
+                "NoncurrentDays": bucket.NONCURRENT_VERSION_EXPIRATION_DAYS
+            },
         }
     ]
 

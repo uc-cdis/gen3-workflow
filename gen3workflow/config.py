@@ -60,6 +60,10 @@ class Gen3WorkflowConfig(Config):
                 "EKS_CLUSTER_NAME": {"type": "string"},
                 "EKS_CLUSTER_REGION": {"type": "string"},
                 "WORKER_PODS_NAMESPACE": {"type": "string"},
+                "EKS_SECURITY_GROUP_NAMES": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
         }
         validate(instance=self, schema=schema)
