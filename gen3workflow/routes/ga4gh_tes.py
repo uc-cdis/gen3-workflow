@@ -151,7 +151,6 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(f"{err_msg}. Allowed images: {config['TASK_IMAGE_WHITELIST']}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
-    # TODO: For S3Files based deployments, verify if there is atleast one mount target that is available for the filesystem
     # Add internal tags
     if "tags" not in body:
         body["tags"] = {}

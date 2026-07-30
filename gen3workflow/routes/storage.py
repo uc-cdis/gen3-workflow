@@ -11,11 +11,7 @@ from starlette.status import (
 from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.aws import s3_files
-from gen3workflow.aws.bucket import (
-    cleanup_user_bucket,
-    create_user_bucket,
-    enable_bucket_versioning,
-)
+from gen3workflow.aws.bucket import cleanup_user_bucket, create_user_bucket
 from gen3workflow.config import config
 
 router = APIRouter(prefix="/storage")
@@ -58,10 +54,6 @@ async def storage_setup(
     }
 
     if config["ENABLE_S3_FILES"]:
-
-        # Bucket versioning is necessary for S3Files
-        enable_bucket_versioning(bucket_name)
-
         fs_id = s3_files.get_s3_files_system(bucket_name)
         if not fs_id:
             # Create S3 Files Filesystem ID if not exists
