@@ -51,6 +51,7 @@ class Gen3WorkflowConfig(Config):
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
                 "S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY": {"type": ["string", "null"]},
                 "KMS_ENCRYPTION_ENABLED": {"type": "boolean"},
+                "ENABLE_S3_FILES": {"type": "boolean"},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
@@ -59,6 +60,10 @@ class Gen3WorkflowConfig(Config):
                 "EKS_CLUSTER_NAME": {"type": "string"},
                 "EKS_CLUSTER_REGION": {"type": "string"},
                 "WORKER_PODS_NAMESPACE": {"type": "string"},
+                "EKS_SECURITY_GROUP_NAMES": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
         }
         validate(instance=self, schema=schema)
