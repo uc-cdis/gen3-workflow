@@ -101,6 +101,5 @@ WORKER_PODS_NAMESPACE: default-namespace
 
 # Names of the EKS security groups that Karpenter attaches to an EKS worker node in this cluster
 # Usually going to be in the lines of f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg"
-# Steps to fetch the values are mentioned in the (docs/s3Files.md#determining-the-eks-security-group-names-for-s3-files-setup)
-
+# Steps to fetch the values: https://github.com/uc-cdis/gen3-workflow/blob/master/docs/s3Files.md#determining-the-eks-security-group-names-for-s3-files-setup
 EKS_SECURITY_GROUP_NAMES: []
