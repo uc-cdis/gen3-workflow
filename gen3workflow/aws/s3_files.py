@@ -253,12 +253,8 @@ def _get_eks_security_groups() -> List[tuple[str, str]]:
     Return a list of tuples consisting of (sg_id, sg_name) for the EKS security group that Karpenter attaches
     to an EKS worker node in this cluster.
     """
-    eks_sg_names = config.get("EKS_SECURITY_GROUP_NAMES")
-    if not eks_sg_names:
-        eks_sg_names = [f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg"]
-
     security_groups = clients.ec2_client.describe_security_groups(
-        Filters=[{"Name": "group-name", "Values": eks_sg_names}]
+        Filters=[{"Name": "group-name", "Values": config["EKS_SECURITY_GROUP_NAMES"]}]
     )["SecurityGroups"]
     return [(group["GroupId"], group["GroupName"]) for group in security_groups]
 

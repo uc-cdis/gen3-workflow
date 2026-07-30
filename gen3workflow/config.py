@@ -72,6 +72,11 @@ class Gen3WorkflowConfig(Config):
             self["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"]
         ), "Both 'S3_ENDPOINTS_AWS_ACCESS_KEY_ID' and 'S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY' must be configured, or both must be left empty"
 
+        if self["ENABLE_S3_FILES"]:
+            assert (
+                len(self["EKS_SECURITY_GROUP_NAMES"]) > 0
+            ), "EKS_SECURITY_GROUP_NAMES must be configured when ENABLE_S3_FILES is True"
+
 
 config = Gen3WorkflowConfig(DEFAULT_CFG_PATH)
 try:

@@ -11,10 +11,7 @@ from starlette.status import (
 from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.aws import s3_files
-from gen3workflow.aws.bucket import (
-    cleanup_user_bucket,
-    create_user_bucket,
-)
+from gen3workflow.aws.bucket import cleanup_user_bucket, create_user_bucket
 from gen3workflow.config import config
 
 router = APIRouter(prefix="/storage")
@@ -133,7 +130,7 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
     logger.info(f"User '{user_id}' emptying their storage bucket")
-    deleted_bucket_name = cleanup_user_bucket(user_id)
+    deleted_bucket_name = cleanup_user_bucket(user_id, delete_bucket=False)
 
     if not deleted_bucket_name:
         raise HTTPException(
