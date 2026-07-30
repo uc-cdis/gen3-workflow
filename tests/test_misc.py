@@ -22,9 +22,9 @@ def reset_config_hostname():
     """
     Reset the `HOSTNAME` configuration at the end of tests that use this fixture
     """
-    original_hostname = config["HOSTNAME"]
+    original_val = config["HOSTNAME"]
     yield
-    config["HOSTNAME"] = original_hostname
+    config["HOSTNAME"] = original_val
 
 
 class S3FilesResourceNotFoundException(ClientError):
@@ -52,10 +52,10 @@ def enable_s3_files():
     Enable S3Files for the duration of the test, and reset the `ENABLE_S3_FILES` configuration
     at the end of the test
     """
-    original_hostname = config["ENABLE_S3_FILES"]
+    original_val = config["ENABLE_S3_FILES"]
     config["ENABLE_S3_FILES"] = True
     yield
-    config["ENABLE_S3_FILES"] = original_hostname
+    config["ENABLE_S3_FILES"] = original_val
 
 
 class S3FilesResourceNotFoundException(ClientError):

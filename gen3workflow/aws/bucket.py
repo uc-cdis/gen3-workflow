@@ -489,7 +489,6 @@ def cleanup_user_bucket(user_id: str, delete_bucket: bool) -> Union[str, None]:
     Args:
         user_id: User identifier used to derive the bucket name.
         delete_bucket:  If True, delete the bucket after removing all objects.
-                        Defaults to False (only objects are removed).
 
     Returns:
         Bucket name if it exists and cleanup was performed, otherwise None
