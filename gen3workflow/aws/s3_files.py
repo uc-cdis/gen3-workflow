@@ -139,8 +139,8 @@ def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
             roleArn=role_arn,
             tags=[
                 {
-                    "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=None),
+                    "key": "Name",
+                    "value": get_safe_name_from_hostname(user_id=None),
                 }
             ],
         )
