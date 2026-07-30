@@ -263,9 +263,6 @@ def _get_eks_security_groups() -> List[tuple[str, str]]:
     return [(group["GroupId"], group["GroupName"]) for group in security_groups]
 
 
-# TODO: Investigate if this can be moved to server startup logic or elsewhere? Terraform maybe?
-# Since the `create` part is only needed once per cluster, no need to run for every bucket.
-# This takes approximately 2 seconds to run everytime it is invoked.
 def _get_or_create_security_groups(vpc_id: str) -> str:
     """
     Ensure the mount target security group exists and has the correct bidirectional
