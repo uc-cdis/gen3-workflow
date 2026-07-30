@@ -12,8 +12,6 @@ from tests.conftest import (
     TEST_USER_TOKEN,
 )
 
-from tests.test_misc import mock_aws_services
-
 client_parameters = [
     pytest.param({"authorized": True, "tes_resp_code": 200}, id="success"),
     pytest.param({"authorized": False, "tes_resp_code": 200}, id="unauthorized"),
