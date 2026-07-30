@@ -10,11 +10,10 @@ from starlette.status import (
 
 from gen3workflow import logger
 from gen3workflow.auth import Auth
-from gen3workflow.aws import aws_utils, s3_files
+from gen3workflow.aws import s3_files
 from gen3workflow.aws.bucket import (
     cleanup_user_bucket,
     create_user_bucket,
-    enable_bucket_versioning,
 )
 from gen3workflow.config import config
 
