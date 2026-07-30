@@ -98,3 +98,9 @@ ENABLE_OPTIMIZED_NODE_SCHEDULING: true
 EKS_CLUSTER_NAME: ""
 EKS_CLUSTER_REGION: us-east-1
 WORKER_PODS_NAMESPACE: default-namespace
+
+# Names of the EKS security groups that Karpenter attaches to an EKS worker node in this cluster
+# Usually going to be in the lines of f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg"
+# Steps to fetch the values are mentioned in the docs/s3Files.md under the section "Determining the EKS Security Group Names for S3 Files Setup"
+
+EKS_SECURITY_GROUP_NAMES: []

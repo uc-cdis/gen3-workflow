@@ -407,9 +407,9 @@ def test_get_available_az_to_subnet_no_matches(mock_aws_services):
 # --------------------------------------------------------------------------- #
 
 
-def test_get_eks_security_groups(mock_aws_services):
+def test_get_eks_security_groups(mock_aws_services, monkeypatch):
     """
-    Only security groups matching the EKS worker/nodepool naming convention are returned.
+    Only security groups matching the EKS_SECURITY_GROUP_NAMES mentioned in the config are returned.
     """
 
     vpc_id = clients.ec2_client.create_vpc(CidrBlock="10.0.0.0/16")["Vpc"]["VpcId"]
@@ -425,6 +425,12 @@ def test_get_eks_security_groups(mock_aws_services):
     # an unrelated security group should not be returned
     clients.ec2_client.create_security_group(
         GroupName="unrelated-sg", Description="unrelated", VpcId=vpc_id
+    )
+
+    monkeypatch.setitem(
+        config,
+        "EKS_SECURITY_GROUP_NAMES",
+        ["test-cluster_EKS_workers_sg", "test-cluster_EKS_nodepool_jupyter_sg"],
     )
 
     result = s3_files._get_eks_security_groups()
