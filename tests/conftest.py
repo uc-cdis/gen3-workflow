@@ -11,8 +11,11 @@ import time
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
 
+import boto3
+from botocore.exceptions import ClientError
 from fastapi import Request
 import httpx
+from moto import mock_aws
 import pytest
 import pytest_asyncio
 from starlette.config import environ
@@ -29,7 +32,8 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
-from gen3workflow.aws_utils import USER_BUCKET_CACHE
+from gen3workflow.aws import clients
+from gen3workflow.aws.bucket import USER_BUCKET_CACHE
 
 TEST_USER_ID = "user-64"
 NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
@@ -385,6 +389,83 @@ async def client(request):
             real_httpx_client.tes_resp_code = tes_resp_code
             real_httpx_client.authorized = authorized
             yield real_httpx_client
+
+
+class S3FilesResourceNotFoundException(ClientError):
+    """
+    Stand-in for the `ResourceNotFoundException` that the AWS S3 Files boto3 client exposes
+    as `s3files_client.exceptions.ResourceNotFoundException`.
+
+    It subclasses `ClientError`, same as the real botocore-generated exception, so that a
+    `S3FilesResourceNotFoundException` is also caught by any broader `except ClientError`
+    that appears after it.
+    """
+
+    def __init__(self, message: str = "File system not found"):
+        super().__init__(
+            error_response={
+                "Error": {"Code": "ResourceNotFoundException", "Message": message}
+            },
+            operation_name="GetFileSystem",
+        )
+
+
+@pytest.fixture(scope="function")
+def mock_aws_services():
+    """
+    Mock all AWS services
+
+    S3 Files is a very new AWS service. As of this writing, `moto` has no mock backend
+    for it, so calls through `s3files_client` are stubbed out by hand with
+    `unittest.mock` rather than relying on `moto.mock_aws`.
+    All the *other* AWS services (`iam`, `ec2`, `eks`, `sts`) are mocked with `moto`.
+    """
+    with mock_aws():
+        clients.iam_client = boto3.client("iam")
+        clients.kms_client = boto3.client(
+            "kms", region_name=config["USER_BUCKETS_REGION"]
+        )
+        clients.s3_client = boto3.client("s3")
+        clients.s3_resource = boto3.resource("s3")
+        clients.sts_client = boto3.client("sts")
+        clients.eks_client = boto3.client(
+            "eks", region_name=os.environ.get("EKS_CLUSTER_REGION", "us-east-1")
+        )
+        clients.ec2_client = boto3.client(
+            "ec2", region_name=config["USER_BUCKETS_REGION"]
+        )
+
+        # S3Files custom mocking (since `moto` does not support it yet)
+        clients.s3files_client = MagicMock(name="s3files_client")
+        clients.s3files_client.exceptions.ResourceNotFoundException = (
+            S3FilesResourceNotFoundException
+        )
+        clients.s3files_client.get_file_system = MagicMock(
+            side_effect=lambda fileSystemId: {
+                "status": "available",
+                "statusMessage": None,
+            }
+        )
+        original_eks_client_describe_cluster = clients.eks_client.describe_cluster
+
+        def mocked_eks_client_describe_cluster(**kwargs):
+            res = original_eks_client_describe_cluster(**kwargs)
+            # add the `vpcId` field used by `_get_vpc_id` to the original moto response
+            res["cluster"]["resourcesVpcConfig"]["vpcId"] = "vpc-abc123"
+            return res
+
+        clients.eks_client.describe_cluster = mocked_eks_client_describe_cluster
+
+        # Setup: Create a mock EKS cluster in the virtual environment
+        cluster_name = "test-cluster"
+
+        clients.eks_client.create_cluster(
+            name=cluster_name,
+            roleArn="arn:aws:iam::123456789012:role/mock-eks-role",
+            resourcesVpcConfig={"subnetIds": ["subnet-12345"]},
+        )
+
+        yield
 
 
 @pytest_asyncio.fixture(

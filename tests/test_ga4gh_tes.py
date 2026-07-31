@@ -11,8 +11,6 @@ from tests.conftest import (
     TEST_USER_TOKEN,
 )
 
-from tests.test_misc import mock_aws_services
-
 client_parameters = [
     pytest.param({"authorized": True, "tes_resp_code": 200}, id="success"),
     pytest.param({"authorized": False, "tes_resp_code": 200}, id="unauthorized"),
@@ -120,7 +118,7 @@ async def test_create_task(
     be made.
     """
     with patch(
-        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "*"),
     ):
         res = await client.post(
@@ -209,7 +207,7 @@ async def test_create_gpu_task(
     """
     tags = {"_GPU": is_gpu_task} if is_gpu_task else {}
     with patch(
-        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "*"),
     ):
         res = await client.post(
@@ -391,7 +389,7 @@ async def test_create_task_with_whitelist_images(
     Ensure that any image sent to the TES server belongs exclusively to whitelisted repositories specified in the configuration.
     """
     with patch(
-        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "*"),
     ):
         res = await client.post(
@@ -437,7 +435,7 @@ async def test_create_task_optimized_node_scheduling(
 
     try:
         with patch(
-            "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+            "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
             lambda _: ("test_kms_key_alias", "*"),
         ):
             res = await client.post(
