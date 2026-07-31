@@ -206,6 +206,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     body["tags"] = dict(sorted(body["tags"].items()))
 
+    logger.debug(f"Outgoing task creation request body: {json.dumps(body)}")
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
