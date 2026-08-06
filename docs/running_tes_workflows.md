@@ -88,3 +88,11 @@ Your input files are available at the `path` you specify, and output files writt
 Files stored in your workflow bucket are automatically deleted after **30 days**. Make sure to retrieve any output files before then.
 
 > **Note for operators:** The retention period is configurable via the `S3_OBJECTS_EXPIRATION_DAYS` field in `gen3Config`.
+
+
+## Tags
+
+### IMAGE PULL POLICY
+
+### GPU
+* See (https://github.com/uc-cdis/gen3-workflow/tree/master/docs/gpu_support.md#L1-L1)
