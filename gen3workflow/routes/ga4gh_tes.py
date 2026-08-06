@@ -154,6 +154,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     # Add internal tags
     if "tags" not in body:
         body["tags"] = {}
+    if type(body["tags"]) != dict:
+        err_msg = f"Tags should be a dictionary (tag name -> tag value mapping). Received type {type(body['tags'])}: {body["tags"]}"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     task_tags = set(t.lower() for t in body["tags"])
     conflicts = task_tags & {tag.lower() for tag in RESERVED_TAGS}
     if conflicts:
