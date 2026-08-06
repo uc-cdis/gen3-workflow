@@ -13,7 +13,6 @@ from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import (
     HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
-    HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
 )
 
@@ -124,18 +123,12 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     logger.debug(f"Incoming task creation request body: {json.dumps(body)}")
 
     # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
-    token_claims = await auth.get_token_claims()
-    user_id = token_claims.get("sub")
-    if not user_id:
-        err_msg = "No user sub in token"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-    username = token_claims.get("context", {}).get("user", {}).get("name")
-    if not username:
-        err_msg = "No context.user.name in token"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-    logger.info(f"User '{user_id}' creating TES task")
+    principal = await auth.get_principal()
+    user_id = principal["id"]
+    username = principal["name"]
+    logger.info(
+        f"{'Client' if principal['is_client'] else 'User'} '{user_id}' creating TES task"
+    )
 
     # Fetch the list of images from request body as a set
     images_from_request = {

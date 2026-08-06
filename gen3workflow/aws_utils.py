@@ -69,6 +69,9 @@ def get_safe_name_from_hostname(
     safe_name = f"gen3wf-{escaped_hostname}"
     max_chars = 63 - reserved_length
     if user_id:
+        # client IDs (used as the user ID for `client_credentials` tokens) contain uppercase
+        # characters, which are not allowed in S3 bucket or k8s service account names
+        user_id = user_id.lower()
         max_chars = max_chars - len(f"-{user_id}")
     if len(safe_name) > max_chars:
         safe_name = safe_name[:max_chars]

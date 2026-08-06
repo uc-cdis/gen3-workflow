@@ -8,6 +8,7 @@ from gen3workflow.config import config
 from tests.conftest import (
     mock_arborist_request,
     mock_tes_server_request,
+    TEST_CLIENT_ID,
     TEST_USER_ID,
     NEW_TEST_USER_ID,
     TEST_USER_TOKEN,
@@ -177,6 +178,53 @@ async def test_create_task_without_token(client):
     assert res.status_code == 401, res.text
     assert res.json() == {"detail": "Must provide an access token"}
     mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_create_task_with_client_token(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Calls to `POST /ga4gh/tes/v1/tasks` with a token obtained through a `client_credentials`
+    flow (not linked to a user) should be forwarded to the TES server, with the client itself
+    as the principal: the `_AUTHZ` tag and worker names should be based on the client ID.
+    """
+    with patch(
+        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        lambda _: ("test_kms_key_alias", "*"),
+    ):
+        res = await client.post(
+            "/ga4gh/tes/v1/tasks",
+            json={"name": "test-task"},
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        )
+    assert res.status_code == 200, res.text
+    assert res.json() == {"id": "123"}
+
+    expected_body = {
+        "name": "test-task",
+        "tags": {
+            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_CLIENT_ID}/TASK_ID_PLACEHOLDER",
+            # AWS/k8s-safe names are lowercased, unlike the authz resource path above
+            "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_CLIENT_ID.lower()}-funnel-role",
+            "_WORKER_SA": f"gen3wf-localhost-{TEST_CLIENT_ID.lower()}-worker-sa",
+            "_NODE_SELECTOR": "role:workflow",
+            "_TOLERATIONS": "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule",
+        },
+    }
+    expected_body["tags"] = dict(sorted(expected_body["tags"].items()))
+    mock_tes_server_request.assert_called_once_with(
+        method="POST",
+        path="/tasks",
+        query_params={},
+        body=json.dumps(expected_body, separators=(",", ":")),
+        status_code=200,
+    )
 
 
 @pytest.mark.asyncio

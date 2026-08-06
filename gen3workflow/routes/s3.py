@@ -48,7 +48,7 @@ async def set_access_token_and_get_user_id(
     2. Set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<...>`
 
     The key ID should be in one of the two following expected formats:
-    A. Request made by a user: `<user's access token>`
+    A. Request made by a user, or by a client acting as itself: `<access token>`
     B. Request made by a client on behalf of a user:
        `<client's `client_credentials` access token>;userId=<user ID>`
 
@@ -97,7 +97,9 @@ async def set_access_token_and_get_user_id(
     sub = token_claims.get("sub")
     client_id = token_claims.get("azp")
     if is_user_token:
-        user_id = sub
+        # tokens obtained through a `client_credentials` flow are not linked to a user and have
+        # no `sub`: the client itself is the principal, identified by `azp` (client ID)
+        user_id = sub or client_id
     else:
         if not client_id:
             # Format B (see docstring) should only be used by clients acting on behalf of a user.
