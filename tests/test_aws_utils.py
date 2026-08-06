@@ -2,9 +2,8 @@ import json
 from unittest.mock import patch
 
 from tests.conftest import TEST_USER_ID
-from gen3workflow import aws_utils
+from gen3workflow.aws import aws_utils, clients, bucket
 from gen3workflow.config import config
-from tests.test_misc import mock_aws_services
 
 
 def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_services):
@@ -16,23 +15,23 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
 
     # Create KMS key to make sure, key exists and is added to the policy
     kms_key_alias = f"alias/gen3wf-localhost-{TEST_USER_ID}"
-    output = aws_utils.kms_client.create_key()
+    output = clients.kms_client.create_key()
     kms_key_arn = output["KeyMetadata"]["Arn"]
-    aws_utils.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
+    clients.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
 
     # Spy on the method while still letting moto execute it
     with patch.object(
-        aws_utils.iam_client,
+        clients.iam_client,
         "create_role",
-        wraps=aws_utils.iam_client.create_role,
+        wraps=clients.iam_client.create_role,
     ) as create_role_spy, patch.object(
-        aws_utils.iam_client,
+        clients.iam_client,
         "put_role_policy",
-        wraps=aws_utils.iam_client.put_role_policy,
+        wraps=clients.iam_client.put_role_policy,
     ) as put_policy_spy:
 
         # Act
-        aws_utils.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
+        bucket.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
 
         # IAM role doesn't exist by default since the mocks are isolated per tests
         # Assert create_role was called
@@ -54,7 +53,7 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
         )
 
         # Compute OIDC issuer from mocked EKS (non-deterministic, therefore can't be hardcoded)
-        mock_oidc_token_url = aws_utils.eks_client.describe_cluster(
+        mock_oidc_token_url = clients.eks_client.describe_cluster(
             name=config["EKS_CLUSTER_NAME"]
         )["cluster"]["identity"]["oidc"]["issuer"].replace("https://", "")
         # Build the same assume role policy doc as the function will build
@@ -150,29 +149,29 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
 
 def test_update_assume_role_policy_called_when_policy_updated(mock_aws_services):
     """
-    Test aws_utils.iam.update_assume_role_policy is called when there is a policy update
+    Test clients.iam.update_assume_role_policy is called when there is a policy update
     """
     # Force the role to exists AND policy to be different to trigger an update
     role_name = f"gen3wf-localhost-{TEST_USER_ID}-funnel-role"
     assume_role_policy_doc = {"Version": "2012-10-17", "Statement": []}
-    aws_utils.iam_client.create_role(
+    clients.iam_client.create_role(
         RoleName=role_name, AssumeRolePolicyDocument=json.dumps(assume_role_policy_doc)
     )
 
     # Create KMS key to make sure, key exists and is added to the policy
     kms_key_alias = f"alias/gen3wf-localhost-{TEST_USER_ID}"
-    output = aws_utils.kms_client.create_key()
+    output = clients.kms_client.create_key()
     kms_key_arn = output["KeyMetadata"]["Arn"]
-    aws_utils.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
+    clients.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
 
     with patch.object(
-        aws_utils.iam_client,
+        clients.iam_client,
         "update_assume_role_policy",
-        wraps=aws_utils.iam_client.update_assume_role_policy,
+        wraps=clients.iam_client.update_assume_role_policy,
     ) as update_assume_role_spy:
 
         # Act
-        aws_utils.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
+        bucket.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
 
         # Assert it was called
         assert (
@@ -189,16 +188,16 @@ def test_update_assume_role_policy_called_when_policy_updated(mock_aws_services)
 
 def test_does_not_update_assume_role_policy_when_unchanged(mock_aws_services):
     """
-    Test aws_utils.iam.update_assume_role_policy is NOT called when the policy is unchanged
+    Test clients.iam.update_assume_role_policy is NOT called when the policy is unchanged
     """
     # Create KMS key to make sure, key exists and is added to the policy
     kms_key_alias = f"alias/gen3wf-localhost-{TEST_USER_ID}"
-    output = aws_utils.kms_client.create_key()
+    output = clients.kms_client.create_key()
     kms_key_arn = output["KeyMetadata"]["Arn"]
-    aws_utils.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
+    clients.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
 
     # Compute OIDC issuer from mocked EKS (non-deterministic, therefore can't be hardcoded)
-    mock_oidc_token_url = aws_utils.eks_client.describe_cluster(
+    mock_oidc_token_url = clients.eks_client.describe_cluster(
         name=config["EKS_CLUSTER_NAME"]
     )["cluster"]["identity"]["oidc"]["issuer"].replace("https://", "")
     # Build the same assume role policy doc as the function will build
@@ -227,18 +226,18 @@ def test_does_not_update_assume_role_policy_when_unchanged(mock_aws_services):
     }
     # Force the "role exists AND policy remains same" branch
     role_name = f"gen3wf-localhost-{TEST_USER_ID}-funnel-role"
-    aws_utils.iam_client.create_role(
+    clients.iam_client.create_role(
         RoleName=role_name, AssumeRolePolicyDocument=json.dumps(assume_role_policy_doc)
     )
     # Spy on the method while still letting moto execute it
     with patch.object(
-        aws_utils.iam_client,
+        clients.iam_client,
         "update_assume_role_policy",
-        wraps=aws_utils.iam_client.update_assume_role_policy,
+        wraps=clients.iam_client.update_assume_role_policy,
     ) as update_assume_role_spy:
 
         # Act
-        aws_utils.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
+        bucket.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
 
         # Assert it was NOT called
         assert (
@@ -250,27 +249,27 @@ def test_create_role_for_bucket_access_with_no_kms_enabled(
     monkeypatch, mock_aws_services
 ):
     """
-    Test aws_utils.iam.create_role is called when a new iam role is being created
+    Test clients.iam.create_role is called when a new iam role is being created
     """
 
-    monkeypatch.setitem(aws_utils.config, "KMS_ENCRYPTION_ENABLED", False)
+    monkeypatch.setitem(bucket.config, "KMS_ENCRYPTION_ENABLED", False)
 
     # Create KMS key to make sure, the policy is not updated when
     # KMS is diabled, despite a key being present
     kms_key_alias = f"alias/gen3wf-localhost-{TEST_USER_ID}"
-    output = aws_utils.kms_client.create_key()
+    output = clients.kms_client.create_key()
     kms_key_arn = output["KeyMetadata"]["Arn"]
-    aws_utils.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
+    clients.kms_client.create_alias(AliasName=kms_key_alias, TargetKeyId=kms_key_arn)
 
     # Spy on the method while still letting moto execute it
     with patch.object(
-        aws_utils.iam_client,
+        clients.iam_client,
         "put_role_policy",
-        wraps=aws_utils.iam_client.put_role_policy,
+        wraps=clients.iam_client.put_role_policy,
     ) as put_policy_spy:
 
         # Act
-        aws_utils.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
+        bucket.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
 
         expected_policy = {
             "Version": "2012-10-17",

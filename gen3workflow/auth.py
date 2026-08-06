@@ -65,9 +65,13 @@ class Auth:
             )
 
         try:
-            token_claims = await access_token("user", "openid", purpose="access")(
-                self.bearer_token
-            )
+            configured_audience = config["VALID_AUTHZ_AUDIENCE"]
+            token_claims = await access_token(
+                "user",
+                "openid",
+                audience=configured_audience,
+                purpose="access",
+            )(self.bearer_token)
         except Exception as e:
             err_msg = "Could not verify, parse, and/or validate provided access token"
             logger.error(
@@ -97,7 +101,7 @@ class Auth:
             return token_claims.get("exp", 0) < time.time() + CACHE_SECONDS
         except Exception as e:
             logger.error(f"Unable to check access token expiration: {e}")
-            raise HTTPException(HTTP_401_UNAUTHORIZED, e)
+            raise HTTPException(HTTP_401_UNAUTHORIZED, e.detail)
 
     async def authorize(
         self,
