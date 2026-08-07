@@ -473,6 +473,24 @@ async def test_create_task_optimized_node_scheduling(
 
 
 @pytest.mark.asyncio
+async def test_create_task_with_bad_tags(
+    client,
+    access_token_patcher,
+    mock_aws_services,
+):
+    """
+    Providing the wrong type for tags should trigger an error on the gen3-workflow side, since tags
+    are manipulated on this side before being sent to the TES server where they are validated.
+    """
+    res = await client.post(
+        "/ga4gh/tes/v1/tasks",
+        json={"name": "test-task", "tags": ["_GPU"]},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 400, res.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
 async def test_list_tasks(client, access_token_patcher, view, trailing_slash):

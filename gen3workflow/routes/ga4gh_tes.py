@@ -154,6 +154,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     # Add internal tags
     if "tags" not in body:
         body["tags"] = {}
+    if type(body["tags"]) != dict:
+        err_msg = f"Tags should be a dictionary (tag name -> tag value mapping). Received type {type(body['tags'])}: {body["tags"]}"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     task_tags = set(t.lower() for t in body["tags"])
     conflicts = task_tags & {tag.lower() for tag in RESERVED_TAGS}
     if conflicts:
@@ -166,6 +170,22 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
     )
     body["tags"]["_AUTHZ"] = authz_resource
+
+    # TODO add _IMAGE_PULL_POLICY tag to user docs (MIDRC-1255)
+    image_pull_policy = str(
+        body["tags"].get(
+            "_IMAGE_PULL_POLICY", body["tags"].get("_image_pull_policy", "")
+        )
+    )
+    if image_pull_policy:
+        allowed_image_pull_policies = ["Always", "IfNotPresent"]
+        if image_pull_policy in allowed_image_pull_policies:
+            body["tags"]["_IMAGE_PULL_POLICY"] = image_pull_policy
+        else:
+            # NOTE: the default is defined in Funnel, not Gen3-Workflow
+            err_msg = f"_IMAGE_PULL_POLICY must be one of {allowed_image_pull_policies} (default: Always)"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
@@ -190,6 +210,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     body["tags"] = dict(sorted(body["tags"].items()))
 
+    logger.debug(f"Outgoing task creation request body: {json.dumps(body)}")
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
