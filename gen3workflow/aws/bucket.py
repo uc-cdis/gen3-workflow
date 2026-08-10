@@ -335,7 +335,7 @@ async def _create_user_bucket(user_id: str) -> str:
         user_id (str): The user's unique Gen3 ID
 
     Returns:
-        tuple: (bucket name, kms key ARN)
+        (str) bucket name
     """
     user_bucket_name = get_bucket_name_from_user_id(user_id)
     try:
