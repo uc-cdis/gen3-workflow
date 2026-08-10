@@ -18,6 +18,9 @@ from starlette.status import (
     HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
+    HTTP_408_REQUEST_TIMEOUT,
+    HTTP_429_TOO_MANY_REQUESTS,
+    HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
 from gen3workflow import logger
@@ -448,14 +451,16 @@ async def s3_endpoint(path: str, request: Request):
                     # in the case of a client-side (4xx) error (except `408 Request  Timeout` and
                     # `429 Too Many Requests`), print debug logs and do not retry
                     if (
-                        response.status_code >= 400
-                        and response.status_code < 500
-                        and response.status_code not in [408, 429]
+                        response.status_code >= HTTP_400_BAD_REQUEST
+                        and response.status_code < HTTP_500_INTERNAL_SERVER_ERROR
+                        and response.status_code
+                        not in [HTTP_408_REQUEST_TIMEOUT, HTTP_429_TOO_MANY_REQUESTS]
                     ):
                         proceed = False
                         logger.debug(f"Incoming headers:\n{in_headers}")
                         logger.debug(f"Outgoing headers:\n{out_headers}")
                         logger.debug(f"Canonical request:\n{canonical_request}")
+                        logger.debug(f"String to sign:\n{string_to_sign}")
                         logger.debug(f"Incoming query params:\n{request.query_params}")
                         logger.debug(f"Outgoing query params:\n{query_params}")
                         logger.debug(f"Outgoing body:\n{body}")
