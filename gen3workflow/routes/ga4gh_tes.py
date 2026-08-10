@@ -248,7 +248,11 @@ async def list_tasks(
     auth=Depends(Auth),
     all: str = Query(
         None,
-        description="If true, retrieves all the TES tasks you may have access to, instead of just your own. Default: false",
+        description=(
+            "If present, retrieves all the TES tasks you may have access to, instead of just your own."
+            " Default: false (not present)."
+            " This is a flag parameter, no value is needed."
+        ),
     ),
 ) -> dict:
     """
@@ -276,11 +280,9 @@ async def list_tasks(
 
     if all is None:
         query_params["tag_key"] = "_AUTHZ"
-        # get the user_id and construct an authz value
-        token_claims = await auth.get_token_claims()
-        user_id = token_claims.get("sub")
+        # construct an authz value
         if not user_id:
-            err_msg = "No user sub in token"
+            err_msg = "No user_id from auth and all=False"
             logger.error(err_msg)
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
         authz_resource = get_authz_string_for_user(user_id)
