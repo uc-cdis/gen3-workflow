@@ -40,7 +40,7 @@ async def storage_setup(
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    bucket_name, kms_key_arn = await create_user_bucket(user_id)
+    bucket_name = await create_user_bucket(user_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
 
@@ -48,9 +48,6 @@ async def storage_setup(
         "bucket": bucket_name,
         "workdir": f"s3://{bucket_name}/{bucket_prefix}",
         "region": bucket_region,
-        "kms_key_arn": (
-            kms_key_arn if config["KMS_ENCRYPTION_ENABLED"] and kms_key_arn else None
-        ),
     }
 
     if config["ENABLE_S3_FILES"]:

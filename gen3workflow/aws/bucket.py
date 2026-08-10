@@ -258,7 +258,6 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     # The deny in this policy fires when the headers are present but wrong (e.g. trying not to use
     # KMS encryption, or trying to use a different KMS key). If the headers are absent, the request
     # is accepted and AWS falls back on the bucket's default encryption (set above).
-    # TODO: stop specifying the KMS key in the funnel config
     new_bucket_policy = {
         "Version": "2012-10-17",
         "Statement": [
@@ -301,8 +300,6 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     else:
         logger.debug("Bucket policy is already up to date")
 
-    return kms_key_arn
-
 
 def enable_bucket_versioning(bucket_name: str) -> None:
     """
@@ -330,7 +327,7 @@ def enable_bucket_versioning(bucket_name: str) -> None:
         raise
 
 
-async def _create_user_bucket(user_id: str) -> Tuple[str, str]:
+async def _create_user_bucket(user_id: str) -> str:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
 
@@ -402,9 +399,8 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str]:
         ChecksumAlgorithm="SHA256",
     )
 
-    kms_key_arn = None
     if config["KMS_ENCRYPTION_ENABLED"]:
-        kms_key_arn = setup_kms_encryption_on_bucket(user_bucket_name)
+        setup_kms_encryption_on_bucket(user_bucket_name)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         clients.s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
@@ -414,7 +410,7 @@ async def _create_user_bucket(user_id: str) -> Tuple[str, str]:
         # Bucket versioning is necessary for S3Files
         enable_bucket_versioning(user_bucket_name)
 
-    return user_bucket_name, kms_key_arn
+    return user_bucket_name
 
 
 async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
@@ -435,9 +431,9 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     retry_backoff_factor = 2
     for attempt in range(1, max_tries + 1):
         try:
-            bucket_info = await _create_user_bucket(user_id)
-            USER_BUCKET_CACHE.set(user_id, bucket_info)
-            return bucket_info
+            bucket_name = await _create_user_bucket(user_id)
+            USER_BUCKET_CACHE.set(user_id, bucket_name)
+            return bucket_name
         except ClientError as e:
             if (
                 e.response["Error"]["Code"]
