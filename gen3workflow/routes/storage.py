@@ -59,7 +59,7 @@ async def storage_setup(
             # Create S3 Files Filesystem ID if not exists
             fs_id = s3_files.setup_s3_filesystem(bucket_name)
             # NOTE: To avoid blocking `/storage/setup` call, setting s3 filesystem just returns
-            # the filesystem id and continue with the rest of the steps asynchronously
+            # the filesystem id and continues with the rest of the steps asynchronously
             background_tasks.add_task(s3_files.provision_mount_targets, fs_id)
 
         storage_info["s3files_filesystem_id"] = fs_id

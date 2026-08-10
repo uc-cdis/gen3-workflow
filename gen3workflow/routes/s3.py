@@ -445,16 +445,20 @@ async def s3_endpoint(path: str, request: Request):
                     logger.error(
                         f"Error from S3: {response.status_code} {response.text}"
                     )
-                    # do not retry in the case of a 403 error: authentication is done internally by
-                    # this function, so 403 errors are internal service errors
-                    if response.status_code != HTTP_403_FORBIDDEN:
+                    # in the case of a client-side (4xx) error (except `408 Request  Timeout` and
+                    # `429 Too Many Requests`), print debug logs and do not retry
+                    if (
+                        response.status_code >= 400
+                        and response.status_code < 500
+                        and response.status_code not in [408, 429]
+                    ):
                         proceed = False
-                    # SignatureDoesNotMatch errors are a sign of a bug in this code => debug logs
-                    if "<Code>SignatureDoesNotMatch</Code>" in response.text:
                         logger.debug(f"Incoming headers:\n{in_headers}")
                         logger.debug(f"Outgoing headers:\n{out_headers}")
                         logger.debug(f"Canonical request:\n{canonical_request}")
-                        logger.debug(f"String to sign:\n{string_to_sign}")
+                        logger.debug(f"Incoming query params:\n{request.query_params}")
+                        logger.debug(f"Outgoing query params:\n{query_params}")
+                        logger.debug(f"Outgoing body:\n{body}")
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
@@ -484,7 +488,7 @@ async def s3_endpoint(path: str, request: Request):
 
     # Return the response from AWS S3.
     # - mask the details of 403 errors from the end user: authentication is done internally by this
-    # function, so 403 errors are internal service errors
+    # function, so 403 errors are internal service errors.
     # - return all the headers from the AWS response, except:
     #   - `x-amz-bucket-region` which for some reason causes this error for tasks ran through
     #     Nextflow: `The AWS Access Key Id you provided does not exist in our records`.
