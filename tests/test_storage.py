@@ -62,7 +62,6 @@ async def test_storage_setup(
         "bucket": expected_bucket_name,
         "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
         "region": config["USER_BUCKETS_REGION"],
-        "kms_key_arn": kms_key_arn,
     }
 
     # check that the bucket was created after the call to `/storage/setup`
