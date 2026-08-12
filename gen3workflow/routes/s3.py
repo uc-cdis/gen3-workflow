@@ -534,8 +534,8 @@ async def s3_endpoint(path: str, request: Request):
             if k.lower()
             not in {
                 "x-amz-bucket-region",
-                "content-length",
-                "x-amz-decoded-content-length",
+                # "content-length",
+                # "x-amz-decoded-content-length",
                 "content-encoding",
             }
         },
