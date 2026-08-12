@@ -530,15 +530,13 @@ async def s3_endpoint(path: str, request: Request):
         headers={
             k: v
             for k, v in response.headers.items()
-            if k != "x-amz-bucket-region"
-            # k: v
-            # for k, v in response.headers.items()
-            # if k.lower()
-            # not in {
-            #     "x-amz-bucket-region",
-            #     "content-length",
-            #     "x-amz-decoded-content-length",
-            #     "content-encoding",
-            # }
+            # if k != "x-amz-bucket-region"
+            if k.lower()
+            not in {
+                "x-amz-bucket-region",
+                "content-length",
+                "x-amz-decoded-content-length",
+                "content-encoding",
+            }
         },
     )
