@@ -287,17 +287,16 @@ async def s3_endpoint(path: str, request: Request):
     #   headers are required; [...] Do not include hop-by-hop headers that are frequently altered
     #   during transit across a complex system."
     for h in in_headers:
-        if h.startswith("x-amz-"):
-            # if h.lower().startswith("x-amz-") or h.lower() in {
-            #     "range",
-            #     "content-type",
-            #     "content-md5",
-            #     "content-length",
-            #     "if-match",
-            #     "if-none-match",
-            #     "if-modified-since",
-            #     "if-unmodified-since",
-            # }:
+        if h.lower().startswith("x-amz-") or h.lower() in {
+            "range",
+            "content-type",
+            "content-md5",
+            "content-length",
+            "if-match",
+            "if-none-match",
+            "if-modified-since",
+            "if-unmodified-since",
+        }:
             out_headers[h] = in_headers[h]
 
     # - The Minio-go S3 client sets the `x-amz-server-side-encryption-context` header to
@@ -331,27 +330,20 @@ async def s3_endpoint(path: str, request: Request):
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
-    print("x-amz-content-sha256", in_headers.get("x-amz-content-sha256"))
-    # if in_headers.get("x-amz-content-sha256") in [
-    #     "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
-    #     "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
-    # ]:
-    if (
-        request.headers.get("x-amz-content-sha256")
-        == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
-    ):
+    if in_headers.get("x-amz-content-sha256") in [
+        "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
+        "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
+    ]:
         # parse the body and update the corresponding headers
-        print("body before", body)
         body = chunked_to_non_chunked_body(body)
-        print("body after", body)
         content_len = str(len(body))
         out_headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if h in in_headers:
                 out_headers[h] = content_len
         # the outgoing body is no longer chunked, so there's no trailer/checksum in it anymore
-        # out_headers.pop("x-amz-trailer", None)
-        # out_headers.pop("x-amz-sdk-checksum-algorithm", None)
+        out_headers.pop("x-amz-trailer", None)
+        out_headers.pop("x-amz-sdk-checksum-algorithm", None)
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -499,10 +491,6 @@ async def s3_endpoint(path: str, request: Request):
         )
         await asyncio.sleep(delay)
 
-    if response.status_code == HTTP_403_FORBIDDEN:
-        for h in ["content-length", "x-amz-decoded-content-length"]:
-            if h in response.headers:
-                response.headers[h] = "0"
     # Return the response from AWS S3.
     # - mask the details of 403 errors from the end user: authentication is done internally by this
     # function, so 403 errors are internal service errors.
@@ -530,12 +518,9 @@ async def s3_endpoint(path: str, request: Request):
         headers={
             k: v
             for k, v in response.headers.items()
-            # if k != "x-amz-bucket-region"
             if k.lower()
             not in {
                 "x-amz-bucket-region",
-                # "content-length",
-                # "x-amz-decoded-content-length",
                 "content-encoding",
             }
         },
