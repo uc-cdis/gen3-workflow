@@ -510,6 +510,16 @@ async def s3_endpoint(path: str, request: Request):
     #     original headers: replace the `client.request` call with `client.build_request` +
     #     `client.send(..., stream=True)`, and get the response bytes with `response.aiter_raw()`.
     #     Downside: holding the body in memory instead of benefiting from httpx's streaming.
+    try:
+        logger.info(
+            "raw backend response: status=%s content_length_header=%r decoded_length_header=%r actual_body_len=%s",
+            response.status_code,
+            response.headers.get("content-length"),
+            response.headers.get("x-amz-decoded-content-length"),
+            len(response.content),
+        )
+    except Exception as e:
+        print(f"Failed to log raw response: {e}")
     return Response(
         content=(
             response.content if response.status_code != HTTP_403_FORBIDDEN else None
@@ -521,6 +531,8 @@ async def s3_endpoint(path: str, request: Request):
             if k.lower()
             not in {
                 "x-amz-bucket-region",
+                "content-length",
+                # "x-amz-decoded-content-length",
                 "content-encoding",
             }
         },
