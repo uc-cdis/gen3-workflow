@@ -330,10 +330,14 @@ async def s3_endpoint(path: str, request: Request):
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
-    if in_headers.get("x-amz-content-sha256") in [
-        "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
-        "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
-    ]:
+    # if in_headers.get("x-amz-content-sha256") in [
+    #     "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
+    #     "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
+    # ]:
+    if (
+        request.headers.get("x-amz-content-sha256")
+        == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
+    ):
         # parse the body and update the corresponding headers
         body = chunked_to_non_chunked_body(body)
         content_len = str(len(body))
@@ -342,8 +346,8 @@ async def s3_endpoint(path: str, request: Request):
             if h in in_headers:
                 out_headers[h] = content_len
         # the outgoing body is no longer chunked, so there's no trailer/checksum in it anymore
-        out_headers.pop("x-amz-trailer", None)
-        out_headers.pop("x-amz-sdk-checksum-algorithm", None)
+        # out_headers.pop("x-amz-trailer", None)
+        # out_headers.pop("x-amz-sdk-checksum-algorithm", None)
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
