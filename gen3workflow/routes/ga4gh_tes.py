@@ -124,10 +124,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
     principal = await auth.get_principal()
-    user_id = principal["id"]
+    principal_id = principal["id"]
     username = principal["name"]
     logger.info(
-        f"{'Client' if principal['is_client'] else 'User'} '{user_id}' creating TES task"
+        f"{'Client' if principal['is_client'] else 'User'} '{principal_id}' creating TES task"
     )
 
     # Fetch the list of images from request body as a set
@@ -155,15 +155,15 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     authz_resource = (
-        f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
+        f"/services/workflow/gen3-workflow/tasks/{principal_id}/TASK_ID_PLACEHOLDER"
     )
     body["tags"]["_AUTHZ"] = authz_resource
 
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
-            aws_utils.create_iam_role_for_funnel_bucket_access(user_id)
+            aws_utils.create_iam_role_for_funnel_bucket_access(principal_id)
         )
-        body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
+        body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(principal_id)
 
     if config["ENABLE_OPTIMIZED_NODE_SCHEDULING"]:
         is_gpu_task = str(body["tags"].get("_GPU", body["tags"].get("_gpu", "")))

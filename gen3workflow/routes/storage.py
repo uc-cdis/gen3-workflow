@@ -23,22 +23,22 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     and authz.
     """
     principal = await auth.get_principal()
-    user_id = principal["id"]
+    principal_id = principal["id"]
     username = principal["name"]
     logger.info(
-        f"{'Client' if principal['is_client'] else 'User'} '{user_id}' getting their own storage info"
+        f"{'Client' if principal['is_client'] else 'User'} '{principal_id}' getting their own storage info"
     )
 
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    bucket_name, kms_key_arn = await aws_utils.create_user_bucket(user_id)
+    bucket_name, kms_key_arn = await aws_utils.create_user_bucket(principal_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
 
     try:
         await auth.grant_user_access_to_their_own_data(
-            username=username, user_id=user_id, is_client=principal["is_client"]
+            username=username, user_id=principal_id, is_client=principal["is_client"]
         )
     except ArboristError as e:
         logger.error(e.message)
