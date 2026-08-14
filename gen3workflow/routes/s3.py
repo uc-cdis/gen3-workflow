@@ -497,7 +497,7 @@ async def s3_endpoint(path: str, request: Request):
 
     # Return the response from AWS S3.
     # Return all the headers from the AWS response, except:
-    # - hop-by-hop headers (apply only to a single transport connection and shou;d be stripped by
+    # - hop-by-hop headers (apply only to a single transport connection and should be stripped by
     #   proxies).
     # - `x-amz-bucket-region` which for some reason causes this error for tasks ran through
     #   Nextflow: `The AWS Access Key Id you provided does not exist in our records`.
