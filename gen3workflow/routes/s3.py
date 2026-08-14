@@ -10,9 +10,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from botocore.credentials import Credentials
 import hmac
+from starlette.background import BackgroundTask
 from starlette.datastructures import Headers
 from starlette.requests import ClientDisconnect
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
@@ -203,7 +204,7 @@ async def s3_endpoint(path: str, request: Request):
     # "All buckets" listing requests also land here and are not supported, since users can only
     # access their own bucket.
     if request.method == "GET" and path in ("", "s3"):
-        err_msg = f"If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
+        err_msg = f"'{request.method} /{path}': If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
@@ -432,12 +433,15 @@ async def s3_endpoint(path: str, request: Request):
         proceed = True
         exception = None
         try:
-            response = await request.app.async_client.request(
-                method=request.method,
-                url=s3_api_url,
-                headers=out_headers,
-                params=query_params,
-                data=body,
+            response = await request.app.async_client.send(
+                request.app.async_client.build_request(
+                    method=request.method,
+                    url=s3_api_url,
+                    headers=out_headers,
+                    params=query_params,
+                    content=body,
+                ),
+                stream=True,
             )
 
             if response.status_code >= 300:
@@ -492,48 +496,68 @@ async def s3_endpoint(path: str, request: Request):
         await asyncio.sleep(delay)
 
     # Return the response from AWS S3.
-    # - mask the details of 403 errors from the end user: authentication is done internally by this
+    # Return all the headers from the AWS response, except:
+    # - hop-by-hop headers (apply only to a single transport connection and shou;d be stripped by
+    #   proxies).
+    # - `x-amz-bucket-region` which for some reason causes this error for tasks ran through
+    #   Nextflow: `The AWS Access Key Id you provided does not exist in our records`.
+    # - `x-amz-decoded-content-length`: request-direction header; should not appear on responses.
+    filtered_headers = {
+        h: v
+        for h, v in response.headers.items()
+        if h.lower()
+        not in {
+            "x-amz-bucket-region",
+            "x-amz-decoded-content-length",
+            # hop-by-hop headers:
+            "connection",
+            "keep-alive",
+            "transfer-encoding",
+            "te",
+            "trailer",
+            "upgrade",
+            "proxy-authenticate",
+            "proxy-authorization",
+        }
+    }
+
+    # mask the details of 403 errors from the end user: authentication is done internally by this
     # function, so 403 errors are internal service errors.
-    # - return all the headers from the AWS response, except:
-    #   - `x-amz-bucket-region` which for some reason causes this error for tasks ran through
-    #     Nextflow: `The AWS Access Key Id you provided does not exist in our records`.
-    #   - `content-length`/`x-amz-decoded-content-length`: when the `content-length` is provided,
-    #     Starlette's Response does not recompute it from the actual content bytes. Example case: if
-    #     the S3 server is Minio, the `content-length` header for a HEAD request can describe what
-    #     a GET on that object _would_ return. Recomputing it is safer.
-    #   - `content-encoding`: forwarding response headers that describe the original bytes
-    #     returned by the S3 server can cause a mismatch, because our httpx client may not return
-    #     those original bytes. Example case: httpx transparently decompresses gzip content.
-    #     `response.content` contains the decoded bytes, while the `content-encoding` header still
-    #     says gzip.
-    #     Alternatively, we could get the raw response bytes (no httpx post-handling) and keep the
-    #     original headers: replace the `client.request` call with `client.build_request` +
-    #     `client.send(..., stream=True)`, and get the response bytes with `response.aiter_raw()`.
-    #     Downside: holding the body in memory instead of benefiting from httpx's streaming.
-    try:
-        logger.info(
-            "raw backend response: status=%s content_length_header=%r decoded_length_header=%r actual_body_len=%s",
-            response.status_code,
-            response.headers.get("content-length"),
-            response.headers.get("x-amz-decoded-content-length"),
-            len(response.content),
+    if response.status_code == HTTP_403_FORBIDDEN:
+        await response.aclose()  # discard the body we're not returning
+        return Response(status_code=403, headers=filtered_headers)
+
+    if response.headers.get("content-encoding", "").lower() == "gzip":
+        # the backend compressed this response (e.g. Minio does this for small, compressible
+        # bodies like XML listings), httpx decodes it for us
+        filtered_headers = {
+            h: v
+            for h, v in filtered_headers.items()
+            # Filter out more headers:
+            # - `content-length`: when it is provided, Starlette's Response does not recompute it
+            #   from the actual content bytes. Example case: if the S3 server is Minio, the
+            #   `content-length` header for a HEAD request can describe what a GET on that object
+            #   _would_ return. Recomputing it is safer.
+            # - `content-encoding`: forwarding response headers that describe the original bytes
+            #   returned by the S3 server can cause a mismatch, because our httpx client may not
+            #   return those original bytes. Example case: here, httpx transparently decompresses
+            #   gzip content. `response.content` contains the decoded bytes, while the
+            #   `content-encoding` header still says gzip.
+            if h.lower() not in {"content-length", "content-encoding"}
+        }
+        decoded = await response.aread()
+        await response.aclose()
+        return Response(
+            content=decoded,
+            status_code=response.status_code,
+            headers=filtered_headers,
         )
-    except Exception as e:
-        print(f"Failed to log raw response: {e}")
-    return Response(
-        content=(
-            response.content if response.status_code != HTTP_403_FORBIDDEN else None
-        ),
+
+    # the response is not compressed: stream the raw response bytes (skip the automatic httpx
+    # post-handling)
+    return StreamingResponse(
+        response.aiter_raw(),
         status_code=response.status_code,
-        headers={
-            k: v
-            for k, v in response.headers.items()
-            if k.lower()
-            not in {
-                "x-amz-bucket-region",
-                "content-length",
-                # "x-amz-decoded-content-length",
-                "content-encoding",
-            }
-        },
+        headers=filtered_headers,
+        background=BackgroundTask(response.aclose),
     )
