@@ -255,9 +255,12 @@ def mock_aws_s3_request_function(url: str):
         if f"?uploadId={upload_id}&partNumber=" in url:
             headers["etag"] = "test-etag"
 
+    content_bytes = resp_xml.encode("utf-8")
+    headers["content-length"] = str(len(content_bytes))
+
     return httpx.Response(
         status_code=200,
-        text=resp_xml,
+        stream=httpx.ByteStream(content_bytes),
         headers=headers,
     )
 

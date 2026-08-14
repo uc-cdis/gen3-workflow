@@ -30,9 +30,6 @@ USER gen3
 # Final stage
 FROM base
 
-COPY --from=builder /${appname} /${appname}
-COPY --from=builder /venv /venv
-
 # switch to root user to install vim
 USER root
 
@@ -40,6 +37,9 @@ RUN dnf -y install vim
 
 # Switch to non-root user 'gen3' for the serving process
 USER gen3
+
+COPY --from=builder /${appname} /${appname}
+COPY --from=builder /venv /venv
 
 WORKDIR /${appname}
 
