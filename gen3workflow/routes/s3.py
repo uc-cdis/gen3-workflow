@@ -40,7 +40,7 @@ S3_RETRY_BACKOFF_FACTOR = 2
 
 
 async def set_access_token_and_get_user_id(
-    auth: Auth, headers: Headers
+    auth: Auth, headers: Headers, method, path
 ) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
@@ -91,6 +91,7 @@ async def set_access_token_and_get_user_id(
     if is_user_token:  # format A (see docstring)
         access_token = access_key_id
     else:  # format B (see docstring)
+        raise Exception(f"'{method} {path}' from Funnel worker: rejected")
         access_token, user_id = access_key_id.split(";userId=")
 
     # set the token so we can perform authn/authz checks on it
@@ -215,7 +216,9 @@ async def s3_endpoint(path: str, request: Request):
     # the list of files for a specific task.
     auth = Auth(api_request=request)
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(auth, in_headers)
+    user_id, client_id = await set_access_token_and_get_user_id(
+        auth, in_headers, request.method, path
+    )
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )
@@ -430,7 +433,7 @@ async def s3_endpoint(path: str, request: Request):
     # forward the call to the S3 server with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
     for attempt in range(1, S3_MAX_TRIES + 1):
-        proceed = True
+        should_retry = False
         exception = None
         try:
             response = await request.app.async_client.send(
@@ -449,9 +452,10 @@ async def s3_endpoint(path: str, request: Request):
                 # error: 404s are are expected when running workflows (e.g. for Nextflow workflows,
                 # stderr output files may not be present when there were no errors)
                 if response.status_code != HTTP_404_NOT_FOUND:
-                    logger.error(
-                        f"Error from S3: {response.status_code} {response.text}"
-                    )
+                    should_retry = True
+                    decoded = await response.aread()
+                    await response.aclose()
+                    logger.error(f"Error from S3: {response.status_code} {decoded}")
                     # in the case of a client-side (4xx) error (except `408 Request  Timeout` and
                     # `429 Too Many Requests`), print debug logs and do not retry
                     if (
@@ -460,7 +464,7 @@ async def s3_endpoint(path: str, request: Request):
                         and response.status_code
                         not in [HTTP_408_REQUEST_TIMEOUT, HTTP_429_TOO_MANY_REQUESTS]
                     ):
-                        proceed = False
+                        should_retry = False
                         logger.debug(f"Incoming headers:\n{in_headers}")
                         logger.debug(f"Outgoing headers:\n{out_headers}")
                         logger.debug(f"Canonical request:\n{canonical_request}")
@@ -472,12 +476,12 @@ async def s3_endpoint(path: str, request: Request):
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
-            proceed = False
+            should_retry = False
             exception = e
 
         # exit if the call succeeded or should not be retried, or we reached the max number of
         # retries
-        if proceed:
+        if not should_retry:
             break
         if attempt == S3_MAX_TRIES:
             logger.error(

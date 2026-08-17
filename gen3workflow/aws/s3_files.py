@@ -135,7 +135,7 @@ def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
         response = clients.s3files_client.create_file_system(
             bucket=bucket_arn,
             # prefix as configured in the Funnel worker PV
-            prefix="funnel-temp-files/",
+            # prefix="funnel-temp-files/",
             roleArn=role_arn,
             tags=[
                 {
