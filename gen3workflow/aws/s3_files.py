@@ -661,3 +661,88 @@ def provision_mount_targets(file_system_id: str):
             mount_target_sg_id=mount_target_sg_id,
         )
     return file_system_id
+
+
+class DeleteFileSystemError(Exception):
+    """Raised when file system or mount target deletion fails or times out."""
+
+
+def delete_file_system(
+    fs_id: str,
+    poll_interval_seconds: float = 5.0,
+    timeout_seconds: float = 300.0,
+) -> None:
+    """
+    Delete a file system and all of its mount targets.
+
+    Mount targets must be fully deleted before the file system itself can
+    be deleted, so this:
+    1. Lists all mount targets for the file system.
+    2. Issues a delete for each one.
+    3. Polls until all mount targets are gone.
+    4. Deletes the file system.
+
+    Args:
+        fs_id: The ID of the file system to delete.
+        poll_interval_seconds: How long to wait between polls while
+            waiting for mount targets to finish deleting.
+        timeout_seconds: Max time to wait for mount targets to be deleted
+            before giving up.
+
+    Raises:
+        DeleteFileSystemError: If mount target or file system deletion
+            fails, or if mount targets don't finish deleting in time.
+    """
+    if not fs_id:
+        raise DeleteFileSystemError("fs_id must not be empty")
+    logger.info(f"Deleting file system {fs_id} and all mount targets...")
+    # 1. List all mount targets for this file system.
+    mount_targets = list_mount_targets_for_file_system(fs_id)
+
+    mount_target_ids = [mt["mountTargetId"] for mt in mount_targets]
+
+    # 2. Issue delete for each mount target.
+    for mt_id in mount_target_ids:
+        try:
+            clients.s3files_client.delete_mount_target(mountTargetId=mt_id)
+        except clients.s3files_client.exceptions.ResourceNotFoundException:
+            # Already gone, e.g. deleted concurrently — fine to continue.
+            continue
+        except ClientError as e:
+            raise DeleteFileSystemError(f"Failed to delete mount target {mt_id}: {e}")
+
+    # 3. Poll until all mount targets are actually deleted.
+    if mount_target_ids:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+
+            remaining = list_mount_targets_for_file_system(fs_id)
+            print(f"{len(remaining)} mount targets remaining...")
+            if not remaining:
+                break
+
+            errored = [
+                mt["mountTargetId"] for mt in remaining if mt["status"] == "error"
+            ]
+            if errored:
+                raise DeleteFileSystemError(
+                    f"Mount target(s) entered error state during deletion: {', '.join(errored)}"
+                )
+
+            if time.monotonic() >= deadline:
+                stuck = [mt["mountTargetId"] for mt in remaining]
+                raise DeleteFileSystemError(
+                    f"Timed out after {timeout_seconds}s waiting for mount targets "
+                    f"to delete: {', '.join(stuck)}"
+                )
+
+            time.sleep(poll_interval_seconds)
+
+    # 4. Delete the file system itself.
+    try:
+        clients.s3files_client.delete_file_system(fileSystemId=fs_id)
+    except clients.s3files_client.exceptions.ResourceNotFoundException:
+        # Already gone — treat as success.
+        return
+    except ClientError as e:
+        raise DeleteFileSystemError(f"Failed to delete file system {fs_id}: {e}")
