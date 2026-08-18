@@ -173,9 +173,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         )
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-    authz_resource = (
-        f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
-    )
+    authz_resource = get_authz_string_for_user(user_id)
     body["tags"]["_AUTHZ"] = authz_resource
 
     # TODO add _IMAGE_PULL_POLICY tag to user docs (MIDRC-1255)
@@ -267,7 +265,18 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 
 @router.get("/tasks", status_code=HTTP_200_OK)
 @router.get("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
-async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
+async def list_tasks(
+    request: Request,
+    auth=Depends(Auth),
+    all: str = Query(
+        None,
+        description=(
+            "If present, retrieves all the TES tasks you may have access to, instead of just your own."
+            " Default: false (not present)."
+            " This is a flag parameter, no value is needed."
+        ),
+    ),
+) -> dict:
     """
     List the user's GA4GH TES tasks
     """
@@ -291,7 +300,16 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     requested_view = query_params.get("view")
     query_params["view"] = "FULL"
 
-    # get all the tasks, regardless of access
+    if all is None:
+        query_params["tag_key"] = "_AUTHZ"
+        # construct an authz value
+        if not user_id:
+            err_msg = "No user_id from auth and all=False"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        authz_resource = get_authz_string_for_user(user_id)
+        query_params["tag_value"] = authz_resource
+
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client, "get", url, params=query_params
@@ -322,6 +340,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
         raise HTTPException(e.code, e.message)
 
     # filter out tasks the current user does not have access to
+    # this should be redundant if all is None but is included in case server-side filtering fails
     listed_tasks["tasks"] = [
         apply_view_to_task(requested_view, task)
         for task in listed_tasks.get("tasks", [])
