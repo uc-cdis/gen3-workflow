@@ -8,7 +8,7 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 import json
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import (
     HTTP_200_OK,
@@ -36,6 +36,13 @@ RESERVED_TAGS = {
 }
 TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
 TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
+
+
+def get_authz_string_for_user(user_id: str) -> str:
+    """
+    Get the authz_resource string for a user
+    """
+    return f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
 
 
 async def get_request_body(request: Request) -> dict:
