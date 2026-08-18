@@ -313,6 +313,8 @@ class Auth:
                     username, policy_id
                 )
             if status_code != 204:
-                err_msg = f"Unable to grant access to {'client' if is_client else 'user'}"
+                err_msg = (
+                    f"Unable to grant access to {'client' if is_client else 'user'}"
+                )
                 logger.error(f"{err_msg}. Status code: {status_code}")
                 raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, err_msg)
