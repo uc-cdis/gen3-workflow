@@ -366,11 +366,13 @@ async def s3_endpoint(path: str, request: Request):
     # configuration, and the following UploadPart and CompleteMultipartUpload requests do not.
     # We know this is an UploadPart or CompleteMultipartUpload request if it includes the
     # uploadId query parameter.
+    # Other types of PUT/POST requests that are not object uploads (e.g. legal hold configuration)
+    # also do not include the KMS configuration.
     query_params = dict(request.query_params)
     if (
         config["KMS_ENCRYPTION_ENABLED"]
         and request.method in ["PUT", "POST"]
-        and "uploadId" not in query_params
+        and all(e not in query_params for e in ["uploadId", "legal-hold"])
     ):
         _, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
@@ -432,6 +434,7 @@ async def s3_endpoint(path: str, request: Request):
 
     # forward the call to the S3 server with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
+    resp_contents = None
     for attempt in range(1, S3_MAX_TRIES + 1):
         should_retry = False
         exception = None
@@ -453,9 +456,11 @@ async def s3_endpoint(path: str, request: Request):
                 # stderr output files may not be present when there were no errors)
                 if response.status_code != HTTP_404_NOT_FOUND:
                     should_retry = True
-                    decoded = await response.aread()
+                    resp_contents = await response.aread()
                     await response.aclose()
-                    logger.error(f"Error from S3: {response.status_code} {decoded}")
+                    logger.error(
+                        f"Error from S3: {response.status_code} {resp_contents}"
+                    )
                     # in the case of a client-side (4xx) error (except `408 Request  Timeout` and
                     # `429 Too Many Requests`), print debug logs and do not retry
                     if (
@@ -549,10 +554,11 @@ async def s3_endpoint(path: str, request: Request):
             #   `content-encoding` header still says gzip.
             if h.lower() not in {"content-length", "content-encoding"}
         }
-        decoded = await response.aread()
-        await response.aclose()
+        if not resp_contents:
+            resp_contents = await response.aread()
+            await response.aclose()
         return Response(
-            content=decoded,
+            content=resp_contents,
             status_code=response.status_code,
             headers=filtered_headers,
         )
