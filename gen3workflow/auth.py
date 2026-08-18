@@ -299,6 +299,7 @@ class Auth:
                     f"Attempting to grant client '{user_id}' access to '{policy_id}'"
                 )
                 url = "/".join(
+                    # pylint: disable-next=protected-access
                     (self.arborist_client._client_url, quote(user_id), "policy")
                 )
                 response = await self.arborist_client.post(
