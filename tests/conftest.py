@@ -38,6 +38,8 @@ from gen3workflow.aws.bucket import USER_BUCKET_CACHE
 TEST_USER_ID = "user-64"
 NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
 TEST_USER_TOKEN = "user-token-23985xyz"
+# a client that does not already exist in arborist. Mixed case like real fence client IDs:
+TEST_CLIENT_ID = "testClient64"
 
 # a "ListBucketResult" S3 response from AWS, and the corresponding response as parsed by boto3
 MOCKED_S3_RESPONSE_XML = f"""<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Name><Prefix>test-folder/test-file1.txt</Prefix><Marker></Marker><MaxKeys>250</MaxKeys><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>test-folder/test-file1.txt</Key><LastModified>2024-12-09T22:32:20.000Z</LastModified><ETag>&quot;something&quot;</ETag><Size>211</Size><Owner><ID>something</ID><DisplayName>something</DisplayName></Owner><StorageClass>STANDARD</StorageClass></Contents></ListBucketResult>"""
@@ -135,6 +137,7 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
         "/policy": {"POST": (200, {})},
         f"/policy/gen3_workflow_user_sub_{TEST_USER_ID}": {"GET": (200, {})},
         f"/policy/gen3_workflow_user_sub_{NEW_TEST_USER_ID}": {"GET": (404, {})},
+        f"/policy/gen3_workflow_user_sub_{TEST_CLIENT_ID}": {"GET": (404, {})},
         f"/user/test-username-{TEST_USER_ID}": {
             "GET": (
                 200,
@@ -145,6 +148,8 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
         "/user": {"POST": (200, {})},
         # grant user access to a policy:
         f"/user/test-username-{NEW_TEST_USER_ID}/policy": {"POST": (204, {})},
+        # grant client access to a policy:
+        f"/client/{TEST_CLIENT_ID}/policy": {"POST": (204, {})},
     }
     text, out = None, None
     if path not in paths_to_responses:
