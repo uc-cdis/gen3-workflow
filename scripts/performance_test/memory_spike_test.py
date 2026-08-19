@@ -50,7 +50,7 @@ def make_s3_client():
 
 
 def test_setup_storage(http: requests.Session):
-    """Call /workflows/storage/setup 100 times."""
+    """Call /workflows/storage/setup NUM_ITERATIONS times."""
     for i in range(1, NUM_ITERATIONS + 1):
         resp = http.get(SETUP_URL, headers=auth_headers())
         print(f"[setup {i:03d}] status={resp.status_code}")
@@ -58,7 +58,7 @@ def test_setup_storage(http: requests.Session):
 
 
 def test_s3_upload(s3):
-    """Upload a 10 MB in-memory buffer to S3 100 times."""
+    """Upload a 10 MB in-memory buffer to S3 NUM_ITERATIONS times."""
     for i in range(1, NUM_ITERATIONS + 1):
         key = f"load-test/10mb-{i:03d}.bin"
         data = io.BytesIO(b"0" * FILE_SIZE_BYTES)
@@ -68,7 +68,7 @@ def test_s3_upload(s3):
 
 
 def test_tes_create_10mb_file(http: requests.Session):
-    """Submit a TES task that generates a 10 MB output file, 100 times."""
+    """Submit a TES task that generates a 10 MB output file, NUM_ITERATIONS times."""
     task_ids = []
     for i in range(1, NUM_ITERATIONS + 1):
         task = {
