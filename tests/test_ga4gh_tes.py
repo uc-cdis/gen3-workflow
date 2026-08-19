@@ -2,7 +2,6 @@ import json
 from unittest.mock import patch
 
 import pytest
-import pytest_asyncio
 
 from gen3workflow.config import config
 from tests.conftest import (
@@ -10,11 +9,8 @@ from tests.conftest import (
     mock_tes_server_request,
     TEST_CLIENT_ID,
     TEST_USER_ID,
-    NEW_TEST_USER_ID,
     TEST_USER_TOKEN,
 )
-
-from tests.test_misc import mock_aws_services
 
 client_parameters = [
     pytest.param({"authorized": True, "tes_resp_code": 200}, id="success"),
@@ -123,7 +119,7 @@ async def test_create_task(
     be made.
     """
     with patch(
-        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "*"),
     ):
         res = await client.post(
@@ -195,7 +191,7 @@ async def test_create_task_with_client_token(
     as the principal: the `_AUTHZ` tag and worker names should be based on the client ID.
     """
     with patch(
-        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "*"),
     ):
         res = await client.post(
@@ -259,7 +255,7 @@ async def test_create_gpu_task(
     """
     tags = {"_GPU": is_gpu_task} if is_gpu_task else {}
     with patch(
-        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "*"),
     ):
         res = await client.post(
@@ -441,7 +437,7 @@ async def test_create_task_with_whitelist_images(
     Ensure that any image sent to the TES server belongs exclusively to whitelisted repositories specified in the configuration.
     """
     with patch(
-        "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
         lambda _: ("test_kms_key_alias", "*"),
     ):
         res = await client.post(
@@ -487,7 +483,7 @@ async def test_create_task_optimized_node_scheduling(
 
     try:
         with patch(
-            "gen3workflow.aws_utils.get_existing_kms_key_for_bucket",
+            "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
             lambda _: ("test_kms_key_alias", "*"),
         ):
             res = await client.post(
@@ -522,6 +518,24 @@ async def test_create_task_optimized_node_scheduling(
         body=json.dumps(expected_body, separators=(",", ":")),
         status_code=client.tes_resp_code,
     )
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_bad_tags(
+    client,
+    access_token_patcher,
+    mock_aws_services,
+):
+    """
+    Providing the wrong type for tags should trigger an error on the gen3-workflow side, since tags
+    are manipulated on this side before being sent to the TES server where they are validated.
+    """
+    res = await client.post(
+        "/ga4gh/tes/v1/tasks",
+        json={"name": "test-task", "tags": ["_GPU"]},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 400, res.text
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 from gen3authz.client.arborist.errors import ArboristError
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, HTTPException
 from starlette.status import (
     HTTP_200_OK,
     HTTP_202_ACCEPTED,
@@ -7,8 +7,10 @@ from starlette.status import (
     HTTP_404_NOT_FOUND,
 )
 
-from gen3workflow import aws_utils, logger
+from gen3workflow import logger
 from gen3workflow.auth import Auth
+from gen3workflow.aws import s3_files
+from gen3workflow.aws.bucket import cleanup_user_bucket, create_user_bucket
 from gen3workflow.config import config
 
 router = APIRouter(prefix="/storage")
@@ -16,7 +18,9 @@ router = APIRouter(prefix="/storage")
 
 @router.get("/setup", status_code=HTTP_200_OK)
 @router.get("/setup/", status_code=HTTP_200_OK, include_in_schema=False)
-async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
+async def storage_setup(
+    request: Request, background_tasks: BackgroundTasks, auth=Depends(Auth)
+) -> dict:
     """
     Return details about the current user's storage setup.
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
@@ -32,9 +36,29 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    bucket_name, kms_key_arn = await aws_utils.create_user_bucket(principal_id)
+    bucket_name = await create_user_bucket(principal_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
+
+    storage_info = {
+        "bucket": bucket_name,
+        "workdir": f"s3://{bucket_name}/{bucket_prefix}",
+        "region": bucket_region,
+    }
+
+    if config["ENABLE_S3_FILES"]:
+        fs_id = s3_files.get_s3_files_system(bucket_name)
+        if not fs_id:
+            # Create S3 Files Filesystem ID if not exists
+            fs_id = s3_files.setup_s3_filesystem(bucket_name)
+            # NOTE: To avoid blocking `/storage/setup` call, setting s3 filesystem just returns
+            # the filesystem id and continues with the rest of the steps asynchronously
+            background_tasks.add_task(s3_files.provision_mount_targets, fs_id)
+
+        storage_info["s3files_filesystem_id"] = fs_id
+        # TODO: Tracked in ticket -- https://ctds-planx.atlassian.net/browse/MIDRC-1321
+        # filesystem_status = s3_files.get_s3files_setup_status(fs_id)
+        # storage_info["status"] = filesystem_status
 
     try:
         await auth.grant_user_access_to_their_own_data(
@@ -44,14 +68,7 @@ async def storage_setup(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
-    return {
-        "bucket": bucket_name,
-        "workdir": f"s3://{bucket_name}/{bucket_prefix}",
-        "region": bucket_region,
-        "kms_key_arn": (
-            kms_key_arn if config["KMS_ENCRYPTION_ENABLED"] and kms_key_arn else None
-        ),
-    }
+    return storage_info
 
 
 @router.delete("/user-bucket", status_code=HTTP_202_ACCEPTED)
@@ -70,7 +87,7 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
     logger.info(f"User '{user_id}' deleting their storage bucket")
-    deleted_bucket_name = aws_utils.cleanup_user_bucket(user_id, delete_bucket=True)
+    deleted_bucket_name = cleanup_user_bucket(user_id, delete_bucket=True)
 
     if not deleted_bucket_name:
         raise HTTPException(
@@ -106,7 +123,7 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
     logger.info(f"User '{user_id}' emptying their storage bucket")
-    deleted_bucket_name = aws_utils.cleanup_user_bucket(user_id)
+    deleted_bucket_name = cleanup_user_bucket(user_id, delete_bucket=False)
 
     if not deleted_bucket_name:
         raise HTTPException(

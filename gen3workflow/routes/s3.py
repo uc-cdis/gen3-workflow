@@ -10,18 +10,24 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from botocore.credentials import Credentials
 import hmac
+from starlette.background import BackgroundTask
 from starlette.datastructures import Headers
 from starlette.requests import ClientDisconnect
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
+    HTTP_408_REQUEST_TIMEOUT,
+    HTTP_429_TOO_MANY_REQUESTS,
+    HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
-from gen3workflow import aws_utils, logger
+from gen3workflow import logger
 from gen3workflow.auth import Auth
+from gen3workflow.aws import aws_utils
+from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
 from gen3workflow.config import config
 
 s3_root_router = APIRouter(include_in_schema=False)
@@ -200,7 +206,7 @@ async def s3_endpoint(path: str, request: Request):
     # "All buckets" listing requests also land here and are not supported, since users can only
     # access their own bucket.
     if request.method == "GET" and path in ("", "s3"):
-        err_msg = f"If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
+        err_msg = f"'{request.method} /{path}': If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
@@ -210,7 +216,8 @@ async def s3_endpoint(path: str, request: Request):
     # S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
     # the list of files for a specific task.
     auth = Auth(api_request=request)
-    user_id, client_id = await set_access_token_and_get_user_id(auth, request.headers)
+    in_headers = request.headers
+    user_id, client_id = await set_access_token_and_get_user_id(auth, in_headers)
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )
@@ -262,10 +269,10 @@ async def s3_endpoint(path: str, request: Request):
     else:
         host = f"{user_bucket}.s3.{region}.amazonaws.com"
 
-    timestamp = request.headers.get("x-amz-date")
-    if not timestamp and request.headers.get("date"):
+    timestamp = in_headers.get("x-amz-date")
+    if not timestamp and in_headers.get("date"):
         # assume RFC 1123 format, convert to ISO 8601 basic YYYYMMDD'T'HHMMSS'Z' format
-        dt = datetime.strptime(request.headers["date"], "%a, %d %b %Y %H:%M:%S %Z")
+        dt = datetime.strptime(in_headers["date"], "%a, %d %b %Y %H:%M:%S %Z")
         timestamp = dt.strftime("%Y%m%dT%H%M%SZ")
     if not timestamp:
         # no `x-amz-date` or `date` header, just generate it ourselves
@@ -273,7 +280,7 @@ async def s3_endpoint(path: str, request: Request):
     date = timestamp[:8]  # the date portion (YYYYMMDD) of the timestamp
 
     # Generate the request headers
-    headers = {
+    out_headers = {
         "host": host,
     }
 
@@ -282,7 +289,7 @@ async def s3_endpoint(path: str, request: Request):
     #   "For the purpose of calculating an authorization signature, only the host and any x-amz-*
     #   headers are required; [...] Do not include hop-by-hop headers that are frequently altered
     #   during transit across a complex system."
-    for h in request.headers:
+    for h in in_headers:
         if h.lower().startswith("x-amz-") or h.lower() in {
             "range",
             "content-type",
@@ -293,18 +300,18 @@ async def s3_endpoint(path: str, request: Request):
             "if-modified-since",
             "if-unmodified-since",
         }:
-            headers[h] = request.headers[h]
-    logger.debug(f"Dropped headers: {[h for h in request.headers if h not in headers]}")
+            out_headers[h] = in_headers[h]
 
     # - The Minio-go S3 client sets the `x-amz-server-side-encryption-context` header to
     #   `{"Context":{"Context":{"Context":{}}}}`, triggering this error: "The header
     #   'x-amz-server-side-encryption-context' shall be Base64-encoded UTF-8 string holding JSON
     #   which represents a string-string map". Band-aid fix: drop it
     #   See https://github.com/minio/minio-go/issues/2235
-    headers.pop("x-amz-server-side-encryption-context", None)
+    # TODO: fixed in https://github.com/calypr/funnel/pull/1428 - to be tested
+    out_headers.pop("x-amz-server-side-encryption-context", None)
 
     # - Add the `x-amz-date` header if it wasn't there
-    headers["x-amz-date"] = timestamp
+    out_headers["x-amz-date"] = timestamp
 
     # - Chunked payload support:
     #   - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
@@ -317,6 +324,8 @@ async def s3_endpoint(path: str, request: Request):
     #     streaming request (SigV4 streaming HTTP PUT) into a single-payload request (Normal SigV4
     #     HTTP PUT). We could also implement chunked signing but it's not straightforward and
     #     likely unnecessary.
+    #   - aws-sdk-java used by Nextflow may use the STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER
+    #     method, which is treated similarly to the above.
     #   Note: Chunked uploads != multipart uploads.
     try:
         body = await request.body()
@@ -324,17 +333,20 @@ async def s3_endpoint(path: str, request: Request):
         raise HTTPException(
             499, "Client disconnected before request body was fully received"
         )
-    if (
-        request.headers.get("x-amz-content-sha256")
-        == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
-    ):
+    if in_headers.get("x-amz-content-sha256") in [
+        "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
+        "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
+    ]:
         # parse the body and update the corresponding headers
         body = chunked_to_non_chunked_body(body)
         content_len = str(len(body))
-        headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
+        out_headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
-            if h in request.headers:
-                headers[h] = content_len
+            if h in in_headers:
+                out_headers[h] = content_len
+        # the outgoing body is no longer chunked, so there's no trailer/checksum in it anymore
+        out_headers.pop("x-amz-trailer", None)
+        out_headers.pop("x-amz-sdk-checksum-algorithm", None)
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -346,7 +358,7 @@ async def s3_endpoint(path: str, request: Request):
         session = boto3.Session()
         credentials = session.get_credentials()
         assert credentials, "No AWS credentials found"
-        headers["x-amz-security-token"] = credentials.token
+        out_headers["x-amz-security-token"] = credentials.token
 
     # If this is a PUT or POST request, specify the KMS key to use for encryption.
     # For multipart uploads, the initial CreateMultipartUpload request includes the KMS
@@ -359,20 +371,21 @@ async def s3_endpoint(path: str, request: Request):
         and request.method in ["PUT", "POST"]
         and "uploadId" not in query_params
     ):
-        _, kms_key_arn = aws_utils.get_existing_kms_key_for_bucket(user_bucket)
+        _, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
             err_msg = "Bucket misconfigured. Hit the `GET /storage/setup` endpoint and try again."
             logger.error(
                 f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
             )
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-        headers["x-amz-server-side-encryption"] = "aws:kms"
-        headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
+        out_headers["x-amz-server-side-encryption"] = "aws:kms"
+        out_headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
     # construct the canonical request. All header keys must be lowercase
-    sorted_headers = sorted(list(headers.keys()), key=str.casefold)
+    logger.debug(f"Dropped headers: {[h for h in in_headers if h not in out_headers]}")
+    sorted_headers = sorted(list(out_headers.keys()), key=str.casefold)
     canonical_headers = "".join(
-        f"{key.lower()}:{headers[key]}\n" for key in sorted_headers
+        f"{key.lower()}:{out_headers[key]}\n" for key in sorted_headers
     )
     signed_headers = ";".join([k.lower() for k in sorted_headers])
     # the query params in the canonical request have to be sorted:
@@ -388,7 +401,7 @@ async def s3_endpoint(path: str, request: Request):
         f"{canonical_headers}"
         f"\n"
         f"{signed_headers}\n"
-        f"{headers.get('x-amz-content-sha256', '')}"
+        f"{out_headers.get('x-amz-content-sha256', '')}"
     )
 
     # construct the string to sign based on the canonical request
@@ -407,7 +420,7 @@ async def s3_endpoint(path: str, request: Request):
     ).hexdigest()
 
     # construct the Authorization header from the credentials and the signature
-    headers["authorization"] = (
+    out_headers["authorization"] = (
         f"AWS4-HMAC-SHA256 Credential={credentials.access_key}/{date}/{region}/{service}/aws4_request, SignedHeaders={signed_headers}, Signature={signature}"
     )
     if path_style:
@@ -416,18 +429,21 @@ async def s3_endpoint(path: str, request: Request):
         s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
-    # forward the call to AWS S3 with the new Authorization header.
+    # forward the call to the S3 server with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
     for attempt in range(1, S3_MAX_TRIES + 1):
         proceed = True
         exception = None
         try:
-            response = await request.app.async_client.request(
-                method=request.method,
-                url=s3_api_url,
-                headers=headers,
-                params=query_params,
-                data=body,
+            response = await request.app.async_client.send(
+                request.app.async_client.build_request(
+                    method=request.method,
+                    url=s3_api_url,
+                    headers=out_headers,
+                    params=query_params,
+                    content=body,
+                ),
+                stream=True,
             )
 
             if response.status_code >= 300:
@@ -438,10 +454,22 @@ async def s3_endpoint(path: str, request: Request):
                     logger.error(
                         f"Error from S3: {response.status_code} {response.text}"
                     )
-                    # do not retry in the case of a 403 error: authentication is done internally by
-                    # this function, so 403 errors are internal service errors
-                    if response.status_code != HTTP_403_FORBIDDEN:
+                    # in the case of a client-side (4xx) error (except `408 Request  Timeout` and
+                    # `429 Too Many Requests`), print debug logs and do not retry
+                    if (
+                        response.status_code >= HTTP_400_BAD_REQUEST
+                        and response.status_code < HTTP_500_INTERNAL_SERVER_ERROR
+                        and response.status_code
+                        not in [HTTP_408_REQUEST_TIMEOUT, HTTP_429_TOO_MANY_REQUESTS]
+                    ):
                         proceed = False
+                        logger.debug(f"Incoming headers:\n{in_headers}")
+                        logger.debug(f"Outgoing headers:\n{out_headers}")
+                        logger.debug(f"Canonical request:\n{canonical_request}")
+                        logger.debug(f"String to sign:\n{string_to_sign}")
+                        logger.debug(f"Incoming query params:\n{request.query_params}")
+                        logger.debug(f"Outgoing query params:\n{query_params}")
+                        logger.debug(f"Outgoing body:\n{body}")
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
@@ -469,22 +497,69 @@ async def s3_endpoint(path: str, request: Request):
         )
         await asyncio.sleep(delay)
 
-    # return the response from AWS S3.
-    # - mask the details of 403 errors from the end user: authentication is done internally by this
-    # function, so 403 errors are internal service errors
-    # - return all the headers from the AWS response, except `x-amz-bucket-region` which for some
-    # reason causes this error for tasks ran through Nextflow: `The AWS Access Key Id you provided
-    # does not exist in our records`
+    # Return the response from AWS S3.
+    # Return all the headers from the AWS response, except:
+    # - hop-by-hop headers (apply only to a single transport connection and should be stripped by
+    #   proxies).
+    # - `x-amz-bucket-region` which for some reason causes this error for tasks ran through
+    #   Nextflow: `The AWS Access Key Id you provided does not exist in our records`.
+    # - `x-amz-decoded-content-length`: request-direction header; should not appear on responses.
+    filtered_headers = {
+        h: v
+        for h, v in response.headers.items()
+        if h.lower()
+        not in {
+            "x-amz-bucket-region",
+            "x-amz-decoded-content-length",
+            # hop-by-hop headers:
+            "connection",
+            "keep-alive",
+            "transfer-encoding",
+            "te",
+            "trailer",
+            "upgrade",
+            "proxy-authenticate",
+            "proxy-authorization",
+        }
+    }
+
+    # mask the details of 403 errors from the end user: authentication is done internally by this
+    # function, so 403 errors are internal service errors.
     if response.status_code == HTTP_403_FORBIDDEN:
-        for h in ["content-length", "x-amz-decoded-content-length"]:
-            if h in response.headers:
-                response.headers[h] = "0"
-    return Response(
-        content=(
-            response.content if response.status_code != HTTP_403_FORBIDDEN else None
-        ),
+        await response.aclose()  # discard the body we're not returning
+        return Response(status_code=403, headers=filtered_headers)
+
+    if response.headers.get("content-encoding", "").lower() == "gzip":
+        # the backend compressed this response (e.g. Minio does this for small, compressible
+        # bodies like XML listings), httpx decodes it for us
+        filtered_headers = {
+            h: v
+            for h, v in filtered_headers.items()
+            # Filter out more headers:
+            # - `content-length`: when it is provided, Starlette's Response does not recompute it
+            #   from the actual content bytes. Example case: if the S3 server is Minio, the
+            #   `content-length` header for a HEAD request can describe what a GET on that object
+            #   _would_ return. Recomputing it is safer.
+            # - `content-encoding`: forwarding response headers that describe the original bytes
+            #   returned by the S3 server can cause a mismatch, because our httpx client may not
+            #   return those original bytes. Example case: here, httpx transparently decompresses
+            #   gzip content. `response.content` contains the decoded bytes, while the
+            #   `content-encoding` header still says gzip.
+            if h.lower() not in {"content-length", "content-encoding"}
+        }
+        decoded = await response.aread()
+        await response.aclose()
+        return Response(
+            content=decoded,
+            status_code=response.status_code,
+            headers=filtered_headers,
+        )
+
+    # the response is not compressed: stream the raw response bytes (skip the automatic httpx
+    # post-handling)
+    return StreamingResponse(
+        response.aiter_raw(),
         status_code=response.status_code,
-        headers={
-            k: v for k, v in response.headers.items() if k != "x-amz-bucket-region"
-        },
+        headers=filtered_headers,
+        background=BackgroundTask(response.aclose),
     )

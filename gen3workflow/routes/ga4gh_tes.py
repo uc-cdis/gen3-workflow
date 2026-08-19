@@ -20,7 +20,8 @@ from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
 from gen3workflow.routes.utils import make_tes_server_request
-from gen3workflow import aws_utils
+from gen3workflow.aws import aws_utils
+from gen3workflow.aws.bucket import create_iam_role_for_funnel_bucket_access
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
@@ -146,6 +147,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     # Add internal tags
     if "tags" not in body:
         body["tags"] = {}
+    if type(body["tags"]) != dict:
+        err_msg = f"Tags should be a dictionary (tag name -> tag value mapping). Received type {type(body['tags'])}: {body["tags"]}"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     task_tags = set(t.lower() for t in body["tags"])
     conflicts = task_tags & {tag.lower() for tag in RESERVED_TAGS}
     if conflicts:
@@ -159,9 +164,25 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     )
     body["tags"]["_AUTHZ"] = authz_resource
 
+    # TODO add _IMAGE_PULL_POLICY tag to user docs (MIDRC-1255)
+    image_pull_policy = str(
+        body["tags"].get(
+            "_IMAGE_PULL_POLICY", body["tags"].get("_image_pull_policy", "")
+        )
+    )
+    if image_pull_policy:
+        allowed_image_pull_policies = ["Always", "IfNotPresent"]
+        if image_pull_policy in allowed_image_pull_policies:
+            body["tags"]["_IMAGE_PULL_POLICY"] = image_pull_policy
+        else:
+            # NOTE: the default is defined in Funnel, not Gen3-Workflow
+            err_msg = f"_IMAGE_PULL_POLICY must be one of {allowed_image_pull_policies} (default: Always)"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
-            aws_utils.create_iam_role_for_funnel_bucket_access(principal_id)
+            create_iam_role_for_funnel_bucket_access(principal_id)
         )
         body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(principal_id)
 
@@ -182,6 +203,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     body["tags"] = dict(sorted(body["tags"].items()))
 
+    logger.debug(f"Outgoing task creation request body: {json.dumps(body)}")
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,

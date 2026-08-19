@@ -52,6 +52,11 @@ S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY:
 
 KMS_ENCRYPTION_ENABLED: true
 
+# Set it to true to create S3Files resources (default - false)
+# NOTE: Currently Gen3Workflow with S3Files only supports bucket and the EKS cluster being present in the same region.
+# Support shall be added in the future.
+ENABLE_S3_FILES: false
+
 #############
 # GA4GH TES #
 #############
@@ -93,3 +98,8 @@ ENABLE_OPTIMIZED_NODE_SCHEDULING: true
 EKS_CLUSTER_NAME: ""
 EKS_CLUSTER_REGION: us-east-1
 WORKER_PODS_NAMESPACE: default-namespace
+
+# Names of the EKS security groups that Karpenter attaches to an EKS worker node in this cluster
+# Usually going to be in the lines of f"{config["EKS_CLUSTER_NAME"]}_EKS_workers_sg"
+# Steps to fetch the values: https://github.com/uc-cdis/gen3-workflow/blob/master/docs/s3Files.md#determining-the-eks-security-group-names-for-s3-files-setup
+EKS_SECURITY_GROUP_NAMES: []
