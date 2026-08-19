@@ -335,8 +335,10 @@ async def s3_endpoint(path: str, request: Request):
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
     ]:
-        # parse the body and update the corresponding headers
-        body = chunked_to_non_chunked_body(body)
+        # parse the body and update the corresponding headers.
+        # run in a thread pool to avoid blocking the asyncio event loop under concurrent uploads.
+        loop = asyncio.get_event_loop()
+        body = await loop.run_in_executor(None, chunked_to_non_chunked_body, body)
         content_len = str(len(body))
         out_headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
         for h in ["content-length", "x-amz-decoded-content-length"]:
