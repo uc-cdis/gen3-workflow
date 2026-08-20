@@ -356,7 +356,7 @@ async def s3_endpoint(path: str, request: Request):
             return b, hashlib.sha256(b).hexdigest()
 
         loop = asyncio.get_event_loop()
-        async with _proxy_semaphore:
+        async with _get_proxy_semaphore():
             body, body_sha256 = await loop.run_in_executor(None, _parse_and_hash, body)
         content_len = str(len(body))
         out_headers["x-amz-content-sha256"] = body_sha256
