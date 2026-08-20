@@ -38,6 +38,19 @@ S3_MAX_TRIES = 3
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
+# Limit concurrent body-buffering + SHA256 operations to prevent CPU saturation under
+# concurrent Funnel uploads. Each operation buffers up to 10 MB and runs CPU-bound hash
+# computation in a thread pool; without a cap, 100 concurrent uploads exhaust the thread pool.
+_PROXY_SEMAPHORE_LIMIT = 20
+_proxy_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_proxy_semaphore() -> asyncio.Semaphore:
+    global _proxy_semaphore
+    if _proxy_semaphore is None:
+        _proxy_semaphore = asyncio.Semaphore(_PROXY_SEMAPHORE_LIMIT)
+    return _proxy_semaphore
+
 
 async def set_access_token_and_get_user_id(
     auth: Auth, headers: Headers
@@ -335,12 +348,18 @@ async def s3_endpoint(path: str, request: Request):
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
     ]:
-        # parse the body and update the corresponding headers.
-        # run in a thread pool to avoid blocking the asyncio event loop under concurrent uploads.
+        # parse the body and hash it — both are CPU-bound and must run off the event loop.
+        # sha256 of a 5-10 MB body takes ~30-50ms and would block the event loop if called inline.
+        # the semaphore caps concurrent operations so 100 simultaneous uploads don't saturate the CPU.
+        def _parse_and_hash(b):
+            b = chunked_to_non_chunked_body(b)
+            return b, hashlib.sha256(b).hexdigest()
+
         loop = asyncio.get_event_loop()
-        body = await loop.run_in_executor(None, chunked_to_non_chunked_body, body)
+        async with _proxy_semaphore:
+            body, body_sha256 = await loop.run_in_executor(None, _parse_and_hash, body)
         content_len = str(len(body))
-        out_headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
+        out_headers["x-amz-content-sha256"] = body_sha256
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if h in in_headers:
                 out_headers[h] = content_len

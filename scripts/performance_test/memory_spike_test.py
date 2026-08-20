@@ -42,7 +42,7 @@ BUCKET = "gen3wf-sai-dev-planx-pla-net-3"
 # worker process is measured. Override with the /workflows public URL if needed.
 DEBUG_BASE_URL = os.environ.get("DEBUG_BASE_URL", BASE_URL)
 
-NUM_ITERATIONS = 5
+NUM_ITERATIONS = 100
 FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 POLL_INTERVAL_SECONDS = 5
 
@@ -295,7 +295,6 @@ def test_tes_create_10mb_file(http: requests.Session):
         resp.raise_for_status()
         task_ids.append(resp.json().get("id"))
         print(f"[tes {i:03d}] task_id={task_ids[-1]}")
-        time.sleep(1)
     return task_ids
 
 
@@ -324,6 +323,7 @@ def main():
 
     reports = []
     for name, fn in to_run.items():
+        input(f"Press Enter to to start {name} ...")
         print(f"\n{'=' * 60}\nRunning: {name}\n{'=' * 60}")
         start_monitoring(http)
         t0 = time.monotonic()
@@ -332,6 +332,8 @@ def main():
             kwargs = {k: deps[k] for k in inspect.signature(fn).parameters if k in deps}
             fn(**kwargs)
             print(f"Passed:  {name}")
+        except KeyboardInterrupt:
+            print(f"Aborted: {name}")
         except Exception as e:
             print(f"FAILED:  {name} — {e}")
         finally:
