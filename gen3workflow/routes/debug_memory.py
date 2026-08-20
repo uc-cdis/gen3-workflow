@@ -126,7 +126,7 @@ def _referrer_chain(obj, depth: int, skip: set) -> list:
             r
             for r in gc.get_referrers(current)
             if r is not chain
-            and r is not skip
+            and r not in skip
             and not isinstance(r, type)
             and type(r).__name__ not in ("frame", "cell")
         ]
