@@ -2,6 +2,7 @@ import inspect
 import io
 import os
 import sys
+import textwrap
 import time
 
 import boto3
@@ -9,23 +10,41 @@ import requests
 from botocore.config import Config
 
 """
-# Usage:
-Run all tests:
-GEN3_TOKEN=your_token python memory_spike_test.py
+Usage:
+  # Run all tests:
+  GEN3_TOKEN=your_token python memory_spike_test.py
 
-Run a single test by label:
-GEN3_TOKEN=your_token python memory_spike_test.py test_setup_storage
+  # Run a single test by label:
+  GEN3_TOKEN=your_token python memory_spike_test.py test_s3_upload
+
+Memory profiling is done by a background thread inside the app (debug_memory.py),
+so this script does NOT poll during the load test. It calls three endpoints after
+the test finishes, which is safe even on a saturated event loop:
+  /_debug/memory/sampled  — full timeline collected by the in-app thread
+  /_debug/memory/gc-test  — forces gc.collect() and checks if objects are freed
+  /_debug/memory/diff     — tracemalloc growth vs the pre-test baseline
+
+Recommended k8s setup for accurate per-worker profiling (avoids ingress routing
+requests to different workers):
+  1. Set N_WORKERS=1 in the gen3-workflow config and redeploy.
+  2. Port-forward the pod: kubectl port-forward <pod> 8000:8000
+  3. Set DEBUG_BASE_URL=http://localhost:8000 and run this script.
 """
 
-# Change the following environment variable to point to your Gen3 instance
-# and set your Gen3 token in the environment variable GEN3_TOKEN.
 GEN3_TOKEN = os.environ["GEN3_TOKEN"]
-SETUP_URL = "https://sai.dev.planx-pla.net/workflows/storage/setup"
+BASE_URL = "https://sai.dev.planx-pla.net/workflows"
+SETUP_URL = f"{BASE_URL}/storage/setup"
 TES_URL = "https://sai.dev.planx-pla.net/ga4gh/tes/v1/tasks"
-S3_ENDPOINT = "https://sai.dev.planx-pla.net/workflows/s3"
+S3_ENDPOINT = f"{BASE_URL}/s3"
 BUCKET = "gen3wf-sai-dev-planx-pla-net-3"
-NUM_ITERATIONS = 1000
+
+# Debug endpoints go directly to the pod (via port-forward) to ensure the same
+# worker process is measured. Override with the /workflows public URL if needed.
+DEBUG_BASE_URL = os.environ.get("DEBUG_BASE_URL", BASE_URL)
+
+NUM_ITERATIONS = 30
 FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+POLL_INTERVAL_SECONDS = 5
 
 
 def auth_headers() -> dict:
@@ -44,6 +63,172 @@ def make_s3_client():
             retries={"max_attempts": 1},
         ),
     )
+
+
+# ── Memory collection (post-test) ──────────────────────────────────────────────
+# Sampling is done inside the app by a daemon thread (debug_memory.py), so this
+# script does not need to poll during the load test. We just collect results
+# after the test finishes, when the event loop is no longer saturated.
+
+
+def _fetch(http: requests.Session, path: str, tag: str) -> dict | None:
+    try:
+        r = http.get(f"{DEBUG_BASE_URL}{path}", timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"  [memmon:{tag}] WARNING: {e}")
+        return None
+
+
+def start_monitoring(http: requests.Session):
+    """Reset the in-app sampler and capture a tracemalloc baseline."""
+    result = _fetch(http, "/_debug/memory/snapshot", "snapshot")
+    if result:
+        print(f"  [memmon] {result.get('status', 'baseline captured')}")
+    else:
+        print(
+            "  [memmon] WARNING: could not reach snapshot endpoint — profiling will be limited"
+        )
+
+
+def collect_report(http: requests.Session, label: str, duration: float) -> dict:
+    """After the test, retrieve the full timeline and diagnostic results."""
+    print(f"  [memmon] collecting timeline, gc-test, diff for {label}...")
+    sampled = _fetch(http, "/_debug/memory/sampled", "sampled")
+    gc_result = _fetch(http, "/_debug/memory/gc-test", "gc-test")
+    diff_result = _fetch(http, "/_debug/memory/diff", "diff")
+    samples = sampled.get("samples", []) if sampled else []
+    return {
+        "label": label,
+        "samples": samples,
+        "gc_result": gc_result,
+        "diff_result": diff_result,
+        "duration": duration,
+        "interval_seconds": (
+            sampled.get("interval_seconds", POLL_INTERVAL_SECONDS)
+            if sampled
+            else POLL_INTERVAL_SECONDS
+        ),
+    }
+
+
+# ── Report ─────────────────────────────────────────────────────────────────────
+
+WIDTH = 66
+
+
+def _hr(char="═"):
+    return char * WIDTH
+
+
+def _row(text=""):
+    lines = textwrap.wrap(text, WIDTH - 4) or [""]
+    return "\n".join(f"║  {l:<{WIDTH - 4}}  ║" for l in lines)
+
+
+def print_report(data: dict):
+    label = data["label"]
+    samples = data["samples"]
+    gc_result = data.get("gc_result") or {}
+    diff_result = data.get("diff_result") or {}
+    duration = data["duration"]
+
+    print(f"\n╔{_hr()}╗")
+    print(f"║  {'MEMORY SPIKE REPORT: ' + label:^{WIDTH - 4}}  ║")
+    print(f"╠{_hr()}╣")
+    interval = data.get("interval_seconds", POLL_INTERVAL_SECONDS)
+    print(
+        _row(
+            f"Duration: {duration}s  |  Samples: {len(samples)}  |  Poll interval: {interval}s"
+        )
+    )
+    print(_row(f"Debug URL: {DEBUG_BASE_URL}"))
+
+    # ── Timeline ──
+    print(f"╠{_hr('─')}╣")
+    print(_row("LARGE BYTES (>500 KB) TIMELINE"))
+    print(_row())
+
+    peak_sample = None
+    peak_mb = 0.0
+    for s in samples:
+        count = s.get("count", 0)
+        total_mb = s.get("total_mb", 0.0)
+        elapsed = s.get("elapsed", "?")
+        marker = ""
+        if total_mb > peak_mb:
+            peak_mb = total_mb
+            peak_sample = s
+            marker = "  ← peak"
+        print(
+            _row(f"  t={elapsed}s    count={count}   total={total_mb:.2f} MB{marker}")
+        )
+
+    # ── Peak referrer chain ──
+    print(f"╠{_hr('─')}╣")
+    if peak_sample and peak_sample.get("largest"):
+        largest = peak_sample["largest"][0]
+        chain = largest.get("referrer_chain", [])
+        size_mb = largest.get("size_mb", 0)
+        print(
+            _row(f"PEAK: {peak_sample.get('count', 0)} objects, {peak_mb:.2f} MB total")
+        )
+        print(_row(f"Largest object: {size_mb:.2f} MB"))
+        print(_row())
+        print(_row("Referrer chain (what holds the largest body):"))
+        if chain:
+            for i, link in enumerate(chain):
+                prefix = "  root" if i == len(chain) - 1 else f"  [{i + 1}]"
+                print(_row(f"{prefix}  {link}"))
+        else:
+            print(
+                _row(
+                    "  (no referrers found — object may have been freed by the time of the call)"
+                )
+            )
+    else:
+        print(_row("PEAK: no large bytes objects observed"))
+
+    # ── GC test ──
+    print(f"╠{_hr('─')}╣")
+    print(_row("POST-TEST GC TEST"))
+    print(_row())
+    if gc_result:
+        before = gc_result.get("large_bytes_before_gc", "?")
+        after = gc_result.get("large_bytes_after_gc", "?")
+        collected = gc_result.get("objects_collected", "?")
+        verdict = gc_result.get("interpretation", "?")
+        print(_row(f"  Large bytes before gc.collect(): {before}"))
+        print(_row(f"  Large bytes after  gc.collect(): {after}"))
+        print(_row(f"  Objects collected by GC:         {collected}"))
+        print(_row())
+        print(_row(f"  Verdict: {verdict}"))
+    else:
+        print(_row("  (gc-test endpoint unreachable)"))
+
+    # ── tracemalloc diff ──
+    print(f"╠{_hr('─')}╣")
+    print(_row("TOP MEMORY GROWTH (tracemalloc diff from baseline)"))
+    print(_row())
+    grew = diff_result.get("grew", [])
+    if grew:
+        for entry in grew[:10]:
+            loc = entry.get("location", "?")
+            kb = entry.get("added_kb", 0)
+            count = entry.get("added_count", 0)
+            print(_row(f"  +{kb:>6} KB  ({count:>4} allocs)  {loc}"))
+    elif diff_result.get("note"):
+        print(_row(f"  {diff_result['note']}"))
+        for entry in (diff_result.get("top") or [])[:10]:
+            loc = entry.get("location", "?")
+            kb = entry.get("size_kb", 0)
+            count = entry.get("count", 0)
+            print(_row(f"  {kb:>7} KB  ({count:>4} allocs)  {loc}"))
+    else:
+        print(_row("  (diff endpoint unreachable or no growth)"))
+
+    print(f"╚{_hr()}╝\n")
 
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
@@ -95,9 +280,8 @@ def test_tes_create_10mb_file(http: requests.Session):
         resp = http.post(TES_URL, json=task, headers=auth_headers())
         print(f"[tes {i:03d}] status={resp.status_code}")
         resp.raise_for_status()
-        task_id = resp.json().get("id")
-        task_ids.append(task_id)
-        print(f"[tes {i:03d}] task_id={task_id}")
+        task_ids.append(resp.json().get("id"))
+        print(f"[tes {i:03d}] task_id={task_ids[-1]}")
     return task_ids
 
 
@@ -124,11 +308,25 @@ def main():
 
     to_run = {label: TESTS[label]} if label else TESTS
 
+    reports = []
     for name, fn in to_run.items():
         print(f"\n{'=' * 60}\nRunning: {name}\n{'=' * 60}")
-        kwargs = {k: deps[k] for k in inspect.signature(fn).parameters if k in deps}
-        fn(**kwargs)
-        print(f"Passed:  {name}")
+        start_monitoring(http)
+        t0 = time.monotonic()
+
+        try:
+            kwargs = {k: deps[k] for k in inspect.signature(fn).parameters if k in deps}
+            fn(**kwargs)
+            print(f"Passed:  {name}")
+        except Exception as e:
+            print(f"FAILED:  {name} — {e}")
+        finally:
+            duration = round(time.monotonic() - t0, 1)
+            report_data = collect_report(http, label=name, duration=duration)
+            reports.append(report_data)
+
+    for report_data in reports:
+        print_report(report_data)
 
 
 if __name__ == "__main__":
