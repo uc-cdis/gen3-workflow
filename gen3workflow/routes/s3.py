@@ -5,7 +5,6 @@ import random
 from typing import Tuple
 import urllib.parse
 
-import boto3
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from botocore.credentials import Credentials
@@ -28,6 +27,7 @@ from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
+from gen3workflow.aws.clients import irsa_session
 from gen3workflow.config import config
 
 s3_root_router = APIRouter(include_in_schema=False)
@@ -355,8 +355,7 @@ async def s3_endpoint(path: str, request: Request):
             secret_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
         )
     else:  # assume the service is running in k8s: get credentials from the assumed role
-        session = boto3.Session()
-        credentials = session.get_credentials()
+        credentials = irsa_session.get_credentials()
         assert credentials, "No AWS credentials found"
         out_headers["x-amz-security-token"] = credentials.token
 

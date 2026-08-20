@@ -49,6 +49,7 @@ def _sample_once() -> dict:
         "ts": round(time.monotonic(), 2),
         "wall_time": time.strftime("%H:%M:%S", time.localtime()),
         "count": len(large),
+        "total_kb": round(sum(len(b) for b in large) / 1024, 2),
         "total_mb": round(sum(len(b) for b in large) / 1024 / 1024, 2),
         "largest": largest,
     }

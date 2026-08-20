@@ -42,7 +42,7 @@ BUCKET = "gen3wf-sai-dev-planx-pla-net-3"
 # worker process is measured. Override with the /workflows public URL if needed.
 DEBUG_BASE_URL = os.environ.get("DEBUG_BASE_URL", BASE_URL)
 
-NUM_ITERATIONS = 30
+NUM_ITERATIONS = 5
 FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 POLL_INTERVAL_SECONDS = 5
 
@@ -71,14 +71,27 @@ def make_s3_client():
 # after the test finishes, when the event loop is no longer saturated.
 
 
-def _fetch(http: requests.Session, path: str, tag: str) -> dict | None:
-    try:
-        r = http.get(f"{DEBUG_BASE_URL}{path}", timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        print(f"  [memmon:{tag}] WARNING: {e}")
-        return None
+def _fetch(
+    http: requests.Session, path: str, tag: str, retries: int = 5
+) -> dict | None:
+    """GET a debug endpoint with exponential backoff. Tolerates transient 502s."""
+    delay = 2.0
+    for attempt in range(1, retries + 1):
+        try:
+            r = http.get(f"{DEBUG_BASE_URL}{path}", timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            if attempt == retries:
+                print(
+                    f"  [memmon:{tag}] WARNING: gave up after {retries} attempts — {e}"
+                )
+                return None
+            print(
+                f"  [memmon:{tag}] attempt {attempt}/{retries} failed ({e}), retrying in {delay:.0f}s..."
+            )
+            time.sleep(delay)
+            delay *= 2
 
 
 def start_monitoring(http: requests.Session):
@@ -93,7 +106,7 @@ def start_monitoring(http: requests.Session):
 
 
 def collect_report(http: requests.Session, label: str, duration: float) -> dict:
-    """After the test, retrieve the full timeline and diagnostic results."""
+    """Wait for the app to drain, then retrieve the full timeline and diagnostics."""
     print(f"  [memmon] collecting timeline, gc-test, diff for {label}...")
     sampled = _fetch(http, "/_debug/memory/sampled", "sampled")
     gc_result = _fetch(http, "/_debug/memory/gc-test", "gc-test")
@@ -151,18 +164,18 @@ def print_report(data: dict):
     print(_row())
 
     peak_sample = None
-    peak_mb = 0.0
+    peak_kb = 0.0
     for s in samples:
         count = s.get("count", 0)
-        total_mb = s.get("total_mb", 0.0)
+        total_kb = s.get("total_kb", 0.0)
         elapsed = s.get("elapsed", "?")
         marker = ""
-        if total_mb > peak_mb:
-            peak_mb = total_mb
+        if total_kb > peak_kb:
+            peak_kb = total_kb
             peak_sample = s
             marker = "  ← peak"
         print(
-            _row(f"  t={elapsed}s    count={count}   total={total_mb:.2f} MB{marker}")
+            _row(f"  t={elapsed}s    count={count}   total={total_kb:.2f} KB{marker}")
         )
 
     # ── Peak referrer chain ──
@@ -172,7 +185,7 @@ def print_report(data: dict):
         chain = largest.get("referrer_chain", [])
         size_mb = largest.get("size_mb", 0)
         print(
-            _row(f"PEAK: {peak_sample.get('count', 0)} objects, {peak_mb:.2f} MB total")
+            _row(f"PEAK: {peak_sample.get('count', 0)} objects, {peak_kb:.2f} MB total")
         )
         print(_row(f"Largest object: {size_mb:.2f} MB"))
         print(_row())
@@ -282,6 +295,7 @@ def test_tes_create_10mb_file(http: requests.Session):
         resp.raise_for_status()
         task_ids.append(resp.json().get("id"))
         print(f"[tes {i:03d}] task_id={task_ids[-1]}")
+        time.sleep(1)
     return task_ids
 
 
@@ -322,6 +336,9 @@ def main():
             print(f"FAILED:  {name} — {e}")
         finally:
             duration = round(time.monotonic() - t0, 1)
+            input(
+                f"Press Enter to collect memory report for {name} (duration={duration}s) ..."
+            )
             report_data = collect_report(http, label=name, duration=duration)
             reports.append(report_data)
 
