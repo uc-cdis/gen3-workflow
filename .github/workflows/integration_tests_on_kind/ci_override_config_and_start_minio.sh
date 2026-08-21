@@ -173,7 +173,7 @@ EOF
 # external-secrets is required to install gen3 and is not installed out of the box in kind clusters
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
-helm install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace --set installCRDs=true --version 0.8.5
+helm install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace --set installCRDs=true --version 2.9.0
 
 # Install aws-mountpoint-s3-csi-driver. The driver reads S3 credentials from `aws-secret`.
 # see https://github.com/awslabs/mountpoint-s3-csi-driver/blob/db678c1/docs/CONFIGURATION.md#driver-level-credentials-with-kubernetes-secrets
