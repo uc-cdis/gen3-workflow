@@ -6,6 +6,10 @@ tests/prof/
 prof/
 bin/library
 tmp/
+.claude/
+.serena/
+AGENTS.md
+CLAUDE.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

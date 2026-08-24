@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 import httpx
 from importlib.metadata import version
+import logging
 import os
 import time
 
@@ -59,6 +60,8 @@ def get_app(httpx_client=None) -> FastAPI:
 
     debug = config["APP_DEBUG"]
     log_level = "debug" if debug else "info"
+
+    configure_logging()
 
     app = FastAPI(
         title="Gen3Workflow",
@@ -147,6 +150,40 @@ def get_app(httpx_client=None) -> FastAPI:
         return response
 
     return app
+
+
+def configure_logging() -> None:
+    """
+    Route every logger the service uses through cdislogging, so that all log lines share one
+    format.
+
+    Must run before the app's httpx client is created: httpx keeps the log level it sees when
+    it is initialized, and it is verbose enough to need a setting of its own.
+    """
+    log_level = "debug" if config["APP_DEBUG"] else "info"
+
+    remove_log_handlers(None)
+    get_logger(None, log_level="debug" if config["HTTPX_DEBUG"] else "warn")
+
+    # Uvicorn installs its own handlers before it imports this app, so they have to go or
+    # every server log line would be emitted twice, in two different formats.
+    for logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
+        remove_log_handlers(logger_name)
+        get_logger(logger_name, log_level=log_level)
+
+    get_logger("gen3workflow", log_level=log_level)
+
+
+def remove_log_handlers(logger_name: str | None) -> None:
+    """
+    Remove every handler attached to a logger.
+
+    Args:
+        logger_name (str | None): name of the logger, or None for the root logger
+    """
+    logger_to_clear = logging.getLogger(logger_name)
+    while logger_to_clear.handlers:
+        logger_to_clear.removeHandler(logger_to_clear.handlers[0])
 
 
 app = get_app()

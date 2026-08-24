@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gen3workflow"
-version = "0.2.0"
+version = "1.0.0"
 description = "Gen3 Workflow Execution Service"
 authors = ["CTDS UChicago <cdis@uchicago.edu>"]
 license = "Apache-2.0"
@@ -12,7 +12,7 @@ include = [
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4"
-authutils = ">=8.0.0"
+authutils = {git = "https://github.com/uc-cdis/authutils.git", rev = "feat/dpop"}
 boto3 = ">=1"
 botocore = "*"
 cachelib = "*"
@@ -21,7 +21,6 @@ cdispyutils = ">=2"
 fastapi = "<1"
 gen3authz = ">=3"
 gen3config = ">=2"
-gunicorn = "<27"
 httpx = "<1"
 jsonschema = "<5"
 pyyaml = "*"
@@ -30,6 +29,8 @@ starlette = "*"
 
 [tool.poetry.group.dev.dependencies]
 freezegun = "*"
+# used by the tests to generate the keys and tokens of a DPoP flow
+joserfc = "*"
 moto = "*"
 pytest = "*"
 pytest-asyncio = "*"
