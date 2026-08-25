@@ -4,15 +4,25 @@ import httpx
 from importlib.metadata import version
 import logging
 import os
-import time
 
 from cdislogging import get_logger
 from fastapi import Request
 from gen3authz.client.arborist.async_client import ArboristClient
+from starlette.responses import Response
+
+from cdispyutils.observability.continuous_profiling import configure_profiling
+from cdispyutils.observability.request_metrics import add_request_metrics_middleware
+from cdispyutils.observability.tracing import (
+    LoggingInstrumentorWithContext,
+    configure_tracing,
+)
+from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 from gen3workflow import logger
-from gen3workflow.config import config
+from gen3workflow.config import config, get_dpop_allowed_issuers
 from gen3workflow.metrics import Metrics
+from gen3workflow.middleware.dpop import dpop_middleware
 from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import s3_root_router, s3_router
 from gen3workflow.routes.storage import router as storage_router
@@ -63,6 +73,15 @@ def get_app(httpx_client=None) -> FastAPI:
 
     configure_logging()
 
+    # Before configure_tracing, which only links spans to profiles when it can see that an agent
+    # is already running. Safe here because dockerrun.bash runs one uvicorn worker and never
+    # forks: adding --workers would leave the children unprofiled.
+    configure_profiling(
+        "gen3-workflow",
+        enabled=config["ENABLE_CONTINUOUS_PROFILING"],
+        server_address=config["PYROSCOPE_SERVER_ADDRESS"],
+    )
+
     app = FastAPI(
         title="Gen3Workflow",
         version=version("gen3workflow"),
@@ -83,8 +102,13 @@ def get_app(httpx_client=None) -> FastAPI:
     app.include_router(system_router, tags=["System"])
     app.include_router(ui_router, tags=["UI"])
 
-    # Following will update logger level, propagate, and handlers
-    get_logger("gen3workflow", log_level=log_level)
+    if config["DPOP_ENABLED"]:
+        logger.info(
+            f"DPoP validation is enabled on {sorted(config['DPOP_PROTECTED_PATHS'])}, "
+            f"required={config['DPOP_REQUIRED']}, issuers={get_dpop_allowed_issuers()}"
+        )
+    else:
+        logger.warning("DPoP validation is disabled")
 
     logger.info("Initializing Arborist client")
     if config["MOCK_AUTH"]:
@@ -114,40 +138,49 @@ def get_app(httpx_client=None) -> FastAPI:
 
     app.include_router(s3_root_router, tags=["S3"])
 
+    # Registered before the metrics middleware below: Starlette makes the last-registered
+    # middleware the outermost one, so this ordering keeps DPoP rejections inside the metrics
+    # middleware instead of bypassing it.
     @app.middleware("http")
-    async def middleware_log_response_and_api_metric(
-        request: Request, call_next
-    ) -> None:
+    async def middleware_dpop_validation(request: Request, call_next) -> Response:
         """
-        This FastAPI middleware effectively allows pre and post logic to a request.
-
-        We are using this to log the response consistently across defined endpoints (including execution time).
+        Validate the DPoP proof of requests to the DPoP-protected endpoints.
 
         Args:
             request (Request): the incoming HTTP request
-            call_next (Callable): function to call (this is handled by FastAPI's middleware support)
+            call_next (Callable): function to call (this is handled by FastAPI's middleware
+                support)
+
+        Returns:
+            Response: the response from the rest of the app, or an error response
         """
-        start_time = time.perf_counter()
-        response = await call_next(request)
-        response_time_seconds = time.perf_counter() - start_time
+        return await dpop_middleware(request, call_next)
 
-        path = request.url.path
-        method = request.method
+    add_request_metrics_middleware(
+        app,
+        app.metrics,
+        counter_name="gen3_workflow_api_requests",
+        counter_description="API requests served by gen3-workflow.",
+        duration_histogram_name="gen3_workflow_api_request_duration_seconds",
+    )
 
-        # NOTE: If adding more endpoints to metrics, try making it configurable using a list of paths and methods in config.
-        # For now, we are only interested in the "/ga4gh/tes/v1/tasks" endpoint for metrics.
-        if method != "POST" or path.rstrip("/") != "/ga4gh/tes/v1/tasks":
-            return response
-
-        metrics = app.metrics
-        metrics.add_create_task_api_interaction(
-            method=method,
-            path=path,
-            response_time_seconds=response_time_seconds,
-            status_code=response.status_code,
-        )
-
-        return response
+    # Last, so the OpenTelemetry middleware ends up outermost: Starlette makes the
+    # last-registered middleware the outermost one, and a server span that did not wrap the
+    # DPoP middleware would miss every rejected request.
+    configure_tracing(
+        app,
+        "gen3-workflow",
+        enabled=config["ENABLE_TRACING"],
+        otlp_endpoint=config["OTEL_EXPORTER_OTLP_ENDPOINT"],
+        otlp_protocol=config["OTEL_EXPORTER_OTLP_PROTOCOL"],
+        # This service makes no `requests` calls, and its slowest work is the blocking boto3
+        # calls in gen3workflow/aws/, which the default set would not cover.
+        instrumentors=[
+            HTTPXClientInstrumentor(),
+            BotocoreInstrumentor(),
+            LoggingInstrumentorWithContext(),
+        ],
+    )
 
     return app
 

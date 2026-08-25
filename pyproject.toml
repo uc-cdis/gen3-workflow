@@ -17,12 +17,15 @@ boto3 = ">=1"
 botocore = "*"
 cachelib = "*"
 cdislogging = ">=1"
-cdispyutils = ">=2"
+cdispyutils = { git = "https://github.com/uc-cdis/cdis-python-utils.git", rev = "feat/observability", extras = ["observability"] }
 fastapi = "<1"
 gen3authz = ">=3"
 gen3config = ">=2"
 httpx = "<1"
 jsonschema = "<5"
+# Not part of the cdispyutils observability extra: the right database/AWS
+# instrumentation differs per service, so each one brings its own.
+opentelemetry-instrumentation-botocore = "*"
 pyyaml = "*"
 uvicorn = "<1"
 starlette = "*"

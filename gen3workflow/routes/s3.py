@@ -77,11 +77,8 @@ async def set_access_token_and_get_user_id(
 
     # extract the key ID from the authorization header
     try:
-        if "Credential=" in auth_header:  # format 1 (see docstring)
-            access_key_id = auth_header.split("Credential=")[1].split("/")[0]
-        else:  # format 2 (see docstring)
-            access_key_id = auth_header.split("AWS ")[1].split(":")[0]
-    except Exception as e:
+        access_key_id = get_access_key_id_from_auth_header(auth_header)
+    except ValueError as e:
         err_msg = "Unexpected format; unable to extract access token from authorization header"
         logger.error(f"{err_msg}: {e}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
@@ -129,6 +126,31 @@ async def set_access_token_and_get_user_id(
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     return user_id, client_id
+
+
+def get_access_key_id_from_auth_header(auth_header: str) -> str:
+    """
+    Extract the access key ID from the Authorization header of a signed S3 request.
+
+    The DPoP middleware relies on this too: the access token it validates the proof against
+    must be the exact same one this endpoint authorizes.
+
+    Args:
+        auth_header (str): value of the Authorization header. See
+            `set_access_token_and_get_user_id` for the 2 expected formats.
+
+    Returns:
+        str: the access key ID
+
+    Raises:
+        ValueError: if the header is in neither of the 2 expected formats
+    """
+    try:
+        if "Credential=" in auth_header:  # format 1
+            return auth_header.split("Credential=")[1].split("/")[0]
+        return auth_header.split("AWS ")[1].split(":")[0]  # format 2
+    except Exception as e:
+        raise ValueError(f"Unable to extract the access key ID: {e}")
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:

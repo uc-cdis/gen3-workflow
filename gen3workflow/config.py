@@ -36,7 +36,6 @@ class Gen3WorkflowConfig(Config):
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
                 "HTTPX_DEBUG": {"type": "boolean"},
-                "N_WORKERS": {"type": "integer", "minimum": 1},
                 "PROXY_PREFIX": {"type": ["string", "null"]},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},
@@ -46,6 +45,18 @@ class Gen3WorkflowConfig(Config):
                     "type": "array",
                     "items": {"type": "string"},
                 },
+                "DPOP_ENABLED": {"type": "boolean"},
+                "DPOP_REQUIRED": {"type": "boolean"},
+                "DPOP_SHARED_SECRET": {"type": ["string", "null"]},
+                "DPOP_ALLOWED_ISSUERS": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "DPOP_EXTERNAL_BASE_URL": {"type": ["string", "null"]},
+                "DPOP_PROTECTED_PATHS": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                },
                 "S3_UPSTREAM_ENDPOINT": {"type": ["string", "null"]},
                 "S3_OBJECTS_EXPIRATION_DAYS": {"type": "integer", "minimum": 1},
                 "S3_ENDPOINTS_AWS_ACCESS_KEY_ID": {"type": ["string", "null"]},
@@ -54,8 +65,14 @@ class Gen3WorkflowConfig(Config):
                 "ENABLE_S3_FILES": {"type": "boolean"},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
+                "REQUIRE_TES_SERVER_FOR_STATUS": {"type": "boolean"},
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
                 "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
+                "ENABLE_TRACING": {"type": "boolean"},
+                "OTEL_EXPORTER_OTLP_ENDPOINT": {"type": "string"},
+                "OTEL_EXPORTER_OTLP_PROTOCOL": {"enum": ["grpc", "http/protobuf"]},
+                "ENABLE_CONTINUOUS_PROFILING": {"type": "boolean"},
+                "PYROSCOPE_SERVER_ADDRESS": {"type": "string"},
                 "ENABLE_OPTIMIZED_NODE_SCHEDULING": {"type": "boolean"},
                 "EKS_CLUSTER_NAME": {"type": "string"},
                 "EKS_CLUSTER_REGION": {"type": "string"},
@@ -76,6 +93,45 @@ class Gen3WorkflowConfig(Config):
             assert (
                 len(self["EKS_SECURITY_GROUP_NAMES"]) > 0
             ), "EKS_SECURITY_GROUP_NAMES must be configured when ENABLE_S3_FILES is True"
+
+        assert (
+            not self["DPOP_REQUIRED"] or self["DPOP_ENABLED"]
+        ), "DPOP_ENABLED must be True when DPOP_REQUIRED is True, otherwise no DPoP proof is required at all"
+
+        if self["DPOP_ENABLED"]:
+            assert (
+                get_dpop_shared_secret()
+            ), "A 'DPOP_SHARED_SECRET' must be configured, or provided through the environment, when DPOP_ENABLED is True"
+
+        assert (
+            not self["ENABLE_CONTINUOUS_PROFILING"] or self["PYROSCOPE_SERVER_ADDRESS"]
+        ), "A 'PYROSCOPE_SERVER_ADDRESS' must be configured when ENABLE_CONTINUOUS_PROFILING is True"
+
+
+def get_dpop_allowed_issuers() -> list:
+    """
+    Get the token issuers allowed to sign DPoP-bound access tokens.
+
+    Defaults to the auth service of the configured hostname, which is where Gen3 serves Fence,
+    so that a deployment only has to set this when tokens come from somewhere else.
+
+    Returns:
+        list: the allowed issuers
+    """
+    return config["DPOP_ALLOWED_ISSUERS"] or [f"https://{config['HOSTNAME']}/user"]
+
+
+def get_dpop_shared_secret() -> str | None:
+    """
+    Get the secret used to sign and verify the stateless DPoP nonces.
+
+    The environment takes precedence over the configuration file, so that deployments can
+    inject the secret without templating it into a config file.
+
+    Returns:
+        str | None: the shared secret, or None if it is not set anywhere.
+    """
+    return os.environ.get("DPOP_SHARED_SECRET") or config["DPOP_SHARED_SECRET"]
 
 
 config = Gen3WorkflowConfig(DEFAULT_CFG_PATH)

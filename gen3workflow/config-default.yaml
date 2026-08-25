@@ -30,6 +30,46 @@ VALID_AUTHZ_AUDIENCE:
   - "user"
   - "gen3"
 
+###################
+# DPoP (RFC 9449) #
+###################
+
+# When true, DPoP-bound access tokens presented to the GA4GH TES and S3 endpoints must come
+# with a valid DPoP proof. Tokens that are not DPoP-bound (no `cnf.jkt` claim) are unaffected,
+# so worker pods using the `client_credentials` flow keep working.
+DPOP_ENABLED: false
+
+# When true, the DPoP-protected endpoints reject any request that does not present a DPoP-bound
+# access token along with a valid proof. Requires `DPOP_ENABLED`.
+# /!\ WARNING: this also rejects the Funnel worker pods, which authenticate through the
+# `client_credentials` flow and send no proof. Only enable it where nothing but DPoP clients
+# reach these endpoints.
+DPOP_REQUIRED: false
+
+# Secret used to sign and verify the stateless DPoP nonces.
+# /!\ WARNING: this MUST be the exact same value as the `DPOP_SHARED_SECRET` of the auth
+# service (e.g. Fence) that issues the DPoP-bound tokens. Clients reuse the nonce Fence
+# handed them for their first request here, and a nonce signed with a different secret does
+# not verify. The `DPOP_SHARED_SECRET` environment variable takes precedence over this.
+DPOP_SHARED_SECRET:
+
+# Token issuers allowed to sign DPoP-bound access tokens. Defaults to
+# "https://<HOSTNAME>/user", which is where Gen3 serves the auth service, so this only needs
+# to be set when the tokens come from somewhere else.
+DPOP_ALLOWED_ISSUERS: []
+
+# Origin of this service as the client sees it, used to rebuild the URL the client signed in
+# the proof's `htu` claim. Defaults to "https://<HOSTNAME>".
+DPOP_EXTERNAL_BASE_URL:
+
+# Maps the path prefix of each DPoP-protected group of endpoints, as this service sees it, to
+# the path prefix the reverse proxy exposes it at. The Gen3 reverse proxy strips "/workflows"
+# before the request reaches this service, but the client signed the un-stripped URL, so the
+# prefix has to be added back before comparing against `htu`.
+DPOP_PROTECTED_PATHS:
+  /ga4gh/tes: ""
+  /s3: /workflows
+
 ##########
 # AWS S3 #
 ##########
@@ -73,6 +113,25 @@ TASK_IMAGE_WHITELIST: []
 
 ENABLE_PROMETHEUS_METRICS: false
 PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
+
+###################
+#  OBSERVABILITY  #
+###################
+
+# Emit OpenTelemetry spans for requests, outbound HTTP calls and AWS calls. Leave the endpoint
+# empty to print spans to the console, which is how to inspect them locally without running a
+# collector.
+ENABLE_TRACING: false
+OTEL_EXPORTER_OTLP_ENDPOINT: ""
+OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+
+# Push CPU profiles to Pyroscope. The address is Pyroscope's own ingest API, not an OTLP
+# receiver, so an OTLP port such as 4317 or 4318 fails at push time rather than at startup.
+# Basic-auth credentials and the tenant id are read from PYROSCOPE_BASIC_AUTH_USERNAME,
+# PYROSCOPE_BASIC_AUTH_PASSWORD and PYROSCOPE_TENANT_ID, so they are never templated into a
+# configuration file.
+ENABLE_CONTINUOUS_PROFILING: false
+PYROSCOPE_SERVER_ADDRESS: ""
 
 #############
 #  CLUSTER  #
