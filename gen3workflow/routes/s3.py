@@ -339,7 +339,7 @@ async def s3_endpoint(path: str, request: Request):
     #     method, which is treated similarly to the above.
     #   Note: Chunked uploads != multipart uploads.
     try:
-        body = await request.body()
+        body = b""  # DIAGNOSTIC: dummy body to isolate memory spike from request.body()
     except ClientDisconnect:  # catch this to avoid throwing 500 errors
         raise HTTPException(
             499, "Client disconnected before request body was fully received"

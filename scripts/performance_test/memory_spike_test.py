@@ -37,12 +37,12 @@ SETUP_URL = f"{BASE_URL}/storage/setup"
 TES_URL = "https://sai.dev.planx-pla.net/ga4gh/tes/v1/tasks"
 S3_ENDPOINT = f"{BASE_URL}/s3"
 BUCKET = "gen3wf-sai-dev-planx-pla-net-3"
-
+MONITOR_MEMORY = False
 # Debug endpoints go directly to the pod (via port-forward) to ensure the same
 # worker process is measured. Override with the /workflows public URL if needed.
 DEBUG_BASE_URL = os.environ.get("DEBUG_BASE_URL", BASE_URL)
 
-NUM_ITERATIONS = 100
+NUM_ITERATIONS = 30
 FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 POLL_INTERVAL_SECONDS = 5
 
@@ -258,7 +258,7 @@ def test_setup_storage(http: requests.Session):
 def test_s3_upload(s3):
     """Upload a 10 MB in-memory buffer to S3 NUM_ITERATIONS times."""
     for i in range(1, NUM_ITERATIONS + 1):
-        key = f"load-test/10mb-{i:03d}.bin"
+        key = f"load-test/{FILE_SIZE_BYTES // (1024 * 1024)}mb-{i:03d}.bin"
         data = io.BytesIO(b"0" * FILE_SIZE_BYTES)
         s3.upload_fileobj(data, BUCKET, key)
         print(f"[upload {i:03d}] s3://{BUCKET}/{key}")
@@ -270,14 +270,17 @@ def test_tes_create_10mb_file(http: requests.Session):
     task_ids = []
     for i in range(1, NUM_ITERATIONS + 1):
         task = {
-            "name": f"Create-10MB-File-{i:03d}",
+            "name": f"Create-{FILE_SIZE_BYTES // (1024 * 1024)}MB-File-{i:03d}",
             "outputs": [
                 {
-                    "url": f"s3://{BUCKET}/tes-outputs/10mb-{i:03d}.bin",
+                    "url": f"s3://{BUCKET}/tes-outputs/{FILE_SIZE_BYTES // (1024 * 1024)}mb-{i:03d}.bin",
                     "path": "/work/output.bin",
                     "type": "FILE",
                 }
             ],
+            "tags": {
+                "_IMAGE_PULL_POLICY": "IfNotPresent",
+            },
             "executors": [
                 {
                     "image": "quay.io/nextflow/bash",
@@ -285,7 +288,7 @@ def test_tes_create_10mb_file(http: requests.Session):
                     "command": [
                         "/bin/bash",
                         "-c",
-                        "dd if=/dev/urandom of=/work/output.bin bs=1M count=10",
+                        f"dd if=/dev/urandom of=/work/output.bin bs=1M count={FILE_SIZE_BYTES // (1024 * 1024)}",
                     ],
                 }
             ],
@@ -325,7 +328,8 @@ def main():
     for name, fn in to_run.items():
         input(f"Press Enter to to start {name} ...")
         print(f"\n{'=' * 60}\nRunning: {name}\n{'=' * 60}")
-        start_monitoring(http)
+        if MONITOR_MEMORY:
+            start_monitoring(http)
         t0 = time.monotonic()
 
         try:
@@ -338,11 +342,12 @@ def main():
             print(f"FAILED:  {name} — {e}")
         finally:
             duration = round(time.monotonic() - t0, 1)
-            input(
-                f"Press Enter to collect memory report for {name} (duration={duration}s) ..."
-            )
-            report_data = collect_report(http, label=name, duration=duration)
-            reports.append(report_data)
+            if MONITOR_MEMORY:
+                input(
+                    f"Press Enter to collect memory report for {name} (duration={duration}s) ..."
+                )
+                report_data = collect_report(http, label=name, duration=duration)
+                reports.append(report_data)
 
     for report_data in reports:
         print_report(report_data)
