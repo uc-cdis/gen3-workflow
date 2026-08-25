@@ -73,6 +73,11 @@ class Gen3WorkflowConfig(Config):
                 "OTEL_EXPORTER_OTLP_PROTOCOL": {"enum": ["grpc", "http/protobuf"]},
                 "ENABLE_CONTINUOUS_PROFILING": {"type": "boolean"},
                 "PYROSCOPE_SERVER_ADDRESS": {"type": "string"},
+                "PROFILE_CPU": {"type": "boolean"},
+                "PROFILE_MEMORY": {"type": "boolean"},
+                "PROFILE_ON_CPU_ONLY": {"type": "boolean"},
+                "PYROSCOPE_SAMPLE_RATE": {"type": "integer", "minimum": 1},
+                "PYROSCOPE_UPLOAD_INTERVAL": {"type": "integer", "minimum": 1},
                 "ENABLE_OPTIMIZED_NODE_SCHEDULING": {"type": "boolean"},
                 "EKS_CLUSTER_NAME": {"type": "string"},
                 "EKS_CLUSTER_REGION": {"type": "string"},
@@ -106,6 +111,12 @@ class Gen3WorkflowConfig(Config):
         assert (
             not self["ENABLE_CONTINUOUS_PROFILING"] or self["PYROSCOPE_SERVER_ADDRESS"]
         ), "A 'PYROSCOPE_SERVER_ADDRESS' must be configured when ENABLE_CONTINUOUS_PROFILING is True"
+
+        assert (
+            not self["ENABLE_CONTINUOUS_PROFILING"]
+            or self["PROFILE_CPU"]
+            or self["PROFILE_MEMORY"]
+        ), "'PROFILE_CPU' or 'PROFILE_MEMORY' must be True when ENABLE_CONTINUOUS_PROFILING is True, otherwise the agent runs and pushes nothing"
 
 
 def get_dpop_allowed_issuers() -> list:

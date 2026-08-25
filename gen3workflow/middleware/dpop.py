@@ -38,12 +38,13 @@ async def dpop_middleware(
     Validate the DPoP proof of requests to the DPoP-protected endpoints.
 
     Requests that are not to a protected endpoint are passed through untouched. So are requests
-    that carry neither a DPoP proof nor a DPoP-bound token, unless `DPOP_REQUIRED` is set: that
-    is how worker pods reach the S3 endpoint, since they authenticate through the
-    `client_credentials` flow, which does not produce DPoP-bound tokens.
+    that carry neither a DPoP proof nor a DPoP-bound token, unless `DPOP_REQUIRED` is set.
+    Tokens issued through the `client_credentials` flow are exempt from `DPOP_REQUIRED`: that is
+    how worker pods reach these endpoints, since that flow already does client authentication.
 
     A proof presented with a token that is not DPoP-bound is always rejected, whatever
-    `DPOP_REQUIRED` is set to.
+    `DPOP_REQUIRED` is set to. So is a DPoP-bound token presented without a proof, including one
+    issued to a client.
 
     Args:
         request (Request): the incoming HTTP request
@@ -65,15 +66,6 @@ async def dpop_middleware(
     dpop_proof = request.headers.get("dpop")
 
     if not dpop_proof:
-        if config["DPOP_REQUIRED"]:
-            logger.warning(
-                f"Rejecting request to '{request.url.path}': DPoP is required and the request has no DPoP proof"
-            )
-            return _error_response(
-                HTTP_401_UNAUTHORIZED,
-                "dpop_required",
-                "This endpoint only accepts DPoP-bound access tokens, presented with a DPoP proof",
-            )
         if access_token and _is_dpop_bound(access_token):
             logger.warning(
                 f"Rejecting request to '{request.url.path}': the access token is DPoP-bound but the request has no DPoP proof"
@@ -82,6 +74,17 @@ async def dpop_middleware(
                 HTTP_401_UNAUTHORIZED,
                 "dpop_required",
                 "This access token is DPoP-bound and can only be used with a DPoP proof",
+            )
+        if config["DPOP_REQUIRED"] and not (
+            access_token and _is_client_credentials_token(access_token)
+        ):
+            logger.warning(
+                f"Rejecting request to '{request.url.path}': DPoP is required and the request has no DPoP proof"
+            )
+            return _error_response(
+                HTTP_401_UNAUTHORIZED,
+                "dpop_required",
+                "This endpoint only accepts DPoP-bound access tokens, presented with a DPoP proof",
             )
         return await call_next(request)
 
@@ -240,6 +243,26 @@ def _is_dpop_bound(access_token: str) -> bool:
     if not isinstance(cnf, dict):
         return False
     return bool(cnf.get("jkt")) and isinstance(cnf.get("jkt"), str)
+
+
+def _is_client_credentials_token(access_token: str) -> bool:
+    """
+    Check whether an access token was issued through the `client_credentials` flow.
+
+    Such a token is linked to a client and to no user, and is never DPoP-bound, so requiring a
+    proof from it would lock out the worker pods that use it.
+
+    The token signature is not verified here: this only decides whether a proof is required. A
+    forged token gets no further than the endpoint's own validation, which does verify it.
+
+    Args:
+        access_token (str): the encoded access token
+
+    Returns:
+        bool: True if the token carries an `azp` claim (the client ID) and no `sub` claim
+    """
+    claims = _unverified_claims(access_token)
+    return bool(claims.get("azp")) and not claims.get("sub")
 
 
 def _unverified_claims(access_token: str) -> dict:

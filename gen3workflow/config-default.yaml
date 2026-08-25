@@ -41,9 +41,8 @@ DPOP_ENABLED: false
 
 # When true, the DPoP-protected endpoints reject any request that does not present a DPoP-bound
 # access token along with a valid proof. Requires `DPOP_ENABLED`.
-# /!\ WARNING: this also rejects the Funnel worker pods, which authenticate through the
-# `client_credentials` flow and send no proof. Only enable it where nothing but DPoP clients
-# reach these endpoints.
+# Tokens issued through the `client_credentials` flow, such as the Funnel worker pods' tokens,
+# are exempt, since that flow does not produce DPoP-bound tokens.
 DPOP_REQUIRED: false
 
 # Secret used to sign and verify the stateless DPoP nonces.
@@ -125,13 +124,27 @@ ENABLE_TRACING: false
 OTEL_EXPORTER_OTLP_ENDPOINT: ""
 OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
 
-# Push CPU profiles to Pyroscope. The address is Pyroscope's own ingest API, not an OTLP
+# Push profiles to Pyroscope. The address is Pyroscope's own ingest API, not an OTLP
 # receiver, so an OTLP port such as 4317 or 4318 fails at push time rather than at startup.
 # Basic-auth credentials and the tenant id are read from PYROSCOPE_BASIC_AUTH_USERNAME,
 # PYROSCOPE_BASIC_AUTH_PASSWORD and PYROSCOPE_TENANT_ID, so they are never templated into a
 # configuration file.
 ENABLE_CONTINUOUS_PROFILING: false
 PYROSCOPE_SERVER_ADDRESS: ""
+
+# What the Pyroscope agent collects, how many samples per second it takes and how many seconds
+# it waits between pushes. All 5 are handed to the agent, so the PROFILE_CPU, PROFILE_MEMORY,
+# PROFILE_ON_CPU_ONLY, PYROSCOPE_SAMPLE_RATE and PYROSCOPE_UPLOAD_INTERVAL environment
+# variables the profiling library falls back to are not consulted.
+# Memory profiling is heavier than CPU profiling, so it is off until something needs it.
+# PROFILE_ON_CPU_ONLY measures CPU time rather than wall-clock time, which leaves time spent
+# awaiting I/O out of the flamegraph: turn it off to see a request that spends most of its time
+# waiting on the TES server or S3.
+PROFILE_CPU: true
+PROFILE_MEMORY: false
+PROFILE_ON_CPU_ONLY: true
+PYROSCOPE_SAMPLE_RATE: 100
+PYROSCOPE_UPLOAD_INTERVAL: 10
 
 #############
 #  CLUSTER  #

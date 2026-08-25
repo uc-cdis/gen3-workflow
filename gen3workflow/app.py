@@ -80,6 +80,11 @@ def get_app(httpx_client=None) -> FastAPI:
         "gen3-workflow",
         enabled=config["ENABLE_CONTINUOUS_PROFILING"],
         server_address=config["PYROSCOPE_SERVER_ADDRESS"],
+        sample_rate=config["PYROSCOPE_SAMPLE_RATE"],
+        upload_interval=config["PYROSCOPE_UPLOAD_INTERVAL"],
+        profile_cpu=config["PROFILE_CPU"],
+        profile_memory=config["PROFILE_MEMORY"],
+        on_cpu_only=config["PROFILE_ON_CPU_ONLY"],
     )
 
     app = FastAPI(

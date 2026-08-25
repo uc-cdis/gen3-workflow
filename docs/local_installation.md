@@ -77,17 +77,14 @@ Tokens that are not bound are unaffected, so worker pods using the `client_crede
 
 To enable it, in your configuration file:
 - set `DPOP_ENABLED` to `true`
-- set `DPOP_REQUIRED` to `true` to reject any request to those endpoints that does not present a DPoP-bound token and a valid proof, rather than only enforcing the binding of tokens that have one. This also rejects the Funnel worker pods, which authenticate through the `client_credentials` flow and send no proof, so only use it where nothing but DPoP clients reach these endpoints.
-> FIXME: need to ALLOW client_credentials ONLY even when DPoP is required
-
+- set `DPOP_REQUIRED` to `true` to reject any request to those endpoints that does not present a DPoP-bound token and a valid proof, rather than only enforcing the binding of tokens that have one. Tokens issued through the `client_credentials` flow, such as the Funnel worker pods' tokens, are exempt, since that flow authenticates the client via that client_credentials flow itself.
 - set `DPOP_ALLOWED_ISSUERS` to the issuers allowed to sign the tokens, for example `["https://<commons hostname>/user"]`
 - set `DPOP_SHARED_SECRET` to the **exact same value** as the auth service's `DPOP_SHARED_SECRET`, or set the `DPOP_SHARED_SECRET` environment variable, which takes precedence. Clients reuse the nonce the auth service handed them for their first request here, and a nonce signed with a different secret does not verify.
 - if this service is not reached directly, set `DPOP_EXTERNAL_BASE_URL` to the URL clients use, and make sure `DPOP_PROTECTED_PATHS` maps each protected path prefix to the prefix the reverse proxy exposes it at. The Gen3 reverse proxy serves the S3 endpoint under `/workflows`, which it strips before forwarding, so the default configuration adds it back. Getting this wrong shows up as an `htu mismatch` error.
 
 Optionally, set the `DPOP_NONCE_TTL` environment variable to change how long a nonce stays valid (defaults to 300 seconds).
 
-Clients can generate the proofs with the Gen3 Python SDK/CLI, which exchanges an API key for a bound token and then proxies Nextflow's TES and S3 traffic through freshly signed proofs.
-FIXME: add link to Gen3 SDK repo in GH
+Clients can generate the proofs with the [Gen3 Python SDK/CLI](https://github.com/uc-cdis/gen3sdk-python), which exchanges an API key for a bound token and then proxies Nextflow's TES and S3 traffic through freshly signed proofs.
 
 ## Run Nextflow workflows with Gen3Workflow
 

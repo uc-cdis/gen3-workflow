@@ -192,6 +192,28 @@ async def test_probe_endpoint_produces_no_span(span_exporter, tracing_enabled):
     assert len(server_spans(span_exporter)) == 1
 
 
+@pytest.fixture(scope="function")
+def memory_profiling_enabled():
+    """
+    Turn memory profiling on.
+    """
+    original_val = config["PROFILE_MEMORY"]
+    config["PROFILE_MEMORY"] = True
+    yield
+    config["PROFILE_MEMORY"] = original_val
+
+
+@pytest.fixture(scope="function")
+def cpu_profiling_disabled():
+    """
+    Turn CPU profiling off.
+    """
+    original_val = config["PROFILE_CPU"]
+    config["PROFILE_CPU"] = False
+    yield
+    config["PROFILE_CPU"] = original_val
+
+
 @pytest.mark.asyncio
 async def test_profiling_is_off_by_default(fake_pyroscope):
     """
@@ -217,3 +239,49 @@ async def test_profiling_starts_the_agent_once(fake_pyroscope, profiling_enabled
     assert kwargs["application_name"] == "gen3-workflow"
     assert kwargs["server_address"] == PYROSCOPE_ADDRESS
     assert profiling_active()
+
+
+@pytest.mark.asyncio
+async def test_profiling_settings_reach_the_agent(
+    fake_pyroscope, profiling_enabled, memory_profiling_enabled
+):
+    """
+    What the agent collects, and how often, is what the configuration says: memory profiles are
+    only collected when `PROFILE_MEMORY` is on.
+    """
+    build_app()
+
+    kwargs = fake_pyroscope.configure.call_args.kwargs
+    assert kwargs["mem_enabled"] is True
+    assert kwargs["cpu_enabled"] == config["PROFILE_CPU"]
+    assert kwargs["oncpu"] == config["PROFILE_ON_CPU_ONLY"]
+    assert kwargs["sample_rate"] == config["PYROSCOPE_SAMPLE_RATE"]
+    assert kwargs["upload_interval"] == config["PYROSCOPE_UPLOAD_INTERVAL"]
+
+
+@pytest.mark.asyncio
+async def test_profiling_settings_ignore_the_environment(
+    fake_pyroscope, profiling_enabled, monkeypatch
+):
+    """
+    Every profiling setting is passed explicitly, so the environment variables the profiling
+    library falls back to cannot turn memory profiling on behind the configuration's back.
+    """
+    monkeypatch.setenv("PROFILE_MEMORY", "true")
+    build_app()
+
+    assert fake_pyroscope.configure.call_args.kwargs["mem_enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_profiling_with_nothing_to_collect_is_rejected(
+    fake_pyroscope, profiling_enabled, cpu_profiling_disabled
+):
+    """
+    Profiling with neither CPU nor memory profiles is refused at startup, rather than running an
+    agent that pushes nothing.
+    """
+    with pytest.raises(AssertionError, match="PROFILE_CPU"):
+        build_app()
+
+    fake_pyroscope.configure.assert_not_called()
