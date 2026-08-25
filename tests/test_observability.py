@@ -160,7 +160,7 @@ async def test_request_produces_a_server_span(span_exporter, tracing_enabled):
     With tracing on, a request to a real route produces a request span.
     """
     app = build_app()
-    assert app._is_instrumented_by_opentelemetry
+    assert getattr(app, "_is_instrumented_by_opentelemetry", False)
 
     span_exporter.clear()
     async with app_client(app) as client:

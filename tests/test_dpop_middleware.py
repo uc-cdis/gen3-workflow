@@ -15,10 +15,8 @@ from joserfc import jwk, jwt
 import pytest
 
 from gen3workflow.config import config, get_dpop_allowed_issuers
-from gen3workflow.routes import ga4gh_tes, s3
 from tests.conftest import (
     mock_arborist_request,
-    mock_tes_server_request,
     MOCKED_S3_RESPONSE_XML,
     TEST_USER_ID,
 )
@@ -547,61 +545,3 @@ def reset_config_dpop_enabled():
     original_val = config["DPOP_ENABLED"]
     yield
     config["DPOP_ENABLED"] = original_val
-
-
-class TestLocalTestStubs:
-    """
-    Tests for the temporary canned endpoint responses. Delete alongside
-    `DPOP_LOCAL_TEST_STUBS`.
-    """
-
-    @pytest.fixture(autouse=True)
-    def enable_stubs(self):
-        """
-        Enable the canned responses, which the test suite disables by default.
-        """
-        with patch.object(ga4gh_tes, "DPOP_LOCAL_TEST_STUBS", True), patch.object(
-            s3, "DPOP_LOCAL_TEST_STUBS", True
-        ):
-            yield
-
-    @pytest.mark.asyncio
-    async def test_stubbed_tes_endpoint_skips_the_tes_server(
-        self, client, access_token_patcher, token_signing_key, dpop_key
-    ):
-        """
-        A stubbed task creation returns a task ID without calling the TES server.
-        """
-        access_token = create_access_token(token_signing_key, dpop_key)
-        res = await client.post(
-            TES_PATH,
-            json={"name": "test-task"},
-            headers={
-                "Authorization": f"DPoP {access_token}",
-                "DPoP": create_proof(dpop_key, "POST", TES_PATH, access_token),
-            },
-        )
-        assert res.status_code == 200, res.text
-        assert res.json()["id"]
-        mock_tes_server_request.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_stubbed_s3_endpoint_skips_s3(
-        self, client, access_token_patcher, token_signing_key, dpop_key
-    ):
-        """
-        A stubbed bucket listing returns S3-shaped XML without calling S3.
-        """
-        access_token = create_access_token(token_signing_key, dpop_key)
-        res = await client.get(
-            S3_PATH,
-            params={"list-type": "2"},
-            headers={
-                "Authorization": aws_auth_header(access_token),
-                "DPoP": create_proof(
-                    dpop_key, "GET", S3_PATH, access_token, external_prefix="/workflows"
-                ),
-            },
-        )
-        assert res.status_code == 200, res.text
-        assert f"<Name>{S3_BUCKET}</Name>" in res.text
