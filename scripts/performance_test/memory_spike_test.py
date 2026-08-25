@@ -42,7 +42,7 @@ MONITOR_MEMORY = False
 # worker process is measured. Override with the /workflows public URL if needed.
 DEBUG_BASE_URL = os.environ.get("DEBUG_BASE_URL", BASE_URL)
 
-NUM_ITERATIONS = 30
+NUM_ITERATIONS = 100
 FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 POLL_INTERVAL_SECONDS = 5
 
@@ -301,12 +301,39 @@ def test_tes_create_10mb_file(http: requests.Session):
     return task_ids
 
 
+def test_tes_create_hello_world(http: requests.Session):
+    """TES task that just echoes 'Hello World' NUM_ITERATIONS times, to test memory usage without large file output."""
+    task_ids = []
+    for i in range(1, NUM_ITERATIONS + 1):
+        task = {
+            "name": f"Say Hello world-{i:03d}",
+            "tags": {
+                "_IMAGE_PULL_POLICY": "IfNotPresent",
+            },
+            "executors": [
+                {
+                    "image": "quay.io/nextflow/bash",
+                    "workdir": "/work",
+                    "command": ["echo Hello World"],
+                }
+            ],
+        }
+        resp = http.post(TES_URL, json=task, headers=auth_headers())
+        print(f"[tes {i:03d}] status={resp.status_code}")
+        resp.raise_for_status()
+        task_ids.append(resp.json().get("id"))
+        print(f"[tes {i:03d}] task_id={task_ids[-1]}")
+        time.sleep(0.05)
+    return task_ids
+
+
 # ── Registry ───────────────────────────────────────────────────────────────────
 
 TESTS: dict[str, callable] = {
     "test_setup_storage": test_setup_storage,
     "test_s3_upload": test_s3_upload,
     "test_tes_create_10mb_file": test_tes_create_10mb_file,
+    "test_tes_create_hello_world": test_tes_create_hello_world,
 }
 
 

@@ -327,7 +327,7 @@ async def s3_endpoint(path: str, request: Request):
     # - Chunked payload support:
     #   - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
     #     The body includes chunks and checksums. It can be forwarded to AWS without changes as long
-    #     as the necessary headers are forwarded as well.
+    #     as the necessary headers are forwarded as well. The body is streamed directly.
     #   - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
     #     Funnel uses this client.
     #     We overwrite the original `x-amz-content-sha256` header value with the body hash and we
@@ -338,19 +338,22 @@ async def s3_endpoint(path: str, request: Request):
     #   - aws-sdk-java used by Nextflow may use the STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER
     #     method, which is treated similarly to the above.
     #   Note: Chunked uploads != multipart uploads.
-    try:
-        body = b""  # DIAGNOSTIC: dummy body to isolate memory spike from request.body()
-    except ClientDisconnect:  # catch this to avoid throwing 500 errors
-        raise HTTPException(
-            499, "Client disconnected before request body was fully received"
-        )
-    if in_headers.get("x-amz-content-sha256") in [
+    is_chunked_streaming = in_headers.get("x-amz-content-sha256") in [
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
-    ]:
+    ]
+    if is_chunked_streaming:
+        # Must buffer: we need to de-chunk the body and hash it before re-signing.
         # parse the body and hash it — both are CPU-bound and must run off the event loop.
         # sha256 of a 5-10 MB body takes ~30-50ms and would block the event loop if called inline.
         # the semaphore caps concurrent operations so 100 simultaneous uploads don't saturate the CPU.
+        try:
+            body = await request.body()
+        except ClientDisconnect:  # catch this to avoid throwing 500 errors
+            raise HTTPException(
+                499, "Client disconnected before request body was fully received"
+            )
+
         def _parse_and_hash(b):
             b = chunked_to_non_chunked_body(b)
             return b, hashlib.sha256(b).hexdigest()
@@ -366,6 +369,11 @@ async def s3_endpoint(path: str, request: Request):
         # the outgoing body is no longer chunked, so there's no trailer/checksum in it anymore
         out_headers.pop("x-amz-trailer", None)
         out_headers.pop("x-amz-sdk-checksum-algorithm", None)
+        request_content = body
+    else:
+        # Non-chunked: the client already computed x-amz-content-sha256 and content-length,
+        # so we can stream the body directly without buffering it in memory.
+        request_content = request.stream()
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -448,8 +456,9 @@ async def s3_endpoint(path: str, request: Request):
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to the S3 server with the new Authorization header.
-    # this call is retried with exponential backoff in case of unexpected error from S3.
-    for attempt in range(1, S3_MAX_TRIES + 1):
+    # retries are only possible for buffered content; a consumed stream cannot be re-read.
+    max_tries = S3_MAX_TRIES if is_chunked_streaming else 1
+    for attempt in range(1, max_tries + 1):
         proceed = True
         exception = None
         try:
@@ -459,7 +468,7 @@ async def s3_endpoint(path: str, request: Request):
                     url=s3_api_url,
                     headers=out_headers,
                     params=query_params,
-                    content=body,
+                    content=request_content,
                 ),
                 stream=True,
             )
@@ -487,7 +496,8 @@ async def s3_endpoint(path: str, request: Request):
                         logger.debug(f"String to sign:\n{string_to_sign}")
                         logger.debug(f"Incoming query params:\n{request.query_params}")
                         logger.debug(f"Outgoing query params:\n{query_params}")
-                        logger.debug(f"Outgoing body:\n{body}")
+                        if is_chunked_streaming:
+                            logger.debug(f"Outgoing body:\n{request_content}")
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
@@ -499,9 +509,9 @@ async def s3_endpoint(path: str, request: Request):
         # retries
         if proceed:
             break
-        if attempt == S3_MAX_TRIES:
+        if attempt == max_tries:
             logger.error(
-                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Giving up"
+                f"Outgoing S3 request failed (attempt {attempt}/{max_tries}). Giving up"
             )
             if exception:
                 raise exception
@@ -511,7 +521,7 @@ async def s3_endpoint(path: str, request: Request):
         delay = S3_RETRY_BASE_DELAY * (S3_RETRY_BACKOFF_FACTOR**attempt)
         delay += delay * 0.1 * random.uniform(-1, 1)  # add jitter
         logger.warning(
-            f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Retrying in {delay:.2f} seconds"
+            f"Outgoing S3 request failed (attempt {attempt}/{max_tries}). Retrying in {delay:.2f} seconds"
         )
         await asyncio.sleep(delay)
 
