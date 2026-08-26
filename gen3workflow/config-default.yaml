@@ -41,9 +41,17 @@ DPOP_ENABLED: false
 
 # When true, the DPoP-protected endpoints reject any request that does not present a DPoP-bound
 # access token along with a valid proof. Requires `DPOP_ENABLED`.
-# Tokens issued through the `client_credentials` flow, such as the Funnel worker pods' tokens,
-# are exempt, since that flow does not produce DPoP-bound tokens.
+# The clients listed in `DPOP_EXEMPT_CLIENT_IDS` are the only exception.
 DPOP_REQUIRED: false
+
+# Client IDs whose `client_credentials` tokens are accepted by the DPoP-protected endpoints
+# without a DPoP proof when `DPOP_REQUIRED` is true, such as the Funnel worker pods' client.
+# Those tokens are never DPoP-bound, so their holders have no key to sign a proof with. A client
+# that is not listed here is held to the same requirement as a user.
+# /!\ WARNING: an exempt token is an ordinary bearer credential: whoever holds it can act as any
+# user the client is authorized for, and `DPOP_REQUIRED` does not change that. Keep this list to
+# the clients that need it, and their Arborist policies as narrow as the workflows allow.
+DPOP_EXEMPT_CLIENT_IDS: []
 
 # Secret used to sign and verify the stateless DPoP nonces.
 # /!\ WARNING: this MUST be the exact same value as the `DPOP_SHARED_SECRET` of the auth

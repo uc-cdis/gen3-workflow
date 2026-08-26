@@ -52,6 +52,10 @@ class Gen3WorkflowConfig(Config):
                     "type": "array",
                     "items": {"type": "string"},
                 },
+                "DPOP_EXEMPT_CLIENT_IDS": {
+                    "type": "array",
+                    "items": NON_EMPTY_STRING_SCHEMA,
+                },
                 "DPOP_EXTERNAL_BASE_URL": {"type": ["string", "null"]},
                 "DPOP_PROTECTED_PATHS": {
                     "type": "object",
@@ -107,6 +111,11 @@ class Gen3WorkflowConfig(Config):
             assert (
                 get_dpop_shared_secret()
             ), "A 'DPOP_SHARED_SECRET' must be configured, or provided through the environment, when DPOP_ENABLED is True"
+
+        if self["DPOP_REQUIRED"] and not self["DPOP_EXEMPT_CLIENT_IDS"]:
+            logger.warning(
+                "DPOP_REQUIRED is True and DPOP_EXEMPT_CLIENT_IDS is empty: clients using the 'client_credentials' flow, such as the Funnel worker pods, cannot present a DPoP proof and will be rejected by the DPoP-protected endpoints"
+            )
 
         assert (
             not self["ENABLE_CONTINUOUS_PROFILING"] or self["PYROSCOPE_SERVER_ADDRESS"]

@@ -30,6 +30,11 @@ from gen3workflow.routes.s3 import get_access_key_id_from_auth_header
 REQUIRED_SCOPES = frozenset({"user", "openid"})
 REQUIRED_PURPOSE = "access"
 
+# Counter of the requests that reached a protected endpoint without a proof because they carried
+# an exempt client's token. Labeled by the `DPOP_PROTECTED_PATHS` prefix rather than the request
+# path: an S3 path carries the object key, which would make the label cardinality unbounded.
+EXEMPT_REQUESTS_COUNTER = "gen3_workflow_dpop_exempt_requests"
+
 
 async def dpop_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -38,9 +43,10 @@ async def dpop_middleware(
     Validate the DPoP proof of requests to the DPoP-protected endpoints.
 
     Requests that are not to a protected endpoint are passed through untouched. So are requests
-    that carry neither a DPoP proof nor a DPoP-bound token, unless `DPOP_REQUIRED` is set.
-    Tokens issued through the `client_credentials` flow are exempt from `DPOP_REQUIRED`: that is
-    how worker pods reach these endpoints, since that flow already does client authentication.
+    that carry neither a DPoP proof nor a DPoP-bound token, unless `DPOP_REQUIRED` is set. The
+    `client_credentials` tokens of the clients listed in `DPOP_EXEMPT_CLIENT_IDS` are exempt from
+    `DPOP_REQUIRED`: that is how worker pods reach these endpoints, since such a token is never
+    DPoP-bound and its holder has no key to sign a proof with.
 
     A proof presented with a token that is not DPoP-bound is always rejected, whatever
     `DPOP_REQUIRED` is set to. So is a DPoP-bound token presented without a proof, including one
@@ -75,17 +81,17 @@ async def dpop_middleware(
                 "dpop_required",
                 "This access token is DPoP-bound and can only be used with a DPoP proof",
             )
-        if config["DPOP_REQUIRED"] and not (
-            access_token and _is_client_credentials_token(access_token)
-        ):
-            logger.warning(
-                f"Rejecting request to '{request.url.path}': DPoP is required and the request has no DPoP proof"
-            )
-            return _error_response(
-                HTTP_401_UNAUTHORIZED,
-                "dpop_required",
-                "This endpoint only accepts DPoP-bound access tokens, presented with a DPoP proof",
-            )
+        if config["DPOP_REQUIRED"]:
+            if not (access_token and _is_exempt_client_token(access_token)):
+                logger.warning(
+                    f"Rejecting request to '{request.url.path}': DPoP is required and the request has no DPoP proof"
+                )
+                return _error_response(
+                    HTTP_401_UNAUTHORIZED,
+                    "dpop_required",
+                    "This endpoint only accepts DPoP-bound access tokens, presented with a DPoP proof",
+                )
+            _record_exempt_request(request, access_token, path_prefix)
         return await call_next(request)
 
     if not access_token:
@@ -245,12 +251,14 @@ def _is_dpop_bound(access_token: str) -> bool:
     return bool(cnf.get("jkt")) and isinstance(cnf.get("jkt"), str)
 
 
-def _is_client_credentials_token(access_token: str) -> bool:
+def _is_exempt_client_token(access_token: str) -> bool:
     """
-    Check whether an access token was issued through the `client_credentials` flow.
+    Check whether an access token belongs to a client allowed to skip the DPoP proof.
 
-    Such a token is linked to a client and to no user, and is never DPoP-bound, so requiring a
-    proof from it would lock out the worker pods that use it.
+    Such a token comes from the `client_credentials` flow: it is linked to a client and to no
+    user, and is never DPoP-bound, so requiring a proof from it would lock out the worker pods
+    that use it. Only the clients listed in `DPOP_EXEMPT_CLIENT_IDS` get that treatment; any
+    other client is held to the same requirement as a user.
 
     The token signature is not verified here: this only decides whether a proof is required. A
     forged token gets no further than the endpoint's own validation, which does verify it.
@@ -259,10 +267,40 @@ def _is_client_credentials_token(access_token: str) -> bool:
         access_token (str): the encoded access token
 
     Returns:
-        bool: True if the token carries an `azp` claim (the client ID) and no `sub` claim
+        bool: True if the token carries the `azp` claim (the client ID) of an exempt client and
+            no `sub` claim
     """
     claims = _unverified_claims(access_token)
-    return bool(claims.get("azp")) and not claims.get("sub")
+    # presence, not truthiness: a token carrying any `sub` is a user's token, and a user is
+    # expected to hold a bound one
+    if "sub" in claims:
+        return False
+    return claims.get("azp") in config["DPOP_EXEMPT_CLIENT_IDS"]
+
+
+def _record_exempt_request(
+    request: Request, access_token: str, path_prefix: str
+) -> None:
+    """
+    Log and count a request that reached a protected endpoint without a DPoP proof.
+
+    An exempt token is an ordinary bearer credential, so this is the one place a deployment can
+    see the exemption being used, and by which client.
+
+    Args:
+        request (Request): the incoming HTTP request
+        access_token (str): the exempt client's access token
+        path_prefix (str): the matching `DPOP_PROTECTED_PATHS` key
+    """
+    client_id = _unverified_claims(access_token).get("azp")
+    logger.info(
+        f"Client '{client_id}' reached '{request.url.path}' with no DPoP proof: exempt by DPOP_EXEMPT_CLIENT_IDS"
+    )
+    request.app.metrics.increment_counter(
+        EXEMPT_REQUESTS_COUNTER,
+        {"client_id": client_id, "path_prefix": path_prefix},
+        description="Requests accepted on a DPoP-protected endpoint without a DPoP proof, because they carried an exempt client's access token.",
+    )
 
 
 def _unverified_claims(access_token: str) -> dict:

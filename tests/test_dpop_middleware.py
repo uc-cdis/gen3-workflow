@@ -20,8 +20,12 @@ from tests.conftest import (
     MOCKED_S3_RESPONSE_XML,
     TEST_USER_ID,
 )
+from tests.test_metrics import scrape, total
 
 TES_PATH = "/ga4gh/tes/v1/tasks"
+TES_PATH_PREFIX = "/ga4gh/tes"
+TEST_CLIENT_ID = "test-client-id"
+EXEMPT_REQUESTS_COUNTER = "gen3_workflow_dpop_exempt_requests_total"
 S3_BUCKET = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 S3_PATH = f"/s3/{S3_BUCKET}"
 
@@ -73,7 +77,8 @@ def create_access_token(token_signing_key, dpop_key=None, **claim_overrides):
     Args:
         token_signing_key (jwk.Key): the issuer's signing key
         dpop_key (jwk.Key | None): if provided, the token is bound to this key
-        **claim_overrides: claims to add to or replace in the token
+        **claim_overrides: claims to add to or replace in the token. A `None` value drops the
+            claim, which is how a token with no `sub` (`client_credentials` flow) is built.
 
     Returns:
         str: the encoded access token
@@ -91,7 +96,25 @@ def create_access_token(token_signing_key, dpop_key=None, **claim_overrides):
     if dpop_key:
         claims["cnf"] = {"jkt": dpop_key.thumbprint()}
     claims.update(claim_overrides)
+    claims = {key: value for key, value in claims.items() if value is not None}
     return jwt.encode({"alg": "RS256", "typ": "JWT"}, claims, token_signing_key)
+
+
+def create_client_credentials_token(token_signing_key, dpop_key=None):
+    """
+    Create an access token as the auth service would issue it to a client, with no user linked
+    to it. This is what the Funnel worker pods authenticate with.
+
+    Args:
+        token_signing_key (jwk.Key): the issuer's signing key
+        dpop_key (jwk.Key | None): if provided, the token is bound to this key
+
+    Returns:
+        str: the encoded access token
+    """
+    return create_access_token(
+        token_signing_key, dpop_key, sub=None, azp=TEST_CLIENT_ID
+    )
 
 
 def create_proof(
@@ -399,7 +422,7 @@ async def test_token_from_an_unknown_issuer_is_rejected(
         pytest.param({"Authorization": "Bearer unbound-token"}, id="unbound-token"),
     ],
 )
-async def test_proof_is_required_from_everyone_when_dpop_is_required(
+async def test_proof_is_required_when_dpop_is_required(
     client, access_token_patcher, reset_config_dpop_required, headers
 ):
     """
@@ -408,6 +431,189 @@ async def test_proof_is_required_from_everyone_when_dpop_is_required(
     """
     config["DPOP_REQUIRED"] = True
     res = await client.post(TES_PATH, json={"name": "test-task"}, headers=headers)
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+async def test_user_token_without_proof_is_rejected_when_dpop_is_required(
+    client, access_token_patcher, token_signing_key, reset_config_dpop_required
+):
+    """
+    A token linked to a user, but not DPoP-bound, does not benefit from the exemption granted to
+    `client_credentials` tokens: a user is expected to get a bound token.
+    """
+    config["DPOP_REQUIRED"] = True
+    access_token = create_access_token(token_signing_key)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+async def test_exempt_client_token_without_proof_is_accepted_when_dpop_is_required(
+    client,
+    access_token_patcher,
+    token_signing_key,
+    reset_config_dpop_required,
+    reset_config_dpop_exempt_clients,
+):
+    """
+    Requiring DPoP does not lock out the worker pods: a listed client's `client_credentials`
+    token, which is never DPoP-bound, is still accepted without a proof.
+    """
+    config["DPOP_REQUIRED"] = True
+    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
+    access_token = create_client_credentials_token(token_signing_key)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_exempt_client_token_without_proof_is_accepted_on_s3_endpoint_when_dpop_is_required(
+    client,
+    access_token_patcher,
+    token_signing_key,
+    reset_config_dpop_required,
+    reset_config_dpop_exempt_clients,
+):
+    """
+    The exemption also covers the S3 endpoint, where a client presents its token as the AWS
+    access key ID, with the ID of the user it acts on behalf of appended to it.
+    """
+    config["DPOP_REQUIRED"] = True
+    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
+    access_token = create_client_credentials_token(token_signing_key)
+    res = await client.get(
+        S3_PATH,
+        params={"list-type": "2"},
+        headers={
+            "Authorization": aws_auth_header(f"{access_token};userId={TEST_USER_ID}")
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.text == MOCKED_S3_RESPONSE_XML
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exempt_client_ids",
+    [
+        pytest.param([], id="no-client-exempt"),
+        pytest.param(["another-client-id"], id="another-client-exempt"),
+    ],
+)
+async def test_unlisted_client_token_without_proof_is_rejected_when_dpop_is_required(
+    client,
+    access_token_patcher,
+    token_signing_key,
+    reset_config_dpop_required,
+    reset_config_dpop_exempt_clients,
+    exempt_client_ids,
+):
+    """
+    A `client_credentials` token only skips the proof requirement if its client is listed in
+    `DPOP_EXEMPT_CLIENT_IDS`, so holding any client's token is not enough.
+    """
+    config["DPOP_REQUIRED"] = True
+    config["DPOP_EXEMPT_CLIENT_IDS"] = exempt_client_ids
+    access_token = create_client_credentials_token(token_signing_key)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sub",
+    [
+        pytest.param(TEST_USER_ID, id="user-id"),
+        pytest.param(0, id="zero"),
+        pytest.param("", id="empty-string"),
+    ],
+)
+async def test_exempt_client_token_linked_to_a_user_is_rejected_when_dpop_is_required(
+    client,
+    access_token_patcher,
+    token_signing_key,
+    reset_config_dpop_required,
+    reset_config_dpop_exempt_clients,
+    sub,
+):
+    """
+    A token carrying a `sub` is a user's token whatever client obtained it, so it does not
+    benefit from the exemption even when the client is listed.
+    """
+    config["DPOP_REQUIRED"] = True
+    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
+    access_token = create_access_token(token_signing_key, sub=sub, azp=TEST_CLIENT_ID)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+async def test_exempt_request_is_counted(
+    client,
+    access_token_patcher,
+    token_signing_key,
+    reset_config_dpop_required,
+    reset_config_dpop_exempt_clients,
+):
+    """
+    Every request that skips the proof requirement is counted, per client, so that a deployment
+    can alert on the exemption being used.
+    """
+    config["DPOP_REQUIRED"] = True
+    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
+    access_token = create_client_credentials_token(token_signing_key)
+    headers = {"Authorization": f"Bearer {access_token}"}
+    labels = {"client_id": TEST_CLIENT_ID, "path_prefix": TES_PATH_PREFIX}
+
+    await client.post(TES_PATH, json={"name": "test-task"}, headers=headers)
+    before = total(await scrape(client), EXEMPT_REQUESTS_COUNTER, **labels)
+
+    res = await client.post(TES_PATH, json={"name": "test-task"}, headers=headers)
+    assert res.status_code == 200, res.text
+
+    assert total(await scrape(client), EXEMPT_REQUESTS_COUNTER, **labels) == before + 1
+
+
+@pytest.mark.asyncio
+async def test_bound_client_credentials_token_without_proof_is_rejected(
+    client, access_token_patcher, token_signing_key, dpop_key
+):
+    """
+    A token that is DPoP-bound always requires a proof, even when it is a client's: the
+    exemption is about tokens a client cannot prove possession of, not about clients.
+    """
+    access_token = create_client_credentials_token(token_signing_key, dpop_key)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
     assert res.status_code == 401
     assert res.json()["error"] == "dpop_required"
 
@@ -499,6 +705,16 @@ def reset_config_dpop_issuers():
     original_val = config["DPOP_ALLOWED_ISSUERS"]
     yield
     config["DPOP_ALLOWED_ISSUERS"] = original_val
+
+
+@pytest.fixture(scope="function")
+def reset_config_dpop_exempt_clients():
+    """
+    Reset the `DPOP_EXEMPT_CLIENT_IDS` configuration at the end of tests that use this fixture.
+    """
+    original_val = config["DPOP_EXEMPT_CLIENT_IDS"]
+    yield
+    config["DPOP_EXEMPT_CLIENT_IDS"] = original_val
 
 
 @pytest.fixture(scope="function")
