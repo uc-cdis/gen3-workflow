@@ -259,9 +259,9 @@ develop = false
 
 [package.dependencies]
 cdiserrors = "*"
-cdislogging = "*"
 fastapi = {version = "*", optional = true}
 Flask = "*"
+gen3logging = {git = "https://github.com/uc-cdis/cdislogging.git", rev = "feat/json"}
 opentelemetry-api = {version = "*", optional = true}
 opentelemetry-exporter-otlp = {version = "*", optional = true}
 opentelemetry-instrumentation-asyncpg = {version = "*", optional = true}
@@ -286,7 +286,7 @@ uwsgi = ["uwsgi"]
 type = "git"
 url = "https://github.com/uc-cdis/cdis-python-utils.git"
 reference = "feat/observability"
-resolved_reference = "c7c197109b7d7bb7a77dc43a0b9d84873f36b847"
+resolved_reference = "5f3141a835693605b3843bfe819484bd0e61608e"
 
 [[package]]
 name = "certifi"
@@ -874,6 +874,22 @@ cdislogging = "*"
 jinja2 = "*"
 pyyaml = "*"
 six = "*"
+
+[[package]]
+name = "gen3logging"
+version = "2.0.0"
+description = "Standardized logging tool and format for Gen3"
+optional = false
+python-versions = ">=3.13,<4"
+groups = ["main"]
+files = []
+develop = false
+
+[package.source]
+type = "git"
+url = "https://github.com/uc-cdis/cdislogging.git"
+reference = "feat/json"
+resolved_reference = "66e6d96eff1b8d73279ab1256fb4c811c9043722"
 
 [[package]]
 name = "googleapis-common-protos"
@@ -2699,4 +2715,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "52f321769d87faf819a49bb26d4ab7ef53ea8147753ac0589018d501c1d422b4"
+content-hash = "4fab8600981a8b0ff0e3ec4dc9aedd5d242c202108251bc739008814d24ed6f4"

@@ -5,7 +5,7 @@ from importlib.metadata import version
 import logging
 import os
 
-from cdislogging import get_logger
+from gen3logging import get_logger
 from fastapi import Request
 from gen3authz.client.arborist.async_client import ArboristClient
 from starlette.responses import Response
@@ -192,7 +192,7 @@ def get_app(httpx_client=None) -> FastAPI:
 
 def configure_logging() -> None:
     """
-    Route every logger the service uses through cdislogging, so that all log lines share one
+    Route every logger the service uses through gen3logging, so that all log lines share one
     format.
 
     Must run before the app's httpx client is created: httpx keeps the log level it sees when

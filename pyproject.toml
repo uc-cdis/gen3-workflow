@@ -16,11 +16,12 @@ authutils = {git = "https://github.com/uc-cdis/authutils.git", rev = "feat/dpop"
 boto3 = ">=1"
 botocore = "*"
 cachelib = "*"
-cdislogging = ">=1"
 cdispyutils = { git = "https://github.com/uc-cdis/cdis-python-utils.git", rev = "feat/observability", extras = ["observability"] }
 fastapi = "<1"
 gen3authz = ">=3"
 gen3config = ">=2"
+# `gen3logging` is the renamed `cdislogging`; the repository still has the old name.
+gen3logging = { git = "https://github.com/uc-cdis/cdislogging.git", rev = "feat/json" }
 httpx = "<1"
 jsonschema = "<5"
 # Not part of the cdispyutils observability extra: the right database/AWS
