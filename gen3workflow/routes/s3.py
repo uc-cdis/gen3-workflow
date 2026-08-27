@@ -38,9 +38,9 @@ S3_MAX_TRIES = 1  # streams don't do retries
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
-# Limit concurrent body-buffering + SHA256 operations to prevent CPU saturation under
-# concurrent Funnel uploads. Each operation buffers up to 10 MB and runs CPU-bound hash
-# computation in a thread pool; without a cap, 100 concurrent uploads exhaust the thread pool.
+# Limit concurrent S3 forwards to prevent event loop saturation. Without a cap, 100 concurrent
+# uploads each holding open a streaming connection (TLS, socket I/O, asyncio events) starve the
+# event loop and cause readiness probe failures.
 _PROXY_SEMAPHORE_LIMIT = 20
 _proxy_semaphore: asyncio.Semaphore | None = None
 
@@ -487,16 +487,17 @@ async def s3_endpoint(path: str, request: Request):
         proceed = True
         exception = None
         try:
-            response = await request.app.async_client.send(
-                request.app.async_client.build_request(
-                    method=request.method,
-                    url=s3_api_url,
-                    headers=out_headers,
-                    params=query_params,
-                    content=request_content,
-                ),
-                stream=True,
-            )
+            async with _get_proxy_semaphore():
+                response = await request.app.async_client.send(
+                    request.app.async_client.build_request(
+                        method=request.method,
+                        url=s3_api_url,
+                        headers=out_headers,
+                        params=query_params,
+                        content=request_content,
+                    ),
+                    stream=True,
+                )
 
             if response.status_code >= 300:
                 # no need to log details (unless in debug mode) or retry in the case of a 404
