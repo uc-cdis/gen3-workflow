@@ -53,24 +53,37 @@ def _get_proxy_semaphore() -> asyncio.Semaphore:
 
 
 async def _dechunk_stream(stream):
-    """Yield de-chunked bytes from an AWS SigV4 streaming chunked body."""
-    # bytearray extends in-place (amortized O(1) per append); bytes would create a
-    # full copy of the buffer on every TCP segment, causing O(n²) CPU overhead.
+    """Yield de-chunked bytes from an AWS SigV4 streaming chunked body.
+
+    Yields each TCP segment's slice of the current chunk immediately rather than
+    accumulating the full chunk first. This keeps per-yield allocations at TCP-segment
+    size (≤64 KB) instead of chunk size (up to 5 MB), avoiding burst CPU spikes.
+    """
     buf = bytearray()
+    chunk_remaining = 0  # bytes left to yield in the current chunk
+
     async for raw in stream:
         buf += raw
-        while True:
-            nl = buf.find(b"\r\n")
-            if nl == -1:
+        while buf:
+            if chunk_remaining == 0:
+                nl = buf.find(b"\r\n")
+                if nl == -1:
+                    break  # header split across segments; wait for more data
+                chunk_size = int(buf[:nl].split(b";")[0], 16)
+                if chunk_size == 0:
+                    return
+                del buf[: nl + 2]  # consume header + \r\n
+                chunk_remaining = chunk_size
+
+            available = min(chunk_remaining, len(buf))
+            if available == 0:
                 break
-            chunk_size = int(buf[:nl].split(b";")[0], 16)
-            if chunk_size == 0:
-                return
-            needed = nl + 2 + chunk_size + 2
-            if len(buf) < needed:
-                break
-            yield buf[nl + 2 : nl + 2 + chunk_size]
-            del buf[:needed]  # shift in-place; avoids creating a copy of the remainder
+            is_last = available == chunk_remaining
+            if is_last and len(buf) < available + 2:
+                break  # trailing \r\n hasn't arrived yet; wait
+            yield buf[:available]
+            del buf[: available + (2 if is_last else 0)]
+            chunk_remaining -= available
 
 
 async def set_access_token_and_get_user_id(
