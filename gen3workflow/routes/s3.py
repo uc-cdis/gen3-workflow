@@ -34,7 +34,7 @@ s3_root_router = APIRouter(include_in_schema=False)
 s3_router = APIRouter(prefix="/s3")
 
 
-S3_MAX_TRIES = 3
+S3_MAX_TRIES = 1  # streams don't do retries
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
@@ -50,6 +50,25 @@ def _get_proxy_semaphore() -> asyncio.Semaphore:
     if _proxy_semaphore is None:
         _proxy_semaphore = asyncio.Semaphore(_PROXY_SEMAPHORE_LIMIT)
     return _proxy_semaphore
+
+
+async def _dechunk_stream(stream):
+    """Yield de-chunked bytes from an AWS SigV4 streaming chunked body."""
+    buf = b""
+    async for raw in stream:
+        buf += raw
+        while True:
+            nl = buf.find(b"\r\n")
+            if nl == -1:
+                break
+            chunk_size = int(buf[:nl].split(b";")[0], 16)
+            if chunk_size == 0:
+                return
+            needed = nl + 2 + chunk_size + 2
+            if len(buf) < needed:
+                break
+            yield buf[nl + 2 : nl + 2 + chunk_size]
+            buf = buf[needed:]
 
 
 async def set_access_token_and_get_user_id(
@@ -343,33 +362,16 @@ async def s3_endpoint(path: str, request: Request):
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
     ]
     if is_chunked_streaming:
-        # Must buffer: we need to de-chunk the body and hash it before re-signing.
-        # parse the body and hash it — both are CPU-bound and must run off the event loop.
-        # sha256 of a 5-10 MB body takes ~30-50ms and would block the event loop if called inline.
-        # the semaphore caps concurrent operations so 100 simultaneous uploads don't saturate the CPU.
-        try:
-            body = await request.body()
-        except ClientDisconnect:  # catch this to avoid throwing 500 errors
-            raise HTTPException(
-                499, "Client disconnected before request body was fully received"
-            )
-
-        def _parse_and_hash(b):
-            b = chunked_to_non_chunked_body(b)
-            return b, hashlib.sha256(b).hexdigest()
-
-        # loop = asyncio.get_event_loop()
-        # async with _get_proxy_semaphore():
-        #     body, body_sha256 = await loop.run_in_executor(None, _parse_and_hash, body)
-        content_len = str(len(body))
-        # out_headers["x-amz-content-sha256"] = body_sha256
-        for h in ["content-length", "x-amz-decoded-content-length"]:
-            if h in in_headers:
-                out_headers[h] = content_len
-        # the outgoing body is no longer chunked, so there's no trailer/checksum in it anymore
+        # UNSIGNED-PAYLOAD skips the hash requirement, enabling streaming without
+        # buffering. TLS secures the gen3-workflow→S3 connection; incoming payload
+        # signatures are not verified here anyway.
+        out_headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
+        decoded_len = out_headers.pop("x-amz-decoded-content-length", None)
+        if decoded_len:
+            out_headers["content-length"] = decoded_len
         out_headers.pop("x-amz-trailer", None)
         out_headers.pop("x-amz-sdk-checksum-algorithm", None)
-        request_content = body
+        request_content = _dechunk_stream(request.stream())
     else:
         # Non-chunked: the client already computed x-amz-content-sha256 and content-length,
         # so we can stream the body directly without buffering it in memory.
