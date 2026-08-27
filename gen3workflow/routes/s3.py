@@ -377,16 +377,20 @@ async def s3_endpoint(path: str, request: Request):
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
     ]
     if is_chunked_streaming:
-        # UNSIGNED-PAYLOAD skips the hash requirement, enabling streaming without
-        # buffering. TLS secures the gen3-workflow→S3 connection; incoming payload
-        # signatures are not verified here anyway.
-        out_headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
-        decoded_len = out_headers.pop("x-amz-decoded-content-length", None)
-        if decoded_len:
-            out_headers["content-length"] = decoded_len
-        out_headers.pop("x-amz-trailer", None)
-        out_headers.pop("x-amz-sdk-checksum-algorithm", None)
-        request_content = _dechunk_stream(request.stream())
+        # # UNSIGNED-PAYLOAD skips the hash requirement, enabling streaming without
+        # # buffering. TLS secures the gen3-workflow→S3 connection; incoming payload
+        # # signatures are not verified here anyway.
+        # out_headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
+        # decoded_len = out_headers.pop("x-amz-decoded-content-length", None)
+        # if decoded_len:
+        #     out_headers["content-length"] = decoded_len
+        # out_headers.pop("x-amz-trailer", None)
+        # out_headers.pop("x-amz-sdk-checksum-algorithm", None)
+        # request_content = _dechunk_stream(request.stream())
+        request_content = b""
+        for h in ["content-length", "x-amz-decoded-content-length"]:
+            if h in in_headers:
+                out_headers[h] = str(len(request_content))
     else:
         # Non-chunked: the client already computed x-amz-content-sha256 and content-length,
         # so we can stream the body directly without buffering it in memory.
