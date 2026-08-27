@@ -54,7 +54,9 @@ def _get_proxy_semaphore() -> asyncio.Semaphore:
 
 async def _dechunk_stream(stream):
     """Yield de-chunked bytes from an AWS SigV4 streaming chunked body."""
-    buf = b""
+    # bytearray extends in-place (amortized O(1) per append); bytes would create a
+    # full copy of the buffer on every TCP segment, causing O(n²) CPU overhead.
+    buf = bytearray()
     async for raw in stream:
         buf += raw
         while True:
@@ -68,7 +70,7 @@ async def _dechunk_stream(stream):
             if len(buf) < needed:
                 break
             yield buf[nl + 2 : nl + 2 + chunk_size]
-            buf = buf[needed:]
+            del buf[:needed]  # shift in-place; avoids creating a copy of the remainder
 
 
 async def set_access_token_and_get_user_id(
