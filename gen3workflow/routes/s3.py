@@ -371,7 +371,7 @@ async def s3_endpoint(path: str, request: Request):
             out_headers["content-length"] = decoded_len
         out_headers.pop("x-amz-trailer", None)
         out_headers.pop("x-amz-sdk-checksum-algorithm", None)
-        request_content = request.stream()  # _dechunk_stream(request.stream())
+        request_content = _dechunk_stream(request.stream())
     else:
         # Non-chunked: the client already computed x-amz-content-sha256 and content-length,
         # so we can stream the body directly without buffering it in memory.
