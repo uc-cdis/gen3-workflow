@@ -387,7 +387,7 @@ async def s3_endpoint(path: str, request: Request):
         # out_headers.pop("x-amz-trailer", None)
         # out_headers.pop("x-amz-sdk-checksum-algorithm", None)
         # request_content = _dechunk_stream(request.stream())
-        request_content = b""
+        request_content = b" "
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if h in in_headers:
                 out_headers[h] = str(len(request_content))
@@ -499,8 +499,6 @@ async def s3_endpoint(path: str, request: Request):
                 # error: 404s are are expected when running workflows (e.g. for Nextflow workflows,
                 # stderr output files may not be present when there were no errors)
                 if response.status_code != HTTP_404_NOT_FOUND:
-                    # Explicitly read the stream into memory before accessing text
-                    await response.aread()
                     logger.error(
                         f"Error from S3: {response.status_code} {response.text}"
                     )
