@@ -499,6 +499,7 @@ async def s3_endpoint(path: str, request: Request):
                 # error: 404s are are expected when running workflows (e.g. for Nextflow workflows,
                 # stderr output files may not be present when there were no errors)
                 if response.status_code != HTTP_404_NOT_FOUND:
+                    await response.aread()
                     logger.error(
                         f"Error from S3: {response.status_code} {response.text}"
                     )
@@ -605,7 +606,15 @@ async def s3_endpoint(path: str, request: Request):
         )
 
     # the response is not compressed: stream the raw response bytes (skip the automatic httpx
-    # post-handling)
+    # post-handling). If the stream was already consumed for error logging, return a buffered
+    # response instead of streaming.
+    if response.is_stream_consumed:
+        await response.aclose()
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            headers=filtered_headers,
+        )
     return StreamingResponse(
         response.aiter_raw(),
         status_code=response.status_code,
