@@ -355,14 +355,14 @@ async def s3_endpoint(path: str, request: Request):
             )
 
         def _parse_and_hash(b):
-            # b = chunked_to_non_chunked_body(b)
+            b = chunked_to_non_chunked_body(b)
             return b, hashlib.sha256(b).hexdigest()
 
-        loop = asyncio.get_event_loop()
-        async with _get_proxy_semaphore():
-            body, body_sha256 = await loop.run_in_executor(None, _parse_and_hash, body)
+        # loop = asyncio.get_event_loop()
+        # async with _get_proxy_semaphore():
+        #     body, body_sha256 = await loop.run_in_executor(None, _parse_and_hash, body)
         content_len = str(len(body))
-        out_headers["x-amz-content-sha256"] = body_sha256
+        # out_headers["x-amz-content-sha256"] = body_sha256
         for h in ["content-length", "x-amz-decoded-content-length"]:
             if h in in_headers:
                 out_headers[h] = content_len
