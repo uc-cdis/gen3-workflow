@@ -479,17 +479,16 @@ async def s3_endpoint(path: str, request: Request):
         proceed = True
         exception = None
         try:
-            async with _get_proxy_semaphore():
-                response = await request.app.async_client.send(
-                    request.app.async_client.build_request(
-                        method=request.method,
-                        url=s3_api_url,
-                        headers=out_headers,
-                        params=query_params,
-                        content=request_content,
-                    ),
-                    stream=True,
-                )
+            response = await request.app.async_client.send(
+                request.app.async_client.build_request(
+                    method=request.method,
+                    url=s3_api_url,
+                    headers=out_headers,
+                    params=query_params,
+                    content=request_content,
+                ),
+                stream=True,
+            )
 
             if response.status_code >= 300:
                 # no need to log details (unless in debug mode) or retry in the case of a 404

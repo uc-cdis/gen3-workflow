@@ -27,6 +27,7 @@ jsonschema = "<5"
 pyyaml = "*"
 uvicorn = "<1"
 starlette = "*"
+uvloop = ">=0.21"
 
 [tool.poetry.group.dev.dependencies]
 freezegun = "*"
