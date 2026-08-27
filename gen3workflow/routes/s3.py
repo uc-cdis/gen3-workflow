@@ -377,15 +377,24 @@ async def s3_endpoint(path: str, request: Request):
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
     ]
     if is_chunked_streaming:
-        # Send a 1-byte body to isolate whether the CPU spike comes from dechunking/hashing.
-        # UNSIGNED-PAYLOAD avoids the 400 that results from sending a non-chunked body while
-        # x-amz-content-sha256 still claims STREAMING-AWS4-HMAC-SHA256-PAYLOAD.
-        request_content = b" "
+        # Experiment: replace the chunked body with a streaming zero-fill of the correct size to
+        # isolate whether the CPU spike comes from dechunking/hashing. This avoids the 400 from
+        # a mismatched content-sha256 and the EntityTooSmall from multipart part size minimums,
+        # while skipping all dechunking work so we can measure everything else cleanly.
         out_headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
-        out_headers["content-length"] = str(len(request_content))
-        out_headers.pop("x-amz-decoded-content-length", None)
+        decoded_len = int(out_headers.pop("x-amz-decoded-content-length", None) or 0)
+        out_headers["content-length"] = str(decoded_len)
         out_headers.pop("x-amz-trailer", None)
         out_headers.pop("x-amz-sdk-checksum-algorithm", None)
+
+        async def _zero_body(size: int, chunk: int = 65536):
+            remaining = size
+            while remaining > 0:
+                n = min(chunk, remaining)
+                yield b"\x00" * n
+                remaining -= n
+
+        request_content = _zero_body(decoded_len)
     else:
         # Non-chunked: the client already computed x-amz-content-sha256 and content-length,
         # so we can stream the body directly without buffering it in memory.
