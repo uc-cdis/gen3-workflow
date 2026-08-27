@@ -355,7 +355,7 @@ async def s3_endpoint(path: str, request: Request):
             )
 
         def _parse_and_hash(b):
-            b = chunked_to_non_chunked_body(b)
+            # b = chunked_to_non_chunked_body(b)
             return b, hashlib.sha256(b).hexdigest()
 
         loop = asyncio.get_event_loop()
