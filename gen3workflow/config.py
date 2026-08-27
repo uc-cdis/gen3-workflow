@@ -69,7 +69,6 @@ class Gen3WorkflowConfig(Config):
                 "ENABLE_S3_FILES": {"type": "boolean"},
                 "TASK_IMAGE_WHITELIST": {"type": "array", "items": {"type": "string"}},
                 "TES_SERVER_URL": {"type": "string"},
-                "REQUIRE_TES_SERVER_FOR_STATUS": {"type": "boolean"},
                 "ENABLE_PROMETHEUS_METRICS": {"type": "boolean"},
                 "PROMETHEUS_MULTIPROC_DIR": {"type": "string"},
                 "ENABLE_TRACING": {"type": "boolean"},
