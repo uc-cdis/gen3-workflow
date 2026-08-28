@@ -376,6 +376,12 @@ async def _create_user_bucket(user_id: str) -> str:
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
 
+    # TODO enable object lock on bucket in gen3-wf code, and add integration test
+    # TODO add PutObjectLegalHold permission to gen3-wf SA
+    # TODO check bucket emptying endpoint
+    # TODO add to user-facing doc:
+    # `aws --profile tes-brh-stg s3api put-object-legal-hold --bucket XYZ --key ABCz --legal-hold Status=ON`
+
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
     clients.s3_client.put_bucket_lifecycle_configuration(
         Bucket=user_bucket_name,
@@ -387,9 +393,20 @@ async def _create_user_bucket(user_id: str) -> str:
                     "NoncurrentVersionExpiration": {
                         "NoncurrentDays": NONCURRENT_VERSION_EXPIRATION_DAYS
                     },
+                    "AbortIncompleteMultipartUpload": {
+                        "DaysAfterInitiation": expiration_days
+                    },
                     "Status": "Enabled",
                     # apply to all objects:
                     "Filter": {"Prefix": ""},
+                },
+                {
+                    # cannot be combined with the previous rule, which creates delete markers
+                    # through `NoncurrentVersionExpiration`
+                    "ID": "RemoveExpiredDeleteMarkers",
+                    "ExpiredObjectDeleteMarker": True,
+                    "Filter": {"Prefix": ""},
+                    "Status": "Enabled",
                 },
             ],
         },

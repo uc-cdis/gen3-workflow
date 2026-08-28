@@ -58,12 +58,11 @@ Funnel can then be configured to run jobs in the "gpu" nodepool:
 
 ```
 funnel:
-    funnel:
-        Kubernetes:
-            NodeSelector: {"role": "gpu"}
-            Tolerations:
-                - Key: "nvidia.com/gpu"
-                  Operator: "Equal"
-                  Value: "present"
-                  Effect: "NoSchedule"
+    Kubernetes:
+        NodeSelector: {"role": "gpu"}
+        Tolerations:
+            - Key: "nvidia.com/gpu"
+              Operator: "Equal"
+              Value: "present"
+              Effect: "NoSchedule"
 ```

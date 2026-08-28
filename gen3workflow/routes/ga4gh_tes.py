@@ -52,10 +52,9 @@ async def get_request_body(request: Request) -> dict:
     try:
         return json.loads(body)
     except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON in request body: {e.msg}",
-        )
+        err_msg = f"Invalid JSON in request body: {e.msg}"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
 
 @router.get("/service-info", status_code=HTTP_200_OK)
