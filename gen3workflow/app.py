@@ -68,6 +68,14 @@ def get_app(httpx_client=None) -> FastAPI:
     logger.info("Initializing app")
     config.validate()
 
+    if config["DEBUG_STUB_EXTERNAL_SERVICES"]:
+        logger.warning(
+            "*** RUNNING IN MOCKED DEBUG MODE: 'DEBUG_STUB_EXTERNAL_SERVICES' IS ENABLED. "
+            "THE GA4GH TES AND S3 ENDPOINTS RETURN STUBBED RESPONSES AND NEVER CONTACT THE TES "
+            "SERVER, AWS OR S3. NO TASK RUNS AND NO OBJECT IS STORED. THIS MUST NOT BE ENABLED "
+            "IN PRODUCTION! ***"
+        )
+
     debug = config["APP_DEBUG"]
     log_level = "debug" if debug else "info"
 

@@ -33,6 +33,7 @@ class Gen3WorkflowConfig(Config):
             # that the app remains functional when using configuration files from newer versions
             "additionalProperties": True,
             "properties": {
+                "DEBUG_STUB_EXTERNAL_SERVICES": {"type": "boolean"},
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
                 "HTTPX_DEBUG": {"type": "boolean"},

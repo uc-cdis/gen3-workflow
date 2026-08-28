@@ -23,12 +23,16 @@ from gen3workflow.config import (
     get_dpop_allowed_issuers,
     get_dpop_shared_secret,
 )
-from gen3workflow.routes.s3 import get_access_key_id_from_auth_header
+from gen3workflow.routes.s3 import S3_PATH_PREFIX, get_access_key_id_from_auth_header
 
 # The scopes and purpose a DPoP-bound access token must satisfy. These mirror what the
 # bearer token path requires (see `Auth.get_token_claims`), so the same token works either way.
 REQUIRED_SCOPES = frozenset({"user", "openid"})
 REQUIRED_PURPOSE = "access"
+
+# Authorization header prefixes of the 2 signed-request formats the S3 endpoint accepts,
+# lowercased for a case-insensitive match.
+AWS_AUTH_SCHEMES = ("aws4-hmac-sha256 ", "aws ")
 
 # Counter of the requests that reached a protected endpoint without a proof because they carried
 # an exempt client's token. Labeled by the `DPOP_PROTECTED_PATHS` prefix rather than the request
@@ -63,11 +67,11 @@ async def dpop_middleware(
     if not config["DPOP_ENABLED"]:
         return await call_next(request)
 
-    path_prefix = _get_protected_path_prefix(request.url.path)
+    auth_header = request.headers.get("authorization", "")
+    path_prefix = _get_protected_path_prefix(request.url.path, auth_header)
     if path_prefix is None:
         return await call_next(request)
 
-    auth_header = request.headers.get("authorization", "")
     access_token = _get_access_token(auth_header)
     dpop_proof = request.headers.get("dpop")
 
@@ -151,22 +155,35 @@ async def dpop_middleware(
     return await call_next(request)
 
 
-def _get_protected_path_prefix(path: str) -> str | None:
+def _get_protected_path_prefix(path: str, auth_header: str) -> str | None:
     """
-    Find the configured `DPOP_PROTECTED_PATHS` prefix that covers the requested path.
+    Find the configured `DPOP_PROTECTED_PATHS` prefix that covers an incoming request.
+
+    The S3 endpoint is mounted at the root as well as under `S3_PATH_PREFIX`, so an S3 request
+    can arrive on a path that matches no prefix, and protecting the root prefix itself would
+    cover every unrouted path including `/_status`. An AWS-signed Authorization header is what
+    separates the two: only an S3 client sends one.
 
     Args:
         path (str): the path of the incoming request, as this service sees it
+        auth_header (str): value of the Authorization header
 
     Returns:
-        str | None: the longest matching prefix, or None if the path is not protected
+        str | None: the longest matching prefix, or None if the request is not protected
     """
     matches = [
         prefix
         for prefix in config["DPOP_PROTECTED_PATHS"]
         if path == prefix or path.startswith(prefix.rstrip("/") + "/")
     ]
-    return max(matches, key=len) if matches else None
+    if matches:
+        return max(matches, key=len)
+
+    if S3_PATH_PREFIX in config["DPOP_PROTECTED_PATHS"] and _is_aws_signed_auth_header(
+        auth_header
+    ):
+        return S3_PATH_PREFIX
+    return None
 
 
 def _get_url(path: str, path_prefix: str) -> str:
@@ -229,6 +246,19 @@ def _is_scheme_auth_header(auth_header: str) -> bool:
             (in practice, an AWS signature)
     """
     return auth_header.lower().startswith(("dpop ", "bearer "))
+
+
+def _is_aws_signed_auth_header(auth_header: str) -> bool:
+    """
+    Check whether an Authorization header carries an AWS request signature.
+
+    Args:
+        auth_header (str): value of the Authorization header
+
+    Returns:
+        bool: True if the header is in one of the 2 signed formats the S3 endpoint accepts
+    """
+    return auth_header.lower().startswith(AWS_AUTH_SCHEMES)
 
 
 def _is_dpop_bound(access_token: str) -> bool:

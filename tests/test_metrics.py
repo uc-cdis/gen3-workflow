@@ -22,6 +22,7 @@ from tests.conftest import trailing_slash, TEST_USER_TOKEN
 REQUEST_COUNTER = "gen3_workflow_api_requests_total"
 DURATION_COUNT = "gen3_workflow_api_request_duration_seconds_count"
 DURATION_SUM = "gen3_workflow_api_request_duration_seconds_sum"
+TASKS_CREATED_COUNTER = "gen3_workflow_tasks_created_total"
 
 SERVICE_INFO_PATH = "/ga4gh/tes/v1/service-info"
 TASKS_PATH = "/ga4gh/tes/v1/tasks"
@@ -191,6 +192,52 @@ async def test_request_rejected_by_dpop_is_counted(client, reset_config_dpop_req
     assert res.status_code == 401
 
     assert total(await scrape(client), REQUEST_COUNTER, **labels) == before + 1
+
+
+# This stops us from hitting boto3 for real.
+@pytest.fixture(scope="function")
+def no_eks_cluster():
+    """
+    Reset the `EKS_CLUSTER_NAME` configuration at the end of tests that use this fixture.
+    """
+    original_val = config["EKS_CLUSTER_NAME"]
+    config["EKS_CLUSTER_NAME"] = ""
+    yield
+    config["EKS_CLUSTER_NAME"] = original_val
+
+
+@pytest.mark.asyncio
+async def test_task_creation_is_counted(client, access_token_patcher, no_eks_cluster):
+    """
+    Creating a task increments the task counter, which is separate from the generic request
+    counter so that a dashboard can track task volume by name.
+    """
+    labels = {"status_code": "200"}
+    headers = {"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    await client.post(TASKS_PATH, json={"name": "test-task"}, headers=headers)
+    before = total(await scrape(client), TASKS_CREATED_COUNTER, **labels)
+
+    res = await client.post(TASKS_PATH, json={"name": "test-task"}, headers=headers)
+    assert res.status_code == 200, res.text
+
+    assert total(await scrape(client), TASKS_CREATED_COUNTER, **labels) == before + 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_task_creation_is_not_counted_as_created(
+    client, reset_config_dpop_required
+):
+    """
+    A task creation that never reached the TES server does not increment the task counter, so
+    the counter tracks tasks rather than attempts.
+    """
+    config["DPOP_REQUIRED"] = True
+    before = total(await scrape(client), TASKS_CREATED_COUNTER)
+
+    res = await client.post(TASKS_PATH, json={"name": "test-task"})
+    assert res.status_code == 401
+
+    assert total(await scrape(client), TASKS_CREATED_COUNTER) == before
 
 
 @pytest.mark.asyncio

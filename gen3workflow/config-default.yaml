@@ -1,3 +1,17 @@
+#########################
+# LOCAL DEBUGGING ONLY  #
+#########################
+
+# /!\ WARNING: NEVER enable this outside of local development.
+# When true, the GA4GH TES and S3 endpoints return canned responses instead of contacting the
+# TES server, AWS or S3, and `/_status` reports OK without contacting the TES server. Every
+# stubbed request is logged, and the app logs a warning at startup.
+# This exists to exercise the DPoP flow without a TES server, a Funnel deployment or AWS
+# credentials: a request that fails can then only have failed on authentication. It is not a
+# usable TES server - every task is reported as created and COMPLETE without ever running, and
+# nothing is read from or written to S3, so no workflow can actually complete.
+DEBUG_STUB_EXTERNAL_SERVICES: false
+
 ##########
 # SERVER #
 ##########

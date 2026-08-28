@@ -29,9 +29,15 @@ from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
 from gen3workflow.config import config
+from gen3workflow.routes.utils import get_stubbed_s3_response, use_debug_stub
+
+# Must stay in sync with the `DPOP_PROTECTED_PATHS` key covering the S3 endpoint: the DPoP
+# middleware protects the root mount below under this prefix, because a root-mounted path
+# matches no prefix of its own.
+S3_PATH_PREFIX = "/s3"
 
 s3_root_router = APIRouter(include_in_schema=False)
-s3_router = APIRouter(prefix="/s3")
+s3_router = APIRouter(prefix=S3_PATH_PREFIX)
 
 
 S3_MAX_TRIES = 3
@@ -229,6 +235,14 @@ async def s3_endpoint(path: str, request: Request):
         err_msg = f"'{request.method} /{path}': If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+
+    # Only stub requests that an S3 client actually made. This endpoint is also mounted as a
+    # catch-all at the root, so stubbing on the path alone would answer every unrouted path in
+    # the app with a canned 200, hiding both real 404s and the missing-credentials 401 below.
+    if request.headers.get("authorization", "").startswith(
+        ("AWS4-HMAC-SHA256", "AWS ")
+    ) and use_debug_stub(f"{request.method} /{path}"):
+        return get_stubbed_s3_response(request.method, path)
 
     # Extract the caller's access token from the request headers, and ensure the caller (user, or
     # client acting on behalf of the user) has access to the user's files.

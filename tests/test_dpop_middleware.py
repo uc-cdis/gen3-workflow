@@ -27,7 +27,13 @@ TES_PATH_PREFIX = "/ga4gh/tes"
 TEST_CLIENT_ID = "test-client-id"
 EXEMPT_REQUESTS_COUNTER = "gen3_workflow_dpop_exempt_requests_total"
 S3_BUCKET = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
-S3_PATH = f"/s3/{S3_BUCKET}"
+# The S3 endpoint answers on both of these. Every S3 case below runs against both, because the
+# root mount matches no `DPOP_PROTECTED_PATHS` prefix and so takes a different route through
+# the middleware than the `/s3` one.
+S3_PATHS = [
+    pytest.param(f"/s3/{S3_BUCKET}", id="s3-prefix"),
+    pytest.param(f"/{S3_BUCKET}", id="root-mount"),
+]
 
 
 @pytest.fixture(scope="module")
@@ -188,8 +194,9 @@ async def test_bound_token_with_valid_proof_is_accepted_on_tes_endpoint(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("s3_path", S3_PATHS)
 async def test_bound_token_with_valid_proof_is_accepted_on_s3_endpoint(
-    client, access_token_patcher, token_signing_key, dpop_key
+    client, access_token_patcher, token_signing_key, dpop_key, s3_path
 ):
     """
     An AWS-signed S3 request is accepted when the proof is bound to the token in its
@@ -197,18 +204,57 @@ async def test_bound_token_with_valid_proof_is_accepted_on_s3_endpoint(
     """
     access_token = create_access_token(token_signing_key, dpop_key)
     res = await client.get(
-        S3_PATH,
+        s3_path,
         params={"list-type": "2"},
         headers={
             "Authorization": aws_auth_header(access_token),
             # the reverse proxy strips "/workflows" before the request reaches this service
             "DPoP": create_proof(
-                dpop_key, "GET", S3_PATH, access_token, external_prefix="/workflows"
+                dpop_key, "GET", s3_path, access_token, external_prefix="/workflows"
             ),
         },
     )
     assert res.status_code == 200, res.text
     assert res.text == MOCKED_S3_RESPONSE_XML
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_bound_token_without_proof_is_rejected_on_s3_endpoint(
+    client, access_token_patcher, token_signing_key, dpop_key, s3_path
+):
+    """
+    A DPoP-bound token presented to the S3 endpoint without a proof is rejected, on the root
+    mount as well as under `/s3`.
+    """
+    access_token = create_access_token(token_signing_key, dpop_key)
+    res = await client.get(
+        s3_path,
+        params={"list-type": "2"},
+        headers={"Authorization": aws_auth_header(access_token)},
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_proof_is_required_on_s3_endpoint_when_dpop_is_required(
+    client, access_token_patcher, token_signing_key, reset_config_dpop_required, s3_path
+):
+    """
+    When DPoP is required, an S3 request presenting a token that is not bound is rejected on
+    the root mount as well as under `/s3`.
+    """
+    config["DPOP_REQUIRED"] = True
+    access_token = create_access_token(token_signing_key)
+    res = await client.get(
+        s3_path,
+        params={"list-type": "2"},
+        headers={"Authorization": aws_auth_header(access_token)},
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
 
 
 @pytest.mark.asyncio
@@ -483,12 +529,14 @@ async def test_exempt_client_token_without_proof_is_accepted_when_dpop_is_requir
     [{"user_id": None, "client_id": TEST_CLIENT_ID}],
     indirect=True,
 )
+@pytest.mark.parametrize("s3_path", S3_PATHS)
 async def test_exempt_client_token_without_proof_is_accepted_on_s3_endpoint_when_dpop_is_required(
     client,
     access_token_patcher,
     token_signing_key,
     reset_config_dpop_required,
     reset_config_dpop_exempt_clients,
+    s3_path,
 ):
     """
     The exemption also covers the S3 endpoint, where a client presents its token as the AWS
@@ -498,7 +546,7 @@ async def test_exempt_client_token_without_proof_is_accepted_on_s3_endpoint_when
     config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
     access_token = create_client_credentials_token(token_signing_key)
     res = await client.get(
-        S3_PATH,
+        s3_path,
         params={"list-type": "2"},
         headers={
             "Authorization": aws_auth_header(f"{access_token};userId={TEST_USER_ID}")

@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 
 from tests.conftest import (
+    get_debug_stub_warnings,
     MOCKED_S3_RESPONSE_DICT,
     TEST_USER_ID,
     TEST_USER_TOKEN,
@@ -413,3 +414,26 @@ def test_chunked_to_non_chunked_body():
     chunk_len = f"{len(txt):x}"
     body = f"{chunk_len};chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6222\r\n{txt}\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
     assert chunked_to_non_chunked_body(body.encode()) == txt.encode()
+
+
+@pytest.mark.asyncio
+async def test_s3_endpoint_in_debug_stub_mode(client, debug_stub_mode, caplog):
+    """
+    In debug stub mode, an S3 request gets a canned response, logged as a warning, without any
+    bucket lookup or forwarding to S3. Requests that no S3 client made are not stubbed, so the
+    root mount still answers unrouted paths as it normally would instead of returning a canned
+    200 for everything.
+    """
+    bucket = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+
+    res = await client.get(
+        f"/s3/{bucket}", headers={"Authorization": "AWS4-HMAC-SHA256 Credential=stub"}
+    )
+    assert res.status_code == 200, res.text
+    assert f"<Name>{bucket}</Name>" in res.text
+    assert len(get_debug_stub_warnings(caplog)) == 1
+
+    res = await client.get(f"/s3/{bucket}")
+    assert res.status_code == 401, res.text
+    # the request was not stubbed, so it did not add a warning
+    assert len(get_debug_stub_warnings(caplog)) == 1
