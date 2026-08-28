@@ -29,9 +29,15 @@ from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
 from gen3workflow.config import config
+from gen3workflow.routes.utils import get_stubbed_s3_response, use_debug_stub
+
+# Must stay in sync with the `DPOP_PROTECTED_PATHS` key covering the S3 endpoint: the DPoP
+# middleware protects the root mount below under this prefix, because a root-mounted path
+# matches no prefix of its own.
+S3_PATH_PREFIX = "/s3"
 
 s3_root_router = APIRouter(include_in_schema=False)
-s3_router = APIRouter(prefix="/s3")
+s3_router = APIRouter(prefix=S3_PATH_PREFIX)
 
 
 S3_MAX_TRIES = 3
@@ -77,11 +83,8 @@ async def set_access_token_and_get_user_id(
 
     # extract the key ID from the authorization header
     try:
-        if "Credential=" in auth_header:  # format 1 (see docstring)
-            access_key_id = auth_header.split("Credential=")[1].split("/")[0]
-        else:  # format 2 (see docstring)
-            access_key_id = auth_header.split("AWS ")[1].split(":")[0]
-    except Exception as e:
+        access_key_id = get_access_key_id_from_auth_header(auth_header)
+    except ValueError as e:
         err_msg = "Unexpected format; unable to extract access token from authorization header"
         logger.error(f"{err_msg}: {e}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
@@ -129,6 +132,31 @@ async def set_access_token_and_get_user_id(
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     return user_id, client_id
+
+
+def get_access_key_id_from_auth_header(auth_header: str) -> str:
+    """
+    Extract the access key ID from the Authorization header of a signed S3 request.
+
+    The DPoP middleware relies on this too: the access token it validates the proof against
+    must be the exact same one this endpoint authorizes.
+
+    Args:
+        auth_header (str): value of the Authorization header. See
+            `set_access_token_and_get_user_id` for the 2 expected formats.
+
+    Returns:
+        str: the access key ID
+
+    Raises:
+        ValueError: if the header is in neither of the 2 expected formats
+    """
+    try:
+        if "Credential=" in auth_header:  # format 1
+            return auth_header.split("Credential=")[1].split("/")[0]
+        return auth_header.split("AWS ")[1].split(":")[0]  # format 2
+    except Exception as e:
+        raise ValueError(f"Unable to extract the access key ID: {e}")
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -207,6 +235,14 @@ async def s3_endpoint(path: str, request: Request):
         err_msg = f"'{request.method} /{path}': If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+
+    # Only stub requests that an S3 client actually made. This endpoint is also mounted as a
+    # catch-all at the root, so stubbing on the path alone would answer every unrouted path in
+    # the app with a canned 200, hiding both real 404s and the missing-credentials 401 below.
+    if request.headers.get("authorization", "").startswith(
+        ("AWS4-HMAC-SHA256", "AWS ")
+    ) and use_debug_stub(f"{request.method} /{path}"):
+        return get_stubbed_s3_response(request.method, path)
 
     # Extract the caller's access token from the request headers, and ensure the caller (user, or
     # client acting on behalf of the user) has access to the user's files.

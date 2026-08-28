@@ -4,7 +4,7 @@ from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 
 from gen3workflow import logger
 from gen3workflow.config import config
-from gen3workflow.routes.utils import make_tes_server_request
+from gen3workflow.routes.utils import make_tes_server_request, use_debug_stub
 
 router = APIRouter()
 
@@ -24,6 +24,10 @@ async def get_status(request: Request) -> dict:
     """
     Get app status
     """
+    if use_debug_stub("GET /_status"):
+        # Report OK without contacting the TES server, which is not expected to be running.
+        return dict(status="OK")
+
     tes_status_url = f"{config['TES_SERVER_URL']}/service-info"
     try:
         await make_tes_server_request(request.app.async_client, "get", tes_status_url)
