@@ -224,25 +224,17 @@ async def s3_endpoint(path: str, request: Request):
     )
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
 
-    # This is a "list buckets" request: only return the user's bucket.
-    # Note: this could be tweaked to work for `path_style` as well but it's not needed at the moment
+    # this is a "list buckets" request: only return the user's bucket
     if request.method == "GET" and path in ("", "s3"):
-        if not path_style:
-            xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
-    <ListAllMyBucketsResult xmlns="http://amazonaws.com">
-        <Buckets>
-            <Bucket>
-                <Name>{user_bucket}</Name>
-            </Bucket>
-        </Buckets>
-    </ListAllMyBucketsResult>"""
-            return Response(content=xml_data, media_type="application/xml")
-        else:
-            # Because this endpoint is exposed at root, if the GET path is empty, the user may not
-            # be trying to reach the S3 endpoint: suggest using the status endpoint.
-            err_msg = f"'{request.method} /{path}': if you are trying to reach the Gen3-Workflow API, try '/_status'."
-            logger.error(err_msg)
-            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+        xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult xmlns="http://amazonaws.com">
+    <Buckets>
+        <Bucket>
+            <Name>{user_bucket}</Name>
+        </Bucket>
+    </Buckets>
+</ListAllMyBucketsResult>"""
+        return Response(content=xml_data, media_type="application/xml")
 
     # ensure the user is making a call to their own bucket
     request_bucket = path.split("?")[0].split("/")[0]
