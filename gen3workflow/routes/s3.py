@@ -199,15 +199,6 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    # Because this endpoint is exposed at root, if the GET path is empty, the user may not be
-    # trying to reach the S3 endpoint: suggest using the status endpoint.
-    # "All buckets" listing requests also land here and are not supported, since users can only
-    # access their own bucket.
-    if request.method == "GET" and path in ("", "s3"):
-        err_msg = f"'{request.method} /{path}': If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
-        logger.error(err_msg)
-        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-
     # Extract the caller's access token from the request headers, and ensure the caller (user, or
     # client acting on behalf of the user) has access to the user's files.
     # Note: sharing task inputs/output is not supported. Currently, users can only access their own
@@ -223,20 +214,42 @@ async def s3_endpoint(path: str, request: Request):
         auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
 
-    # get the name of the user's bucket and ensure the user is making a call to their own bucket
+    # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
+    # (as opposed to virtual-hosted style addressing)
+    path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
+
+    # get the name of the user's bucket
     logger.info(
         f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
     )
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
+
+    # This is a "list buckets" request: only return the user's bucket.
+    # Note: this could be tweaked to work for `path_style` as well but it's not needed at the moment
+    if request.method == "GET" and path in ("", "s3"):
+        if not path_style:
+            xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+    <ListAllMyBucketsResult xmlns="http://amazonaws.com">
+        <Buckets>
+            <Bucket>
+                <Name>{user_bucket}</Name>
+            </Bucket>
+        </Buckets>
+    </ListAllMyBucketsResult>"""
+            return Response(content=xml_data, media_type="application/xml")
+        else:
+            # Because this endpoint is exposed at root, if the GET path is empty, the user may not
+            # be trying to reach the S3 endpoint: suggest using the status endpoint.
+            err_msg = f"'{request.method} /{path}': if you are trying to reach the Gen3-Workflow API, try '/_status'."
+            logger.error(err_msg)
+            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+
+    # ensure the user is making a call to their own bucket
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
-
-    # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
-    # (as opposed to virtual-hosted style addressing)
-    path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
