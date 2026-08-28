@@ -52,15 +52,20 @@ def _get_proxy_semaphore() -> asyncio.Semaphore:
     return _proxy_semaphore
 
 
+_DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB: ~20 Python-stack traversals per 10 MB upload
+
+
 async def _dechunk_stream(stream):
     """Yield de-chunked bytes from an AWS SigV4 streaming chunked body.
 
-    Yields each TCP segment's slice of the current chunk immediately rather than
-    accumulating the full chunk first. This keeps per-yield allocations at TCP-segment
-    size (≤64 KB) instead of chunk size (up to 5 MB), avoiding burst CPU spikes.
+    Accumulates de-chunked data into an output buffer and yields only when it reaches
+    _DECHUNK_YIELD_SIZE. This limits peak memory to yield_size × concurrent_uploads
+    while reducing h11/anyio/TLS Python-stack
+    traversals from ~160 to ~20 for a 10 MB upload, vs. per-TCP-segment (64 KB) yielding.
     """
     buf = bytearray()
-    chunk_remaining = 0  # bytes left to yield in the current chunk
+    out = bytearray()
+    chunk_remaining = 0  # bytes left to consume in the current S3 chunk
 
     async for raw in stream:
         buf += raw
@@ -71,6 +76,8 @@ async def _dechunk_stream(stream):
                     break  # header split across segments; wait for more data
                 chunk_size = int(buf[:nl].split(b";")[0], 16)
                 if chunk_size == 0:
+                    if out:
+                        yield out
                     return
                 del buf[: nl + 2]  # consume header + \r\n
                 chunk_remaining = chunk_size
@@ -81,9 +88,16 @@ async def _dechunk_stream(stream):
             is_last = available == chunk_remaining
             if is_last and len(buf) < available + 2:
                 break  # trailing \r\n hasn't arrived yet; wait
-            yield buf[:available]
+            out += buf[:available]
             del buf[: available + (2 if is_last else 0)]
             chunk_remaining -= available
+
+            if len(out) >= _DECHUNK_YIELD_SIZE:
+                yield out
+                out = bytearray()
+
+    if out:
+        yield out
 
 
 async def set_access_token_and_get_user_id(
