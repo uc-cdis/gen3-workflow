@@ -52,7 +52,7 @@ def _get_proxy_semaphore() -> asyncio.Semaphore:
     return _proxy_semaphore
 
 
-_DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB: ~20 Python-stack traversals per 10 MB upload
+_DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB
 
 
 async def _dechunk_stream(stream):
@@ -95,6 +95,10 @@ async def _dechunk_stream(stream):
             if len(out) >= _DECHUNK_YIELD_SIZE:
                 yield out
                 out = bytearray()
+                # On fast networks the httpx socket write completes without an epoll wait,
+                # so the event loop never naturally yields between chunks. This forces a
+                # scheduling gap so other coroutines (health probe, task creation) can run.
+                await asyncio.sleep(0)
 
     if out:
         yield out

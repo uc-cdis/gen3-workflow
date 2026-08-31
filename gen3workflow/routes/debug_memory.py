@@ -22,18 +22,20 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/_debug", include_in_schema=False)
 
-tracemalloc.start(30)
 _baseline_snapshot = None
 
 # ── Background sampler ─────────────────────────────────────────────────────────
 # Runs in a daemon thread so it is unaffected by asyncio event loop saturation.
 # Stores the last SAMPLE_HISTORY samples in a circular buffer.
+# The thread is NOT started at import time — it starts on the first /snapshot call
+# so it does not compete for the GIL during normal production operation.
 
 SAMPLE_INTERVAL_SECONDS = 3
 SAMPLE_HISTORY = 200  # ~10 minutes at 3s intervals
 
 _samples: collections.deque = collections.deque(maxlen=SAMPLE_HISTORY)
 _sampler_lock = threading.Lock()
+_sampler_started = False
 
 
 def _sample_once() -> dict:
@@ -66,11 +68,6 @@ def _sampler_loop():
         time.sleep(SAMPLE_INTERVAL_SECONDS)
 
 
-_sampler_thread = threading.Thread(
-    target=_sampler_loop, daemon=True, name="mem-sampler"
-)
-_sampler_thread.start()
-
 # Record the start time so the test script can compute elapsed seconds.
 _start_ts = time.monotonic()
 
@@ -81,7 +78,12 @@ _start_ts = time.monotonic()
 @router.get("/memory/snapshot")
 def take_snapshot():
     """Capture a tracemalloc baseline. Call this before starting the load test."""
-    global _baseline_snapshot, _start_ts
+    global _baseline_snapshot, _start_ts, _sampler_started
+    if not _sampler_started:
+        tracemalloc.start(30)
+        t = threading.Thread(target=_sampler_loop, daemon=True, name="mem-sampler")
+        t.start()
+        _sampler_started = True
     gc.collect()
     _baseline_snapshot = tracemalloc.take_snapshot()
     with _sampler_lock:
