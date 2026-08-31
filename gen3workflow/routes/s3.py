@@ -430,12 +430,12 @@ async def s3_endpoint(path: str, request: Request):
         s3_api_url = f"{config['S3_UPSTREAM_ENDPOINT'].rstrip('/')}/{api_endpoint}"
     else:
         s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
-    logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to the S3 server with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
     resp_contents = None
     for attempt in range(1, S3_MAX_TRIES + 1):
+        logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
         should_retry = False
         exception = None
         try:
@@ -481,7 +481,7 @@ async def s3_endpoint(path: str, request: Request):
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
-            should_retry = False
+            should_retry = True
             exception = e
 
         # exit if the call succeeded or should not be retried, or we reached the max number of
