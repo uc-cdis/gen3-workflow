@@ -40,7 +40,7 @@ S3_RETRY_BACKOFF_FACTOR = 2
 
 
 async def set_access_token_and_get_user_id(
-    auth: Auth, headers: Headers
+    auth: Auth, headers: Headers, method, path
 ) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
@@ -91,6 +91,7 @@ async def set_access_token_and_get_user_id(
     if is_user_token:  # format A (see docstring)
         access_token = access_key_id
     else:  # format B (see docstring)
+        raise Exception(f"'{method} {path}' from Funnel worker: rejected")
         access_token, user_id = access_key_id.split(";userId=")
 
     # set the token so we can perform authn/authz checks on it
@@ -206,7 +207,9 @@ async def s3_endpoint(path: str, request: Request):
     # the list of files for a specific task.
     auth = Auth(api_request=request)
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(auth, in_headers)
+    user_id, client_id = await set_access_token_and_get_user_id(
+        auth, in_headers, request.method, path
+    )
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )
@@ -368,11 +371,13 @@ async def s3_endpoint(path: str, request: Request):
     # configuration, and the following UploadPart and CompleteMultipartUpload requests do not.
     # We know this is an UploadPart or CompleteMultipartUpload request if it includes the
     # uploadId query parameter.
+    # Other types of PUT/POST requests that are not object uploads (e.g. legal hold configuration)
+    # also do not include the KMS configuration.
     query_params = dict(request.query_params)
     if (
         config["KMS_ENCRYPTION_ENABLED"]
         and request.method in ["PUT", "POST"]
-        and "uploadId" not in query_params
+        and all(e not in query_params for e in ["uploadId", "legal-hold"])
     ):
         _, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
@@ -430,12 +435,13 @@ async def s3_endpoint(path: str, request: Request):
         s3_api_url = f"{config['S3_UPSTREAM_ENDPOINT'].rstrip('/')}/{api_endpoint}"
     else:
         s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
-    logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to the S3 server with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
+    resp_contents = None
     for attempt in range(1, S3_MAX_TRIES + 1):
-        proceed = True
+        logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
+        should_retry = False
         exception = None
         try:
             response = await request.app.async_client.send(
@@ -454,8 +460,11 @@ async def s3_endpoint(path: str, request: Request):
                 # error: 404s are are expected when running workflows (e.g. for Nextflow workflows,
                 # stderr output files may not be present when there were no errors)
                 if response.status_code != HTTP_404_NOT_FOUND:
+                    should_retry = True
+                    resp_contents = await response.aread()
+                    await response.aclose()
                     logger.error(
-                        f"Error from S3: {response.status_code} {response.text}"
+                        f"Error from S3: {response.status_code} {resp_contents}"
                     )
                     # in the case of a client-side (4xx) error (except `408 Request  Timeout` and
                     # `429 Too Many Requests`), print debug logs and do not retry
@@ -465,7 +474,7 @@ async def s3_endpoint(path: str, request: Request):
                         and response.status_code
                         not in [HTTP_408_REQUEST_TIMEOUT, HTTP_429_TOO_MANY_REQUESTS]
                     ):
-                        proceed = False
+                        should_retry = False
                         logger.debug(f"Incoming headers:\n{in_headers}")
                         logger.debug(f"Outgoing headers:\n{out_headers}")
                         logger.debug(f"Canonical request:\n{canonical_request}")
@@ -477,12 +486,12 @@ async def s3_endpoint(path: str, request: Request):
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
-            proceed = False
+            should_retry = True
             exception = e
 
         # exit if the call succeeded or should not be retried, or we reached the max number of
         # retries
-        if proceed:
+        if not should_retry:
             break
         if attempt == S3_MAX_TRIES:
             logger.error(
@@ -550,10 +559,11 @@ async def s3_endpoint(path: str, request: Request):
             #   `content-encoding` header still says gzip.
             if h.lower() not in {"content-length", "content-encoding"}
         }
-        decoded = await response.aread()
-        await response.aclose()
+        if not resp_contents:
+            resp_contents = await response.aread()
+            await response.aclose()
         return Response(
-            content=decoded,
+            content=resp_contents,
             status_code=response.status_code,
             headers=filtered_headers,
         )
