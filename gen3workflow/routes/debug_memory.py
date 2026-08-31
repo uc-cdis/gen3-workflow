@@ -39,21 +39,15 @@ _sampler_started = False
 
 
 def _sample_once() -> dict:
-    large = [o for o in gc.get_objects() if isinstance(o, bytes) and len(o) > 500_000]
-    large.sort(key=len, reverse=True)
-    largest = []
-    for b in large[:3]:
-        chain = _referrer_chain(b, depth=6, skip={large})
-        largest.append(
-            {"size_mb": round(len(b) / 1024 / 1024, 2), "referrer_chain": chain}
-        )
+    # tracemalloc.get_traced_memory() is O(1) and does not scan live objects —
+    # it reads counters maintained by tracemalloc's C hooks. Safe to call from a
+    # background thread under load without causing a stop-the-world GIL spike.
+    current, peak = tracemalloc.get_traced_memory()
     return {
         "ts": round(time.monotonic(), 2),
         "wall_time": time.strftime("%H:%M:%S", time.localtime()),
-        "count": len(large),
-        "total_kb": round(sum(len(b) for b in large) / 1024, 2),
-        "total_mb": round(sum(len(b) for b in large) / 1024 / 1024, 2),
-        "largest": largest,
+        "current_mb": round(current / 1024 / 1024, 2),
+        "peak_mb": round(peak / 1024 / 1024, 2),
     }
 
 
