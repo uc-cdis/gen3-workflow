@@ -215,10 +215,6 @@ async def s3_endpoint(path: str, request: Request):
         auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
 
-    # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
-    # (as opposed to virtual-hosted style addressing)
-    path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
-
     # get the name of the user's bucket
     logger.info(
         f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
@@ -243,6 +239,10 @@ async def s3_endpoint(path: str, request: Request):
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+
+    # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
+    # (as opposed to virtual-hosted style addressing)
+    path_style = bool(config["S3_UPSTREAM_ENDPOINT"])
 
     # extract the request path (used in the canonical request) and the API endpoint (used to make
     # the request to AWS).
