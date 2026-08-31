@@ -17,7 +17,6 @@ from gen3workflow.routes.s3 import s3_root_router, s3_router
 from gen3workflow.routes.storage import router as storage_router
 from gen3workflow.routes.system import router as system_router
 from gen3workflow.routes.ui import router as ui_router
-from gen3workflow.routes.debug_memory import router as debug_memory_router
 
 
 def get_app(httpx_client=None) -> FastAPI:
@@ -80,7 +79,6 @@ def get_app(httpx_client=None) -> FastAPI:
     app.include_router(storage_router, tags=["Storage"])
     app.include_router(system_router, tags=["System"])
     app.include_router(ui_router, tags=["UI"])
-    app.include_router(debug_memory_router, tags=["Debug Memory"])
     # Following will update logger level, propagate, and handlers
     get_logger("gen3workflow", log_level=log_level)
 
