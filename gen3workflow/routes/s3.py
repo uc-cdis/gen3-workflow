@@ -38,20 +38,6 @@ S3_MAX_TRIES = 1  # streams don't do retries
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
-# Limit concurrent S3 forwards to prevent event loop saturation. Without a cap, 100 concurrent
-# uploads each holding open a streaming connection (TLS, socket I/O, asyncio events) starve the
-# event loop and cause readiness probe failures.
-_PROXY_SEMAPHORE_LIMIT = 20
-_proxy_semaphore: asyncio.Semaphore | None = None
-
-
-def _get_proxy_semaphore() -> asyncio.Semaphore:
-    global _proxy_semaphore
-    if _proxy_semaphore is None:
-        _proxy_semaphore = asyncio.Semaphore(_PROXY_SEMAPHORE_LIMIT)
-    return _proxy_semaphore
-
-
 _DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB
 
 
@@ -59,9 +45,9 @@ async def _dechunk_stream(stream):
     """Yield de-chunked bytes from an AWS SigV4 streaming chunked body.
 
     Accumulates de-chunked data into an output buffer and yields only when it reaches
-    _DECHUNK_YIELD_SIZE. This limits peak memory to yield_size × concurrent_uploads
-    while reducing h11/anyio/TLS Python-stack
-    traversals from ~160 to ~20 for a 10 MB upload, vs. per-TCP-segment (64 KB) yielding.
+    _DECHUNK_YIELD_SIZE. This limits peak memory to yield_size x concurrent_uploads
+    while reducing h11/anyio/TLS Python-stack traversals from ~160 to ~20 for a 10 MB upload,
+    vs. per-TCP-segment (64 KB) yielding.
     """
     buf = bytearray()
     out = bytearray()
@@ -98,7 +84,7 @@ async def _dechunk_stream(stream):
                 # On fast networks the httpx socket write completes without an epoll wait,
                 # so the event loop never naturally yields between chunks. This forces a
                 # scheduling gap so other coroutines (health probe, task creation) can run.
-                await asyncio.sleep(0)
+                # await asyncio.sleep(0)
 
     if out:
         yield out
@@ -396,8 +382,7 @@ async def s3_endpoint(path: str, request: Request):
     ]
     if is_chunked_streaming:
         # UNSIGNED-PAYLOAD skips the hash requirement, enabling streaming without
-        # buffering. TLS secures the gen3-workflow→S3 connection; incoming payload
-        # signatures are not verified here anyway.
+        # buffering.
         out_headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
         decoded_len = out_headers.pop("x-amz-decoded-content-length", None)
         if decoded_len:
