@@ -40,7 +40,8 @@ S3_RETRY_BACKOFF_FACTOR = 2
 
 
 async def set_access_token_and_get_user_id(
-    auth: Auth, headers: Headers, method, path
+    auth: Auth,
+    headers: Headers,
 ) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
@@ -91,7 +92,6 @@ async def set_access_token_and_get_user_id(
     if is_user_token:  # format A (see docstring)
         access_token = access_key_id
     else:  # format B (see docstring)
-        raise Exception(f"'{method} {path}' from Funnel worker: rejected")
         access_token, user_id = access_key_id.split(";userId=")
 
     # set the token so we can perform authn/authz checks on it
@@ -207,9 +207,7 @@ async def s3_endpoint(path: str, request: Request):
     # the list of files for a specific task.
     auth = Auth(api_request=request)
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(
-        auth, in_headers, request.method, path
-    )
+    user_id, client_id = await set_access_token_and_get_user_id(auth, in_headers)
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )
