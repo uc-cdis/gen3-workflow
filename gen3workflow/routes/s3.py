@@ -34,7 +34,7 @@ s3_root_router = APIRouter(include_in_schema=False)
 s3_router = APIRouter(prefix="/s3")
 
 
-S3_MAX_TRIES = 1  # streams don't do retries
+S3_MAX_TRIES = 3  # body-less requests (GET/HEAD/DELETE) can be retried safely
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
@@ -43,6 +43,15 @@ _DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB
 
 async def _dechunk_stream(stream):
     """Yield de-chunked bytes from an AWS SigV4 streaming chunked body.
+    Turn a chunked body into a non-chunked body.
+
+    Each chunk has:
+        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
+        <chunk-data>\r\n
+    Final chunk:
+        0;chunk-signature=<sig>\r\n\r\n
+
+    Parse the streaming chunks and remove the chunk headers.
 
     Accumulates de-chunked data into an output buffer and yields only when it reaches
     _DECHUNK_YIELD_SIZE. This limits peak memory to yield_size x concurrent_uploads
@@ -57,15 +66,15 @@ async def _dechunk_stream(stream):
         buf += raw
         while buf:
             if chunk_remaining == 0:
-                nl = buf.find(b"\r\n")
-                if nl == -1:
+                header_end = buf.find(b"\r\n")
+                if header_end == -1:
                     break  # header split across segments; wait for more data
-                chunk_size = int(buf[:nl].split(b";")[0], 16)
+                chunk_size = int(buf[:header_end].split(b";")[0], 16)
                 if chunk_size == 0:
                     if out:
                         yield out
                     return
-                del buf[: nl + 2]  # consume header + \r\n
+                del buf[: header_end + 2]  # consume header + \r\n
                 chunk_remaining = chunk_size
 
             available = min(chunk_remaining, len(buf))
@@ -84,7 +93,7 @@ async def _dechunk_stream(stream):
                 # On fast networks the httpx socket write completes without an epoll wait,
                 # so the event loop never naturally yields between chunks. This forces a
                 # scheduling gap so other coroutines (health probe, task creation) can run.
-                # await asyncio.sleep(0)
+                await asyncio.sleep(0)
 
     if out:
         yield out
@@ -197,39 +206,6 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     ).digest()
     key_signing = hmac.new(key_service, b"aws4_request", hashlib.sha256).digest()
     return key_signing
-
-
-def chunked_to_non_chunked_body(body: bytes) -> bytes:
-    """
-    Turn a chunked body into a non-chunked body.
-
-    Each chunk has:
-        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
-        <chunk-data>\r\n
-    Final chunk:
-        0;chunk-signature=<sig>\r\n\r\n
-
-    Parse the chunks and return a non-chunked body.
-    """
-    result = []
-    i = 0
-    while i < len(body):
-        # find the end of the chunk
-        line_end = body.index(b"\r\n", i)
-        line = body[i:line_end]
-        i = line_end + 2  # skip the separator `\r\n`
-
-        # strip chunk extensions (such as the signature) and extract the chunk size
-        chunk_size_hex = line.split(b";")[0]
-        chunk_size = int(chunk_size_hex, 16)
-
-        if chunk_size == 0:
-            break  # final chunk
-
-        result.append(body[i : i + chunk_size])  # extract exactly `chunk_size` bytes
-        i += chunk_size + 2  # skip chunk data + the separator `\r\n`
-
-    return b"".join(result)
 
 
 @s3_root_router.api_route(
@@ -476,8 +452,9 @@ async def s3_endpoint(path: str, request: Request):
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to the S3 server with the new Authorization header.
-    # retries are only possible for buffered content; a consumed stream cannot be re-read.
-    max_tries = S3_MAX_TRIES if is_chunked_streaming else 1
+    # body-less requests (GET/HEAD/DELETE) can be retried; uploads consume the stream and cannot
+    has_body = request.method in {"PUT", "POST", "PATCH"}
+    max_tries = 1 if has_body else S3_MAX_TRIES
     for attempt in range(1, max_tries + 1):
         proceed = True
         exception = None
