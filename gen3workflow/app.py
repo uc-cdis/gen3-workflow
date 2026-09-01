@@ -34,6 +34,10 @@ def get_app(httpx_client=None) -> FastAPI:
     """
     Initialize the FastAPI app
     """
+    # First, so that even the startup lines below go out in the configured format. Only reads
+    # config values that loading the config file already populated
+    configure_logging()
+
     existing_route_ids = set()
 
     def generate_unique_route_id(route: APIRoute) -> str:
@@ -78,8 +82,6 @@ def get_app(httpx_client=None) -> FastAPI:
 
     debug = config["APP_DEBUG"]
     log_level = "debug" if debug else "info"
-
-    configure_logging()
 
     # Before configure_tracing, which only links spans to profiles when it can see that an agent
     # is already running. Safe here because dockerrun.bash runs one uvicorn worker and never
@@ -133,12 +135,20 @@ def get_app(httpx_client=None) -> FastAPI:
         app.arborist_client = ArboristClient(
             arborist_base_url=custom_arborist_url,
             authz_provider="gen3-workflow",
-            logger=get_logger("gen3workflow.gen3authz", log_level=log_level),
+            logger=get_logger(
+                "gen3workflow.gen3authz",
+                log_level=log_level,
+                json_logs=config["ENABLE_JSON_LOGS"],
+            ),
         )
     else:
         app.arborist_client = ArboristClient(
             authz_provider="gen3-workflow",
-            logger=get_logger("gen3workflow.gen3authz", log_level=log_level),
+            logger=get_logger(
+                "gen3workflow.gen3authz",
+                log_level=log_level,
+                json_logs=config["ENABLE_JSON_LOGS"],
+            ),
         )
 
     app.metrics = Metrics(
@@ -205,24 +215,46 @@ def configure_logging() -> None:
 
     Must run before the app's httpx client is created: httpx keeps the log level it sees when
     it is initialized, and it is verbose enough to need a setting of its own.
+
+    Every `get_logger` call is paired with a `remove_log_handlers` call, which is both what
+    makes the format apply at all and what makes running this more than once per process safe.
     """
     log_level = "debug" if config["APP_DEBUG"] else "info"
+    json_logs = config["ENABLE_JSON_LOGS"]
 
     remove_log_handlers(None)
-    get_logger(None, log_level="debug" if config["HTTPX_DEBUG"] else "warn")
+    get_logger(
+        None,
+        log_level="debug" if config["HTTPX_DEBUG"] else "warn",
+        json_logs=json_logs,
+    )
 
-    # Uvicorn installs its own handlers before it imports this app, so they have to go or
-    # every server log line would be emitted twice, in two different formats.
-    for logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
+    # Each of these is handed a handler by another library before this runs: uvicorn installs its
+    # own before it imports this app, and gen3config's comes from the pre-rename cdislogging,
+    # which cannot emit JSON at all. Left in place, each would keep emitting its own format
+    # alongside this service's.
+    for logger_name in [
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+        "gen3config.config",
+    ]:
         remove_log_handlers(logger_name)
-        get_logger(logger_name, log_level=log_level)
+        get_logger(logger_name, log_level=log_level, json_logs=json_logs)
 
-    get_logger("gen3workflow", log_level=log_level)
+    # gen3workflow/__init__.py attaches a handler at import time, before the config is readable,
+    # and get_logger will not replace a handler that is already attached.
+    remove_log_handlers("gen3workflow")
+    get_logger("gen3workflow", log_level=log_level, json_logs=json_logs)
 
 
 def remove_log_handlers(logger_name: str | None) -> None:
     """
     Remove every handler attached to a logger.
+
+    Callers must attach a replacement: `get_logger` turns propagation off for any logger it gives
+    a level to, so one left with no handlers falls through to `logging.lastResort`, which writes
+    to stderr at WARNING and drops everything below it.
 
     Args:
         logger_name (str | None): name of the logger, or None for the root logger

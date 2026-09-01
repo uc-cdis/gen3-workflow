@@ -21,6 +21,8 @@ HOSTNAME: localhost
 APP_DEBUG: false
 # httpx debug mode is very verbose, so the setting is separate from the main app debug mode
 HTTPX_DEBUG: false
+# Emit one JSON object per log line instead of the human-readable text format.
+ENABLE_JSON_LOGS: true
 
 # For deployments that run the app behind a proxy. The value should start with a slash.
 PROXY_PREFIX:

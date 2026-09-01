@@ -37,6 +37,7 @@ class Gen3WorkflowConfig(Config):
                 "HOSTNAME": {"type": "string"},
                 "APP_DEBUG": {"type": "boolean"},
                 "HTTPX_DEBUG": {"type": "boolean"},
+                "ENABLE_JSON_LOGS": {"type": "boolean"},
                 "PROXY_PREFIX": {"type": ["string", "null"]},
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},

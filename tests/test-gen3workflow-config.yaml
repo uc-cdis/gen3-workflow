@@ -1,4 +1,6 @@
 APP_DEBUG: true
+# keeps pytest output readable; tests/test_logging.py sets this explicitly either way
+ENABLE_JSON_LOGS: false
 ARBORIST_URL: http://test-arborist-server
 
 S3_ENDPOINTS_AWS_ACCESS_KEY_ID: test-aws-key-id
