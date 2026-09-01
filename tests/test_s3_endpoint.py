@@ -1,3 +1,4 @@
+import io
 import re
 import tempfile
 from unittest.mock import AsyncMock, patch
@@ -16,10 +17,7 @@ from tests.conftest import (
     mock_aws_s3_request,
 )
 from gen3workflow.config import config
-from gen3workflow.routes.s3 import (
-    set_access_token_and_get_user_id,
-    chunked_to_non_chunked_body,
-)
+from gen3workflow.routes.s3 import _dechunk_stream, set_access_token_and_get_user_id
 
 TEST_CLIENT_ID = "client-azp"
 
@@ -399,17 +397,68 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     )
 
 
-def test_chunked_to_non_chunked_body():
-    """
-    Test that `chunked_to_non_chunked_body` correctly parses request bodies from chunked data
-    """
-    body = b"f;chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6891\r\nBonjour world!\n\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
-    assert chunked_to_non_chunked_body(body) == b"Bonjour world!\n"
+# ---------------------------------------------------------------------------
+# Unit tests for _dechunk_stream
+# ---------------------------------------------------------------------------
 
-    body = b"5;chunk-signature=9f5c0b7f5c1a1e0a6f2f7c5f7c0d3a8f1c9e3a3b8b1cbb4eaa27f0d5b3a0b0f2\r\nHello\r\n5;chunk-signature=3b92d0a84f7b91f3a9f4d1f8c1e90c0f5b6d1b42a2f82a8e0b91d78a0cb8e0f1\r\nWorld\r\n5;chunk-signature=7e2c5a8c8a3d1b0f9d3a3a5e1f3e6b1a9c9f1a3e5f9c0d8a2b4c3e8f0d9b1c2\r\nAgain\r\n0;chunk-signature=2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d\r\n\r\n"
-    assert chunked_to_non_chunked_body(body) == b"HelloWorldAgain"
 
-    txt = "this text includes '\r\n' which is also the chunk separator"
-    chunk_len = f"{len(txt):x}"
-    body = f"{chunk_len};chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6222\r\n{txt}\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
-    assert chunked_to_non_chunked_body(body.encode()) == txt.encode()
+async def _async_iter(segments):
+    for s in segments:
+        yield s
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "wire_segments, expected",
+    [
+        # single segment: one data chunk + terminal chunk
+        (
+            [b"b;chunk-signature=abc\r\nhello world\r\n0;chunk-signature=abc\r\n\r\n"],
+            b"hello world",
+        ),
+        # multiple data chunks in one segment
+        (
+            [
+                b"3;chunk-signature=abc\r\nfoo\r\n3;chunk-signature=abc\r\nbar\r\n0;chunk-signature=abc\r\n\r\n"
+            ],
+            b"foobar",
+        ),
+        # chunk header split across two TCP segments
+        (
+            [
+                b"b;chunk-sig",
+                b"nature=abc\r\nhello world\r\n0;chunk-signature=abc\r\n\r\n",
+            ],
+            b"hello world",
+        ),
+        # chunk data split across two TCP segments
+        (
+            [
+                b"b;chunk-signature=abc\r\nhello",
+                b" world\r\n0;chunk-signature=abc\r\n\r\n",
+            ],
+            b"hello world",
+        ),
+        # terminal chunk only: empty body
+        (
+            [b"0;chunk-signature=abc\r\n\r\n"],
+            b"",
+        ),
+    ],
+    ids=[
+        "single chunk",
+        "multiple chunks",
+        "header split across segments",
+        "data split across segments",
+        "empty body",
+    ],
+)
+async def test_dechunk_stream(wire_segments, expected):
+    """
+    Test that `_dechunk_stream` correctly reconstructs the original data
+    from a stream of chunked transfer encoding segments.
+    """
+    result = bytearray()
+    async for piece in _dechunk_stream(_async_iter(wire_segments)):
+        result += piece
+    assert bytes(result) == expected
