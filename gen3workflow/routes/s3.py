@@ -506,7 +506,7 @@ async def s3_endpoint(path: str, request: Request):
                         logger.debug(f"String to sign:\n{string_to_sign}")
                         logger.debug(f"Incoming query params:\n{request.query_params}")
                         logger.debug(f"Outgoing query params:\n{query_params}")
-                        if is_chunked_streaming:
+                        if has_body:
                             logger.debug(f"Outgoing body:\n{request_content}")
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")

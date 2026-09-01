@@ -454,6 +454,10 @@ async def _async_iter(segments):
     ],
 )
 async def test_dechunk_stream(wire_segments, expected):
+    """
+    Test that `_dechunk_stream` correctly reconstructs the original data
+    from a stream of chunked transfer encoding segments.
+    """
     result = bytearray()
     async for piece in _dechunk_stream(_async_iter(wire_segments)):
         result += piece
