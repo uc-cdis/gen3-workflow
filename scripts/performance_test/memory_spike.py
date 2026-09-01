@@ -1,49 +1,40 @@
+"""
+Usage:
+  # Run all scenarios:
+  GEN3_TOKEN=your_token python memory_spike.py
+
+  # Run a single scenario by label:
+  GEN3_TOKEN=your_token python memory_spike.py run_s3_upload
+
+  # Pause for keyboard input after every 10 iterations:
+  GEN3_TOKEN=your_token python memory_spike.py --with-pause run_s3_upload
+"""
+
+import argparse
 import inspect
 import io
+import json
 import os
 import sys
-import textwrap
 import time
 
 import boto3
+import jwt
 import requests
 from botocore.config import Config
 
-"""
-Usage:
-  # Run all tests:
-  GEN3_TOKEN=your_token python memory_spike_test.py
-
-  # Run a single test by label:
-  GEN3_TOKEN=your_token python memory_spike_test.py test_s3_upload
-
-Memory profiling is done by a background thread inside the app (debug_memory.py),
-so this script does NOT poll during the load test. It calls three endpoints after
-the test finishes, which is safe even on a saturated event loop:
-  /_debug/memory/sampled  — full timeline collected by the in-app thread
-  /_debug/memory/gc-test  — forces gc.collect() and checks if objects are freed
-  /_debug/memory/diff     — tracemalloc growth vs the pre-test baseline
-
-Recommended k8s setup for accurate per-worker profiling (avoids ingress routing
-requests to different workers):
-  1. Set N_WORKERS=1 in the gen3-workflow config and redeploy.
-  2. Port-forward the pod: kubectl port-forward <pod> 8000:8000
-  3. Set DEBUG_BASE_URL=http://localhost:8000 and run this script.
-"""
-
 GEN3_TOKEN = os.environ["GEN3_TOKEN"]
-BASE_URL = "https://sai.dev.planx-pla.net/workflows"
+hostname = jwt.decode(GEN3_TOKEN, options={"verify_signature": False})["iss"].split(
+    "/user"
+)[0]
+print(hostname)
+BASE_URL = f"{hostname}/workflows"
 SETUP_URL = f"{BASE_URL}/storage/setup"
-TES_URL = "https://sai.dev.planx-pla.net/ga4gh/tes/v1/tasks"
+TES_URL = f"{BASE_URL}/ga4gh/tes/v1/tasks"
 S3_ENDPOINT = f"{BASE_URL}/s3"
-BUCKET = "gen3wf-sai-dev-planx-pla-net-3"
-MONITOR_MEMORY = False
-# Debug endpoints go directly to the pod (via port-forward) to ensure the same
-# worker process is measured. Override with the /workflows public URL if needed.
-DEBUG_BASE_URL = os.environ.get("DEBUG_BASE_URL", BASE_URL)
 
 NUM_ITERATIONS = 100
-FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
 POLL_INTERVAL_SECONDS = 5
 
 
@@ -65,215 +56,78 @@ def make_s3_client():
     )
 
 
-# ── Memory collection (post-test) ──────────────────────────────────────────────
-# Sampling is done inside the app by a daemon thread (debug_memory.py), so this
-# script does not need to poll during the load test. We just collect results
-# after the test finishes, when the event loop is no longer saturated.
+def get_bucket_name_from_setup() -> str:
+    """Call /workflows/storage/setup to get the bucket name."""
+    resp = requests.get(SETUP_URL, headers=auth_headers())
+    resp.raise_for_status()
+    return resp.json()["bucket"]
 
 
-def _fetch(
-    http: requests.Session, path: str, tag: str, retries: int = 5
-) -> dict | None:
-    """GET a debug endpoint with exponential backoff. Tolerates transient 502s."""
-    delay = 2.0
-    for attempt in range(1, retries + 1):
-        try:
-            r = http.get(f"{DEBUG_BASE_URL}{path}", timeout=30)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            if attempt == retries:
-                print(
-                    f"  [memmon:{tag}] WARNING: gave up after {retries} attempts — {e}"
-                )
-                return None
-            print(
-                f"  [memmon:{tag}] attempt {attempt}/{retries} failed ({e}), retrying in {delay:.0f}s..."
-            )
-            time.sleep(delay)
-            delay *= 2
+# ── Scenarios ──────────────────────────────────────────────────────────────────
 
 
-def start_monitoring(http: requests.Session):
-    """Reset the in-app sampler and capture a tracemalloc baseline."""
-    result = _fetch(http, "/_debug/memory/snapshot", "snapshot")
-    if result:
-        print(f"  [memmon] {result.get('status', 'baseline captured')}")
-    else:
-        print(
-            "  [memmon] WARNING: could not reach snapshot endpoint — profiling will be limited"
-        )
-
-
-def collect_report(http: requests.Session, label: str, duration: float) -> dict:
-    """Wait for the app to drain, then retrieve the full timeline and diagnostics."""
-    print(f"  [memmon] collecting timeline, gc-test, diff for {label}...")
-    sampled = _fetch(http, "/_debug/memory/sampled", "sampled")
-    gc_result = _fetch(http, "/_debug/memory/gc-test", "gc-test")
-    diff_result = _fetch(http, "/_debug/memory/diff", "diff")
-    samples = sampled.get("samples", []) if sampled else []
-    return {
-        "label": label,
-        "samples": samples,
-        "gc_result": gc_result,
-        "diff_result": diff_result,
-        "duration": duration,
-        "interval_seconds": (
-            sampled.get("interval_seconds", POLL_INTERVAL_SECONDS)
-            if sampled
-            else POLL_INTERVAL_SECONDS
-        ),
-    }
-
-
-# ── Report ─────────────────────────────────────────────────────────────────────
-
-WIDTH = 66
-
-
-def _hr(char="═"):
-    return char * WIDTH
-
-
-def _row(text=""):
-    lines = textwrap.wrap(text, WIDTH - 4) or [""]
-    return "\n".join(f"║  {l:<{WIDTH - 4}}  ║" for l in lines)
-
-
-def print_report(data: dict):
-    label = data["label"]
-    samples = data["samples"]
-    gc_result = data.get("gc_result") or {}
-    diff_result = data.get("diff_result") or {}
-    duration = data["duration"]
-
-    print(f"\n╔{_hr()}╗")
-    print(f"║  {'MEMORY SPIKE REPORT: ' + label:^{WIDTH - 4}}  ║")
-    print(f"╠{_hr()}╣")
-    interval = data.get("interval_seconds", POLL_INTERVAL_SECONDS)
-    print(
-        _row(
-            f"Duration: {duration}s  |  Samples: {len(samples)}  |  Poll interval: {interval}s"
-        )
-    )
-    print(_row(f"Debug URL: {DEBUG_BASE_URL}"))
-
-    # ── Timeline ──
-    print(f"╠{_hr('─')}╣")
-    print(_row("LARGE BYTES (>500 KB) TIMELINE"))
-    print(_row())
-
-    peak_sample = None
-    peak_kb = 0.0
-    for s in samples:
-        count = s.get("count", 0)
-        total_kb = s.get("total_kb", 0.0)
-        elapsed = s.get("elapsed", "?")
-        marker = ""
-        if total_kb > peak_kb:
-            peak_kb = total_kb
-            peak_sample = s
-            marker = "  ← peak"
-        print(
-            _row(f"  t={elapsed}s    count={count}   total={total_kb:.2f} KB{marker}")
-        )
-
-    # ── Peak referrer chain ──
-    print(f"╠{_hr('─')}╣")
-    if peak_sample and peak_sample.get("largest"):
-        largest = peak_sample["largest"][0]
-        chain = largest.get("referrer_chain", [])
-        size_mb = largest.get("size_mb", 0)
-        print(
-            _row(f"PEAK: {peak_sample.get('count', 0)} objects, {peak_kb:.2f} MB total")
-        )
-        print(_row(f"Largest object: {size_mb:.2f} MB"))
-        print(_row())
-        print(_row("Referrer chain (what holds the largest body):"))
-        if chain:
-            for i, link in enumerate(chain):
-                prefix = "  root" if i == len(chain) - 1 else f"  [{i + 1}]"
-                print(_row(f"{prefix}  {link}"))
-        else:
-            print(
-                _row(
-                    "  (no referrers found — object may have been freed by the time of the call)"
-                )
-            )
-    else:
-        print(_row("PEAK: no large bytes objects observed"))
-
-    # ── GC test ──
-    print(f"╠{_hr('─')}╣")
-    print(_row("POST-TEST GC TEST"))
-    print(_row())
-    if gc_result:
-        before = gc_result.get("large_bytes_before_gc", "?")
-        after = gc_result.get("large_bytes_after_gc", "?")
-        collected = gc_result.get("objects_collected", "?")
-        verdict = gc_result.get("interpretation", "?")
-        print(_row(f"  Large bytes before gc.collect(): {before}"))
-        print(_row(f"  Large bytes after  gc.collect(): {after}"))
-        print(_row(f"  Objects collected by GC:         {collected}"))
-        print(_row())
-        print(_row(f"  Verdict: {verdict}"))
-    else:
-        print(_row("  (gc-test endpoint unreachable)"))
-
-    # ── tracemalloc diff ──
-    print(f"╠{_hr('─')}╣")
-    print(_row("TOP MEMORY GROWTH (tracemalloc diff from baseline)"))
-    print(_row())
-    grew = diff_result.get("grew", [])
-    if grew:
-        for entry in grew[:10]:
-            loc = entry.get("location", "?")
-            kb = entry.get("added_kb", 0)
-            count = entry.get("added_count", 0)
-            print(_row(f"  +{kb:>6} KB  ({count:>4} allocs)  {loc}"))
-    elif diff_result.get("note"):
-        print(_row(f"  {diff_result['note']}"))
-        for entry in (diff_result.get("top") or [])[:10]:
-            loc = entry.get("location", "?")
-            kb = entry.get("size_kb", 0)
-            count = entry.get("count", 0)
-            print(_row(f"  {kb:>7} KB  ({count:>4} allocs)  {loc}"))
-    else:
-        print(_row("  (diff endpoint unreachable or no growth)"))
-
-    print(f"╚{_hr()}╝\n")
-
-
-# ── Tests ──────────────────────────────────────────────────────────────────────
-
-
-def test_setup_storage(http: requests.Session):
+def run_setup_storage(http: requests.Session, with_pause: bool = False):
     """Call /workflows/storage/setup NUM_ITERATIONS times."""
+    elapsed = []
     for i in range(1, NUM_ITERATIONS + 1):
+        if with_pause and i % 10 == 0:
+            user_input = input(
+                f"Press Enter to continue with setup iteration {i} ... or press C to continue without pausing"
+            )
+            if user_input.upper() == "C":
+                with_pause = False
+        start = time.monotonic()
         resp = http.get(SETUP_URL, headers=auth_headers())
-        print(f"[setup {i:03d}] status={resp.status_code}")
+        elapsed.append(time.monotonic() - start)
+        print(f"[setup {i:03d}] status={resp.status_code}; elapsed={elapsed[-1]:.1f}s")
         resp.raise_for_status()
+        time.sleep(
+            1
+        )  # Change this to 0.05 after ratelimiting is handled in gen3-workflow (https://ctds-planx.atlassian.net/browse/MIDRC-1340)
+    print(f"[setup] average setup elapsed time: {sum(elapsed) / len(elapsed):.1f}s")
 
 
-def test_s3_upload(s3):
-    """Upload a 10 MB in-memory buffer to S3 NUM_ITERATIONS times."""
+def run_s3_upload(s3, bucket_name: str, with_pause: bool = False):
+    """Upload a 100 MB in-memory buffer to S3 NUM_ITERATIONS times."""
+    elapsed = []
     for i in range(1, NUM_ITERATIONS + 1):
+        if with_pause and i % 10 == 0:
+            user_input = input(
+                f"Press Enter to continue with upload {i} ... or press C to continue without pausing"
+            )
+            if user_input.upper() == "C":
+                with_pause = False
         key = f"load-test/{FILE_SIZE_BYTES // (1024 * 1024)}mb-{i:03d}.bin"
         data = io.BytesIO(b"0" * FILE_SIZE_BYTES)
-        s3.upload_fileobj(data, BUCKET, key)
-        print(f"[upload {i:03d}] s3://{BUCKET}/{key}")
+        start = time.monotonic()
+        s3.upload_fileobj(data, bucket_name, key)
+        elapsed.append(time.monotonic() - start)
+        print(f"[upload {i:03d}] s3://{bucket_name}/{key}; elapsed={elapsed[-1]:.1f}s")
         time.sleep(0.05)
+    print(f"[upload] average upload elapsed time: {sum(elapsed) / len(elapsed):.1f}s")
 
 
-def test_tes_create_10mb_file(http: requests.Session):
+def run_tes_create_and_upload_file(
+    http: requests.Session, bucket_name: str, with_pause: bool = False
+):
     """Submit a TES task that generates a 10 MB output file, NUM_ITERATIONS times."""
+    print(
+        f"Starting {NUM_ITERATIONS} tasks of {FILE_SIZE_BYTES // (1024 * 1024)} MB files..."
+    )
     task_ids = []
+    elapsed = []
     for i in range(1, NUM_ITERATIONS + 1):
+        if with_pause and i % 10 == 0:
+            user_input = input(
+                f"Press Enter to continue with TES task {i} ... or press C to continue without pausing"
+            )
+            if user_input.upper() == "C":
+                with_pause = False
         task = {
             "name": f"Create-{FILE_SIZE_BYTES // (1024 * 1024)}MB-File-{i:03d}",
             "outputs": [
                 {
-                    "url": f"s3://{BUCKET}/tes-outputs/{FILE_SIZE_BYTES // (1024 * 1024)}mb-{i:03d}.bin",
+                    "url": f"s3://{bucket_name}/tes-outputs/{FILE_SIZE_BYTES // (1024 * 1024)}mb-{i:03d}.bin",
                     "path": "/work/output.bin",
                     "type": "FILE",
                 }
@@ -293,18 +147,29 @@ def test_tes_create_10mb_file(http: requests.Session):
                 }
             ],
         }
+        start = time.monotonic()
         resp = http.post(TES_URL, json=task, headers=auth_headers())
-        print(f"[tes {i:03d}] status={resp.status_code}")
+        elapsed.append(time.monotonic() - start)
+        print(f"[tes {i:03d}] status={resp.status_code}; elapsed={elapsed[-1]:.1f}s")
         resp.raise_for_status()
         task_ids.append(resp.json().get("id"))
         print(f"[tes {i:03d}] task_id={task_ids[-1]}")
+        time.sleep(0.05)
+    print(f"[tes] average POST elapsed time: {sum(elapsed) / len(elapsed):.1f}s")
     return task_ids
 
 
-def test_tes_create_hello_world(http: requests.Session):
+def run_tes_create_hello_world(http: requests.Session, with_pause: bool = False):
     """TES task that just echoes 'Hello World' NUM_ITERATIONS times, to test memory usage without large file output."""
     task_ids = []
+    elapsed = []
     for i in range(1, NUM_ITERATIONS + 1):
+        if with_pause and i % 10 == 0:
+            user_input = input(
+                f"Press Enter to continue with TES task {i} ... or press C to continue without pausing"
+            )
+            if user_input.upper() == "C":
+                with_pause = False
         task = {
             "name": f"Say Hello world-{i:03d}",
             "tags": {
@@ -318,27 +183,40 @@ def test_tes_create_hello_world(http: requests.Session):
                 }
             ],
         }
+        start = time.monotonic()
         resp = http.post(TES_URL, json=task, headers=auth_headers())
-        print(f"[tes {i:03d}] status={resp.status_code}")
+        elapsed.append(time.monotonic() - start)
+        print(f"[tes {i:03d}] status={resp.status_code}; elapsed={elapsed[-1]:.1f}s")
         resp.raise_for_status()
         task_ids.append(resp.json().get("id"))
         print(f"[tes {i:03d}] task_id={task_ids[-1]}")
         time.sleep(0.05)
+    print(f"[tes] average POST elapsed time: {sum(elapsed) / len(elapsed):.1f}s")
     return task_ids
 
 
 # ── Registry ───────────────────────────────────────────────────────────────────
 
 TESTS: dict[str, callable] = {
-    "test_setup_storage": test_setup_storage,
-    "test_s3_upload": test_s3_upload,
-    "test_tes_create_10mb_file": test_tes_create_10mb_file,
-    "test_tes_create_hello_world": test_tes_create_hello_world,
+    "run_setup_storage": run_setup_storage,
+    "run_s3_upload": run_s3_upload,
+    "run_tes_create_and_upload_file": run_tes_create_and_upload_file,
+    "run_tes_create_hello_world": run_tes_create_hello_world,
 }
 
 
 def main():
-    label = sys.argv[1] if len(sys.argv) > 1 else None
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "label", nargs="?", default=None, help="Scenario label to run (default: all)"
+    )
+    parser.add_argument(
+        "--with-pause",
+        action="store_true",
+        help="Pause for keyboard input after every 10 iterations",
+    )
+    args = parser.parse_args()
+    label = args.label
 
     if label and label not in TESTS:
         print(f"Unknown test label: {label!r}")
@@ -347,37 +225,66 @@ def main():
 
     http = requests.Session()
     s3 = make_s3_client()
-    deps = {"http": http, "s3": s3}
-
+    bucket_name = get_bucket_name_from_setup()
+    deps = {
+        "http": http,
+        "s3": s3,
+        "with_pause": args.with_pause,
+        "bucket_name": bucket_name,
+    }
+    print(f"Using bucket: {bucket_name}")
     to_run = {label: TESTS[label]} if label else TESTS
 
-    reports = []
     for name, fn in to_run.items():
-        input(f"Press Enter to to start {name} ...")
         print(f"\n{'=' * 60}\nRunning: {name}\n{'=' * 60}")
-        if MONITOR_MEMORY:
-            start_monitoring(http)
         t0 = time.monotonic()
 
         try:
             kwargs = {k: deps[k] for k in inspect.signature(fn).parameters if k in deps}
-            fn(**kwargs)
+            task_ids = fn(**kwargs)
+            print(f"Completed: {name}")
+
+            if task_ids:
+                print(
+                    f"Polling {len(task_ids)} TES tasks until they are all complete..."
+                )
+                while True:
+                    statuses = {}
+                    for task_id in task_ids:
+                        r = http.get(f"{TES_URL}/{task_id}", headers=auth_headers())
+                        r.raise_for_status()
+                        statuses[task_id] = r.json().get("state")
+                    incomplete = {
+                        tid: s for tid, s in statuses.items() if s != "COMPLETE"
+                    }
+                    task_ids = list(incomplete.keys())
+                    print(f"TES task statuses: {incomplete}")
+                    if all(
+                        s in ("COMPLETE", "EXECUTOR_ERROR", "SYSTEM_ERROR")
+                        for s in statuses.values()
+                    ):
+                        print("All TES tasks complete.")
+                        break
+                    print(f"— waiting {POLL_INTERVAL_SECONDS}s...")
+                    time.sleep(POLL_INTERVAL_SECONDS)
             print(f"Passed:  {name}")
+            failed_statuses = []
+            for task_id in task_ids:
+                r = http.get(f"{TES_URL}/{task_id}?view=FULL", headers=auth_headers())
+                r.raise_for_status()
+                print(f"Incomplete Task {task_id} final state: {r.json().get('state')}")
+                failed_statuses.append(r.json())
+            print(
+                f"Failed task details: {json.dumps(failed_statuses, indent=2) if failed_statuses else 'None'}"
+            )
+
         except KeyboardInterrupt:
             print(f"Aborted: {name}")
         except Exception as e:
-            print(f"FAILED:  {name} — {e}")
+            print(f"FAILED: @ {time.strftime('%Y-%m-%d %H:%M:%S')} {name} — {e}")
         finally:
             duration = round(time.monotonic() - t0, 1)
-            if MONITOR_MEMORY:
-                input(
-                    f"Press Enter to collect memory report for {name} (duration={duration}s) ..."
-                )
-                report_data = collect_report(http, label=name, duration=duration)
-                reports.append(report_data)
-
-    for report_data in reports:
-        print_report(report_data)
+            print(f"Duration: {duration}s")
 
 
 if __name__ == "__main__":

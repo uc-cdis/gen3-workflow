@@ -452,7 +452,8 @@ async def s3_endpoint(path: str, request: Request):
     logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to the S3 server with the new Authorization header.
-    # body-less requests (GET/HEAD/DELETE) can be retried; uploads consume the stream and cannot
+    # body-less requests (GET/HEAD/DELETE) can be retried;
+    # whereas, other requests consume the stream and cannot be retried
     has_body = request.method in {"PUT", "POST", "PATCH"}
     max_tries = 1 if has_body else S3_MAX_TRIES
     for attempt in range(1, max_tries + 1):
