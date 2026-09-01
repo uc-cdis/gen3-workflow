@@ -79,6 +79,7 @@ def get_app(httpx_client=None) -> FastAPI:
     app.include_router(storage_router, tags=["Storage"])
     app.include_router(system_router, tags=["System"])
     app.include_router(ui_router, tags=["UI"])
+
     # Following will update logger level, propagate, and handlers
     get_logger("gen3workflow", log_level=log_level)
 
