@@ -400,14 +400,15 @@ async def _create_user_bucket(user_id: str) -> str:
                     # apply to all objects:
                     "Filter": {"Prefix": ""},
                 },
-                {
-                    # cannot be combined with the previous rule, which creates delete markers
-                    # through `NoncurrentVersionExpiration`
-                    "ID": "RemoveExpiredDeleteMarkers",
-                    "ExpiredObjectDeleteMarker": True,
-                    "Filter": {"Prefix": ""},
-                    "Status": "Enabled",
-                },
+                # TODO fix: `Unknown parameter in LifecycleConfiguration.Rules[1]: "ExpiredObjectDeleteMarker", must be one of: Expiration, ID, Prefix, Filter, Status, Transitions, NoncurrentVersionTransitions, NoncurrentVersionExpiration, AbortIncompleteMultipartUpload`
+                # {
+                #     # cannot be combined with the previous rule, which creates delete markers
+                #     # through `NoncurrentVersionExpiration`
+                #     "ID": "RemoveExpiredDeleteMarkers",
+                #     "ExpiredObjectDeleteMarker": True,
+                #     "Filter": {"Prefix": ""},
+                #     "Status": "Enabled",
+                # },
             ],
         },
         # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5,
