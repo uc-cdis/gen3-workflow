@@ -202,15 +202,6 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    # Because this endpoint is exposed at root, if the GET path is empty, the user may not be
-    # trying to reach the S3 endpoint: suggest using the status endpoint.
-    # "All buckets" listing requests also land here and are not supported, since users can only
-    # access their own bucket.
-    if request.method == "GET" and path in ("", "s3"):
-        err_msg = f"'{request.method} /{path}': If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
-        logger.error(err_msg)
-        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-
     # Extract the caller's access token from the request headers, and ensure the caller (user, or
     # client acting on behalf of the user) has access to the user's files.
     # Note: sharing task inputs/output is not supported. Currently, users can only access their own
@@ -228,11 +219,25 @@ async def s3_endpoint(path: str, request: Request):
         auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
     )
 
-    # get the name of the user's bucket and ensure the user is making a call to their own bucket
+    # get the name of the user's bucket
     logger.info(
         f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
     )
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
+
+    # this is a "list buckets" request: only return the user's bucket
+    if request.method == "GET" and path in ("", "s3"):
+        xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult xmlns="http://amazonaws.com">
+    <Buckets>
+        <Bucket>
+            <Name>{user_bucket}</Name>
+        </Bucket>
+    </Buckets>
+</ListAllMyBucketsResult>"""
+        return Response(content=xml_data, media_type="application/xml")
+
+    # ensure the user is making a call to their own bucket
     request_bucket = path.split("?")[0].split("/")[0]
     if request_bucket != user_bucket:
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
@@ -432,12 +437,12 @@ async def s3_endpoint(path: str, request: Request):
         s3_api_url = f"{config['S3_UPSTREAM_ENDPOINT'].rstrip('/')}/{api_endpoint}"
     else:
         s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
-    logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to the S3 server with the new Authorization header.
     # this call is retried with exponential backoff in case of unexpected error from S3.
     resp_contents = None
     for attempt in range(1, S3_MAX_TRIES + 1):
+        logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
         should_retry = False
         exception = None
         try:
@@ -483,7 +488,7 @@ async def s3_endpoint(path: str, request: Request):
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
-            should_retry = False
+            should_retry = True
             exception = e
 
         # exit if the call succeeded or should not be retried, or we reached the max number of
