@@ -39,10 +39,12 @@ POLL_INTERVAL_SECONDS = 5
 
 
 def auth_headers() -> dict:
+    """Return a dict of headers with the Authorization header set to the GEN3_TOKEN."""
     return {"Authorization": f"Bearer {GEN3_TOKEN}"}
 
 
 def make_s3_client():
+    """Return a boto3 S3 client that uses the GEN3_TOKEN for authentication."""
     return boto3.client(
         "s3",
         endpoint_url=S3_ENDPOINT,
@@ -206,6 +208,7 @@ TESTS: dict[str, callable] = {
 
 
 def main():
+    """Main entry point for the memory spike test script. Parses command-line arguments, sets up dependencies, and runs the specified test scenarios."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "label", nargs="?", default=None, help="Scenario label to run (default: all)"
