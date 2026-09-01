@@ -229,18 +229,18 @@ def test_s3_endpoint_wrong_bucket(s3_client, access_token_patcher, bucket_name):
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
-def test_s3_endpoint_list_buckets(s3_client):
+@pytest.mark.parametrize("max_buckets", [True, False])
+def test_s3_endpoint_list_buckets(s3_client, access_token_patcher, max_buckets):
     """
-    Listing all the buckets the user can access is not supported, since users can only access
-    their own bucket.
+    Listing all the buckets the user can access returns the user's bucket only.
     """
-    with pytest.raises(
-        ClientError,
-        match=re.escape(
-            "An error occurred (400) when calling the ListBuckets operation: Bad Request"
-        ),
-    ):
-        s3_client.list_buckets()
+    bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    if max_buckets:
+        res = s3_client.list_buckets(MaxBuckets=1)
+    else:
+        res = s3_client.list_buckets()
+    res.pop("ResponseMetadata", None)
+    assert res == {"Buckets": [{"Name": bucket_name}]}
 
 
 @pytest.mark.asyncio
