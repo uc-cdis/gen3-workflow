@@ -2,6 +2,7 @@ import hashlib
 import json
 import time
 from typing import Union
+from urllib.parse import quote
 
 from authutils.token.fastapi import access_token
 from cachelib import SimpleCache
@@ -84,13 +85,47 @@ class Auth:
 
     async def get_user_id(self) -> Union[str, None]:
         """
-        Parse the user ID from the access token claims
+        Parse the user ID from the access token claims. For tokens obtained through a
+        `client_credentials` flow (not linked to a user), fall back to the client ID.
         """
         try:
             token_claims = await self.get_token_claims()
         except Exception:
             return None
-        return token_claims.get("sub")
+        return token_claims.get("sub") or token_claims.get("azp")
+
+    async def get_principal(self) -> dict:
+        """
+        Resolve the identity making the request. Two kinds of tokens are supported:
+        - User tokens (OIDC authorization code flow): identified by the `sub` claim (user ID)
+          and the `context.user.name` claim (username).
+        - Client tokens (OIDC `client_credentials` flow): not linked to a user, so the client
+          itself is the principal, identified by the `azp` claim (client ID).
+
+        Returns:
+            dict: {"id": str, "name": str, "is_client": bool}
+
+        Raises:
+            HTTPException: 401 if the token contains neither a user nor a client identity
+        """
+        token_claims = await self.get_token_claims()
+
+        user_id = token_claims.get("sub")
+        if user_id:
+            username = token_claims.get("context", {}).get("user", {}).get("name")
+            if not username:
+                err_msg = "No context.user.name in token"
+                logger.error(err_msg)
+                raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+            return {"id": user_id, "name": username, "is_client": False}
+
+        client_id = token_claims.get("azp")
+        if client_id:
+            return {"id": client_id, "name": client_id, "is_client": True}
+
+        err_msg = "No user or client identity in token"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     async def is_token_close_to_expiry(self, token):
         """
@@ -148,17 +183,19 @@ class Auth:
         return authorized
 
     async def grant_user_access_to_their_own_data(
-        self, username: str, user_id: str
+        self, username: str, user_id: str, is_client: bool = False
     ) -> None:
         """
-        Ensure the specified user exists in Arborist and has a policy granting them access to their
-        own Gen3Workflow tasks and bucket storage.
+        Ensure the specified user (or client, for tokens obtained through a
+        `client_credentials` flow) exists in Arborist and has a policy granting them access to
+        their own Gen3Workflow tasks and bucket storage.
         Args:
-            username (str): The user's Gen3 username
-            user_id (str): The user's unique Gen3 ID
+            username (str): The user's Gen3 username, or the client ID for clients
+            user_id (str): The user's unique Gen3 ID, or the client ID for clients
+            is_client (bool): whether the principal is a client rather than a user
         """
         logger.info(
-            f"Ensuring user '{user_id}' has access to their own tasks and storage"
+            f"Ensuring {'client' if is_client else 'user'} '{user_id}' has access to their own tasks and storage"
         )
         resource_path1 = f"/services/workflow/gen3-workflow/tasks/{user_id}"
         resource1 = {
@@ -209,19 +246,20 @@ class Auth:
                 create_or_update_policy = False
 
         grant_policy = True
-        try:
-            user = await self.arborist_client.get_user(username)
-        except ArboristError as e:
-            if e.code != 404:
-                raise
-            # the user doesn't exist: create it
-            logger.debug(f"Attempting to create user '{username}' in Arborist")
-            await self.arborist_client.create_user_if_not_exist(username)
-        else:
-            user_policies = (p["policy"] for p in user["policies"])
-            if policy_id in user_policies:
-                # the user already has this policy
-                grant_policy = False
+        if not is_client:
+            try:
+                user = await self.arborist_client.get_user(username)
+            except ArboristError as e:
+                if e.code != 404:
+                    raise
+                # the user doesn't exist: create it
+                logger.debug(f"Attempting to create user '{username}' in Arborist")
+                await self.arborist_client.create_user_if_not_exist(username)
+            else:
+                user_policies = (p["policy"] for p in user["policies"])
+                if policy_id in user_policies:
+                    # the user already has this policy
+                    grant_policy = False
 
         if create_or_update_policy:
             logger.debug(
@@ -251,11 +289,33 @@ class Auth:
             await self.arborist_client.create_policy(policy, skip_if_exists=True)
 
         if grant_policy:
-            logger.debug(f"Attempting to grant '{username}' access to '{policy_id}'")
-            status_code = await self.arborist_client.grant_user_policy(
-                username, policy_id
-            )
+            if is_client:
+                # grant the policy to the client. Note: we cannot use gen3authz's
+                # `update_client` here because it replaces the client's existing policies
+                # (such as the ones granted through the user.yaml) instead of adding to them.
+                # gen3authz does not expose an additive grant for clients, so mirror its
+                # `grant_user_policy` implementation against Arborist's client policy endpoint.
+                logger.debug(
+                    f"Attempting to grant client '{user_id}' access to '{policy_id}'"
+                )
+                url = "/".join(
+                    # pylint: disable-next=protected-access
+                    (self.arborist_client._client_url, quote(user_id), "policy")
+                )
+                response = await self.arborist_client.post(
+                    url, json={"policy": policy_id}, expect_json=False
+                )
+                status_code = response.code
+            else:
+                logger.debug(
+                    f"Attempting to grant '{username}' access to '{policy_id}'"
+                )
+                status_code = await self.arborist_client.grant_user_policy(
+                    username, policy_id
+                )
             if status_code != 204:
-                err_msg = "Unable to grant access to user"
+                err_msg = (
+                    f"Unable to grant access to {'client' if is_client else 'user'}"
+                )
                 logger.error(f"{err_msg}. Status code: {status_code}")
                 raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, err_msg)

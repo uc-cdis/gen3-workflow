@@ -13,7 +13,6 @@ from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import (
     HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
-    HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
 )
 
@@ -125,18 +124,12 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     logger.debug(f"Incoming task creation request body: {json.dumps(body)}")
 
     # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
-    token_claims = await auth.get_token_claims()
-    user_id = token_claims.get("sub")
-    if not user_id:
-        err_msg = "No user sub in token"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-    username = token_claims.get("context", {}).get("user", {}).get("name")
-    if not username:
-        err_msg = "No context.user.name in token"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-    logger.info(f"User '{user_id}' creating TES task")
+    principal = await auth.get_principal()
+    principal_id = principal["id"]
+    username = principal["name"]
+    logger.info(
+        f"{'Client' if principal['is_client'] else 'User'} '{principal_id}' creating TES task"
+    )
 
     # Fetch the list of images from request body as a set
     images_from_request = {
@@ -167,7 +160,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
     authz_resource = (
-        f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
+        f"/services/workflow/gen3-workflow/tasks/{principal_id}/TASK_ID_PLACEHOLDER"
     )
     body["tags"]["_AUTHZ"] = authz_resource
 
@@ -189,9 +182,9 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     if config["EKS_CLUSTER_NAME"]:
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
-            create_iam_role_for_funnel_bucket_access(user_id)
+            create_iam_role_for_funnel_bucket_access(principal_id)
         )
-        body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(user_id)
+        body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(principal_id)
 
     if config["ENABLE_OPTIMIZED_NODE_SCHEDULING"]:
         is_gpu_task = str(body["tags"].get("_GPU", body["tags"].get("_gpu", "")))
