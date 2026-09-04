@@ -16,13 +16,18 @@ For Helm-based deployments, set:
 {{ .Values.gen3WorkflowConfig.enableS3Files }}: true
 ```
 
+Note: It is important for S3Files to also be enabled in Funnel for an end-to-end setup. Ensure **funnel's** helm values.yaml has:
+```yaml
+{{ .Values.Kubernetes.Storage.type }}: s3files
+```
+
 ## Prerequisites
 * Gen3Workflow must be deployed on an EKS cluster.
 * The EKS cluster must support S3 Files, provisioned via the [EFS CSI driver](https://github.com/kubernetes-sigs/aws-efs-csi-driver).
 
 
 #### NOTE:
-* Currently Gen3Workflow with S3Files only supports user bucket and the EKS cluster being present in the same region. Support shall be added in the future.
+* Currently, Gen3Workflow with S3 Files only supports the user bucket and the EKS cluster being present in the same region. Support will be added in the future.
 
 
 ### Determining the EKS Security Group Names for S3 Files Setup
@@ -42,9 +47,9 @@ For Helm-based deployments, set:
      --query "SecurityGroups[].{Name:GroupName,Id:GroupId}"
    ```
 
-4. **Manually identify the "main" security group** from the results — the one that actually holds the cluster's inbound/outbound networking rules (as opposed to any minimal/placeholder groups also carrying the tag). This step is judgment-based today; usually the one with most inbound and outbound rules.
+4. **Manually identify the "main" security group** from the results — the one that actually holds the cluster's inbound/outbound networking rules (as opposed to any minimal/placeholder groups also carrying the tag). This step requires manual judgment; it is usually the group with the most inbound and outbound rules.
 
-5. Repeat for each role that can run workflow tasks. Note: in `devplanetv2`, nodes labeled `role=workflow` carry the same discovery tag as jupyter nodes, so the jupyter security group ends up governing traffic for workflow nodes — check whether your cluster has the same overlap before assuming you only need one SG name.
+5. Repeat for each role that can run workflow tasks. Note: in `devplanetv2`, nodes labeled `role=workflow` carry the same discovery tag as jupyter nodes, so the Jupyter security group ends up governing traffic for workflow nodes — check whether your cluster has the same overlap before assuming you only need one SG name.
 
 6. Set the resulting security group name(s) in the `gen3-workflow` config under the field `EKS_SECURITY_GROUP_NAMES`.
 
