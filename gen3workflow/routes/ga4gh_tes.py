@@ -304,7 +304,7 @@ async def list_tasks(
         query_params["tag_key"] = "_AUTHZ"
         # construct an authz value
         if not user_id:
-            err_msg = "No user_id from auth and all=False"
+            err_msg = "Login required when parameter 'all' is not used"
             logger.error(err_msg)
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
         authz_resource = get_authz_string_for_user(user_id)

@@ -592,7 +592,10 @@ async def test_list_tasks(client, access_token_patcher, get_all, view, trailing_
 @pytest.mark.parametrize("access_token_patcher", [{"user_id": None}], indirect=True)
 @pytest.mark.parametrize(
     ("method", "expected_error"),
-    [("get", "No user_id from auth and all=False"), ("post", "No user sub in token")],
+    [
+        ("get", "Login required when parameter 'all' is not used"),
+        ("post", "No user sub in token"),
+    ],
 )
 async def test_tasks_error_no_user(
     client, access_token_patcher, method, expected_error, trailing_slash
@@ -632,8 +635,7 @@ async def test_tasks_error_no_user(
 async def test_get_tasks_no_user(client, access_token_patcher, trailing_slash):
     """
     Calls to `GET /ga4gh/tes/v1/tasks?all` should not return an error when the user_id
-    from authz is None and the 'all' parameter is present and the tasks are open to
-    anonymous users.
+    from authz is None and the 'all' parameter is present.
     """
     url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?all"
 
