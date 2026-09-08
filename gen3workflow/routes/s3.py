@@ -487,7 +487,6 @@ async def s3_endpoint(path: str, request: Request):
                 if response.status_code != HTTP_404_NOT_FOUND:
                     should_retry = True
                     resp_contents = await response.aread()
-                    await response.aclose()
                     logger.error(
                         f"Error from S3: {response.status_code} {resp_contents}"
                     )
@@ -593,7 +592,16 @@ async def s3_endpoint(path: str, request: Request):
             status_code=response.status_code,
             headers=filtered_headers,
         )
-
+    # the response is not compressed: stream the raw response bytes (skip the automatic httpx
+    # post-handling). If the stream was already consumed for error logging, return a buffered
+    # response instead of streaming.
+    if response.is_stream_consumed:
+        await response.aclose()
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            headers=filtered_headers,
+        )
     return StreamingResponse(
         response.aiter_raw(),
         status_code=response.status_code,
