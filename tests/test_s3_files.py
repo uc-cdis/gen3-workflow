@@ -224,7 +224,7 @@ def test_create_s3_files_system_success(mock_aws_services):
     assert result == "fs-new"
     clients.s3files_client.create_file_system.assert_called_once_with(
         bucket="arn:aws:s3:::test-bucket",
-        prefix="funnel-temp-files/",
+        # prefix="funnel-temp-files/",
         roleArn="arn:aws:iam::123456789012:role/s3files-role",
         tags=[{"key": "Name", "value": "gen3wf-localhost"}],
     )

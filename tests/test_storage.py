@@ -139,6 +139,9 @@ async def test_storage_setup(
             "NoncurrentVersionExpiration": {
                 "NoncurrentDays": bucket.NONCURRENT_VERSION_EXPIRATION_DAYS
             },
+            "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": config["S3_OBJECTS_EXPIRATION_DAYS"]
+            },
         }
     ]
 

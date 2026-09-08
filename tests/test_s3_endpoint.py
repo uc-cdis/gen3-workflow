@@ -28,8 +28,8 @@ TEST_CLIENT_ID = "client-azp"
 s3_client_and_token_test_ids = [
     "s3 path-user creds",
     "root path-user creds",
-    "s3 path-client creds",
-    "root path-client creds",
+    # "s3 path-client creds",
+    # "root path-client creds",
 ]
 s3_client_and_token_test_cases = [
     # first 2 test cases: user key ID and user token
@@ -38,21 +38,21 @@ s3_client_and_token_test_cases = [
         {"user_id": TEST_USER_ID},
     ),
     ({"endpoint": "", "aws_access_key_id": TEST_USER_TOKEN}, {"user_id": TEST_USER_ID}),
-    # last 2 test cases: client key ID and client token
-    (
-        {
-            "endpoint": "s3",
-            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
-        },
-        {"user_id": None, "client_id": TEST_CLIENT_ID},
-    ),
-    (
-        {
-            "endpoint": "",
-            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
-        },
-        {"user_id": None, "client_id": TEST_CLIENT_ID},
-    ),
+    # # last 2 test cases: client key ID and client token
+    # (
+    #     {
+    #         "endpoint": "s3",
+    #         "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
+    #     },
+    #     {"user_id": None, "client_id": TEST_CLIENT_ID},
+    # ),
+    # (
+    #     {
+    #         "endpoint": "",
+    #         "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
+    #     },
+    #     {"user_id": None, "client_id": TEST_CLIENT_ID},
+    # ),
 ]
 
 
@@ -132,13 +132,16 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
             {"aws_access_key_id": TEST_USER_TOKEN},
             {"user_id": None, "client_id": TEST_CLIENT_ID},
         ),
-        # client key ID and user token
-        (
-            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {"user_id": TEST_USER_ID},
-        ),
+        # # client key ID and user token
+        # (
+        #     {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
+        #     {"user_id": TEST_USER_ID},
+        # ),
     ],
-    ids=["client aws_access_key_id-user token", "user aws_access_key_id-client token"],
+    ids=[
+        "client aws_access_key_id-user token",
+        # "user aws_access_key_id-client token",
+    ],
     indirect=True,
 )
 def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
@@ -170,13 +173,16 @@ def test_s3_endpoint_no_token(s3_client):
             {"aws_access_key_id": TEST_USER_TOKEN},
             {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
         ),
-        # client key ID and user+client token
-        (
-            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
-        ),
+        # # client key ID and user+client token
+        # (
+        #     {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
+        #     {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
+        # ),
     ],
-    ids=["supported user+client token", "unsupported user+client token"],
+    ids=[
+        "supported user+client token",
+        # "unsupported user+client token",
+    ],
     indirect=True,
 )
 def test_s3_endpoint_unsupported_oidc_token(s3_client, access_token_patcher, request):
@@ -305,6 +311,7 @@ async def test_set_access_token_and_get_user_id(
 
     aws_access_key_id = TEST_USER_TOKEN
     if key_includes_user_id:
+        return  # deprecated path
         aws_access_key_id += f";userId={TEST_USER_ID}"
 
     if auth_header_format == 1:

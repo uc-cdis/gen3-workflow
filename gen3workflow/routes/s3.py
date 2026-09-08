@@ -40,7 +40,7 @@ S3_RETRY_BACKOFF_FACTOR = 2
 
 
 async def set_access_token_and_get_user_id(
-    auth: Auth, headers: Headers, method, path
+    auth: Auth, headers: Headers, method=None, path=None
 ) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
