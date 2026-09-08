@@ -444,6 +444,13 @@ async def _async_iter(segments):
             [b"0;chunk-signature=abc\r\n\r\n"],
             b"",
         ),
+        # text with chunk separators
+        (
+            [
+                b"39;chunk-signature=abc\r\nthis text includes '\r\n' which is also the chunk separator\r\n0;chunk-signature=abc\r\n\r\n"
+            ],
+            b"this text includes '\r\n' which is also the chunk separator",
+        ),
     ],
     ids=[
         "single chunk",
@@ -451,6 +458,7 @@ async def _async_iter(segments):
         "header split across segments",
         "data split across segments",
         "empty body",
+        "text with chunk separators",
     ],
 )
 async def test_dechunk_stream(wire_segments, expected):

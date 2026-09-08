@@ -270,16 +270,22 @@ def main():
                         break
                     print(f"— waiting {POLL_INTERVAL_SECONDS}s...")
                     time.sleep(POLL_INTERVAL_SECONDS)
-            print(f"Passed:  {name}")
-            failed_statuses = []
-            for task_id in task_ids:
-                r = http.get(f"{TES_URL}/{task_id}?view=FULL", headers=auth_headers())
-                r.raise_for_status()
-                print(f"Incomplete Task {task_id} final state: {r.json().get('state')}")
-                failed_statuses.append(r.json())
-            print(
-                f"Failed task details: {json.dumps(failed_statuses, indent=2) if failed_statuses else 'None'}"
-            )
+            if not task_ids:
+                print(f"Passed:  {name}")
+            else:
+                failed_statuses = []
+                for task_id in task_ids:
+                    r = http.get(
+                        f"{TES_URL}/{task_id}?view=FULL", headers=auth_headers()
+                    )
+                    r.raise_for_status()
+                    print(
+                        f"Incomplete Task {task_id} final state: {r.json().get('state')}"
+                    )
+                    failed_statuses.append(r.json())
+                print(
+                    f"Failed task details: {json.dumps(failed_statuses, indent=2) if failed_statuses else 'None'}"
+                )
 
         except KeyboardInterrupt:
             print(f"Aborted: {name}")

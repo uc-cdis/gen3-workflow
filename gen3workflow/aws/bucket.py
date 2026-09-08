@@ -30,7 +30,7 @@ NONCURRENT_VERSION_EXPIRATION_DAYS = 3
 # KMS key ARNs are stable for the lifetime of the key. Cache them in-process to avoid
 # a synchronous botocore call on every PUT/POST that initiates an upload — those calls
 # block the asyncio event loop and stall all concurrent requests.
-_kms_key_arn_cache: dict[str, str] = {}
+_KMS_KEY_ARN_CACHE: dict[str, str] = {}
 
 
 def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
@@ -46,12 +46,12 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         Tuple (str, str): KMS key alias, and KMS key ARN if the key exists, empty string otherwise
     """
     kms_key_alias = f"alias/{bucket_name}"
-    if kms_key_alias in _kms_key_arn_cache:
-        return kms_key_alias, _kms_key_arn_cache[kms_key_alias]
+    if kms_key_alias in _KMS_KEY_ARN_CACHE:
+        return kms_key_alias, _KMS_KEY_ARN_CACHE[kms_key_alias]
     try:
         output = clients.kms_client.describe_key(KeyId=kms_key_alias)
         arn = output["KeyMetadata"]["Arn"]
-        _kms_key_arn_cache[kms_key_alias] = arn
+        _KMS_KEY_ARN_CACHE[kms_key_alias] = arn
         return kms_key_alias, arn
     except ClientError as e:
         if e.response["Error"]["Code"] == "NotFoundException":
