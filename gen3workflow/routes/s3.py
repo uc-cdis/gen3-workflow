@@ -54,7 +54,7 @@ async def _dechunk_stream(stream):
     Parse the streaming chunks and remove the chunk headers.
 
     Accumulates de-chunked data into an output buffer and yields only when it reaches
-    _DECHUNK_YIELD_SIZE. This limits peak memory to yield_size x concurrent_uploads
+    _DECHUNK_YIELD_SIZE. This limits peak memory to _DECHUNK_YIELD_SIZE x concurrent_uploads
     while reducing h11/anyio/TLS Python-stack traversals from ~160 to ~20 for a 10 MB upload,
     vs. per-TCP-segment (64 KB) yielding.
     """
@@ -369,6 +369,8 @@ async def s3_endpoint(path: str, request: Request):
         decoded_len = out_headers.pop("x-amz-decoded-content-length", None)
         if decoded_len:
             out_headers["content-length"] = decoded_len
+
+        # the outgoing body is no longer chunked, so there's no trailer/checksum in it anymore
         out_headers.pop("x-amz-trailer", None)
         out_headers.pop("x-amz-sdk-checksum-algorithm", None)
         request_content = _dechunk_stream(request.stream())
@@ -593,15 +595,7 @@ async def s3_endpoint(path: str, request: Request):
             headers=filtered_headers,
         )
     # the response is not compressed: stream the raw response bytes (skip the automatic httpx
-    # post-handling). If the stream was already consumed for error logging, return a buffered
-    # response instead of streaming.
-    if response.is_stream_consumed:
-        await response.aclose()
-        return Response(
-            content=response.content,
-            status_code=response.status_code,
-            headers=filtered_headers,
-        )
+    # post-handling).
     return StreamingResponse(
         response.aiter_raw(),
         status_code=response.status_code,

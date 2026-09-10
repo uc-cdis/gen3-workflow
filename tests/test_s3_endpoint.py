@@ -397,11 +397,6 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     )
 
 
-# ---------------------------------------------------------------------------
-# Unit tests for _dechunk_stream
-# ---------------------------------------------------------------------------
-
-
 async def _async_iter(segments):
     for s in segments:
         yield s
