@@ -27,6 +27,11 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
     assert len(safe_name) < 63
     assert safe_name == f"gen3wf-{escaped_shortened_hostname}-{user_id}"
 
+    # test a mixed-case user ID (e.g. a client ID); it should be lowercased since S3 bucket and
+    # k8s service account names do not allow uppercase characters
+    safe_name = get_safe_name_from_hostname("MixedCaseClientID")
+    assert safe_name == f"gen3wf-{escaped_shortened_hostname}-mixedcaseclientid"
+
     # test with a hostname that would result in a name longer than the max (63 chars)
     config["HOSTNAME"] = (
         "qwertqwert.qwertqwert.qwertqwert.qwertqwert.qwertqwert.qwertqwert"

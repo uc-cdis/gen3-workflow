@@ -127,27 +127,44 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
 @pytest.mark.parametrize(
     "s3_client, access_token_patcher",
     [
-        # user key ID and client token
-        (
-            {"aws_access_key_id": TEST_USER_TOKEN},
-            {"user_id": None, "client_id": TEST_CLIENT_ID},
-        ),
         # client key ID and user token
         (
             {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
             {"user_id": TEST_USER_ID},
         ),
     ],
-    ids=["client aws_access_key_id-user token", "user aws_access_key_id-client token"],
+    ids=["client aws_access_key_id-user token"],
     indirect=True,
 )
 def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
     """
-    Hitting the `/s3` endpoint with mismatched credentials (user aws_access_key_id and client
-    token, or client aws_access_key_id and user token) should result in a 401 Unauthorized
-    error.
+    Hitting the `/s3` endpoint with mismatched credentials (client aws_access_key_id and user
+    token) should result in a 401 Unauthorized error.
     """
     with pytest.raises(ClientError, match="Unauthorized"):
+        s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+
+
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize(
+    "s3_client, access_token_patcher",
+    [
+        (
+            {"aws_access_key_id": TEST_USER_TOKEN},
+            {"user_id": None, "client_id": TEST_CLIENT_ID},
+        ),
+    ],
+    ids=["user aws_access_key_id format-client token"],
+    indirect=True,
+)
+def test_s3_endpoint_client_token_other_bucket(s3_client, access_token_patcher):
+    """
+    A client token (obtained through a `client_credentials` flow, not linked to a user) used
+    as the aws_access_key_id is valid: the client itself is the principal. But it can only
+    access its own bucket, so hitting the `/s3` endpoint with another principal's bucket
+    should result in a 403 Forbidden error.
+    """
+    with pytest.raises(ClientError, match="Forbidden"):
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
 
 
@@ -312,8 +329,8 @@ async def test_set_access_token_and_get_user_id(
     else:
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
-    # no user ID in the token claims or in the key ID: error
-    if not key_includes_user_id and not token_claims_sub:
+    # no user or client ID in the token claims or in the key ID: error
+    if not key_includes_user_id and not token_claims_sub and not token_claims_azp:
         with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # user ID in the key ID, which implies a client flow, but no client ID in the token
@@ -333,7 +350,11 @@ async def test_set_access_token_and_get_user_id(
         user_id, _ = await set_access_token_and_get_user_id(
             auth, {"authorization": auth_header}
         )
-        assert user_id == TEST_USER_ID
+        if key_includes_user_id or token_claims_sub:
+            assert user_id == TEST_USER_ID
+        else:
+            # format A with a client token (no `sub`): the client itself is the principal
+            assert user_id == TEST_CLIENT_ID
         assert auth.bearer_token.credentials == TEST_USER_TOKEN
 
 

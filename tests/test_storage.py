@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from tests.conftest import (
+    TEST_CLIENT_ID,
     TEST_USER_ID,
     TEST_USER_TOKEN,
     NEW_TEST_USER_ID,
@@ -179,6 +180,66 @@ async def test_storage_setup(
         body=f'{{"policy":"gen3_workflow_user_sub_{NEW_TEST_USER_ID}"}}',
         authorized=True,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_storage_setup_with_client_token(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Calls to `/storage/setup` with a token obtained through a `client_credentials` flow (not
+    linked to a user) should treat the client itself as the principal: the bucket should be
+    named after the client ID, and the client (not a user) should be granted access to its own
+    data in Arborist.
+    """
+    # bucket names must be lowercase, unlike client IDs
+    expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_CLIENT_ID.lower()}"
+
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+
+    storage_info = res.json()
+    assert storage_info["bucket"] == expected_bucket_name
+    assert storage_info["workdir"] == f"s3://{expected_bucket_name}/ga4gh-tes"
+
+    # check that the bucket was created
+    bucket_exists = clients.s3_client.head_bucket(Bucket=expected_bucket_name)
+    assert bucket_exists, "Bucket does not exist"
+
+    # check that the resources were created with the client ID as the owner
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/resource/services/workflow/gen3-workflow/tasks",
+        body=f'{{"name":"{TEST_CLIENT_ID}","description":"Represents workflow tasks owned by user \'{TEST_CLIENT_ID}\'"}}',
+        authorized=True,
+    )
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/resource/services/workflow/gen3-workflow/storage",
+        body=f'{{"name":"{TEST_CLIENT_ID}","description":"Represents task storage owned by user \'{TEST_CLIENT_ID}\'"}}',
+        authorized=True,
+    )
+
+    # check that the policy was granted to the *client*, and that no Arborist user was created
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/client/{TEST_CLIENT_ID}/policy",
+        body=f'{{"policy":"gen3_workflow_user_sub_{TEST_CLIENT_ID}"}}',
+        authorized=True,
+    )
+    user_calls = [
+        call
+        for call in mock_arborist_request.call_args_list
+        if call.kwargs["path"].startswith("/user")
+    ]
+    assert not user_calls, f"Unexpected Arborist user calls: {user_calls}"
 
 
 @pytest.mark.asyncio
