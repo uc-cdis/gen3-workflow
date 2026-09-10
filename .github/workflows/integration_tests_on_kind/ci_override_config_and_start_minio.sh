@@ -85,6 +85,9 @@ yq eval -i '.funnel.stsRegion = ""' funnel.yaml
 # "zzz-" file name hack so it's the last file to be processed and these values override
 # previous ones.
 cat <<EOF > zzz-disable-services.yaml
+global:
+  netPolicy:
+    dbSubnets: []
 access-backend:
   enabled: false
 ambassador:
