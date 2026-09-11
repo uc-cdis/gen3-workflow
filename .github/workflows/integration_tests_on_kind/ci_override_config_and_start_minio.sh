@@ -87,7 +87,7 @@ yq eval -i '.funnel.stsRegion = ""' funnel.yaml
 cat <<EOF > zzz-disable-services.yaml
 global:
   netPolicy:
-    enabled: true
+    enabled: false
     dbSubnets: []
 access-backend:
   enabled: false
