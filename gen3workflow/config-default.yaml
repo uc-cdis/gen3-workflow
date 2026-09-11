@@ -64,6 +64,7 @@ DPOP_REQUIRED: false
 # without a DPoP proof when `DPOP_REQUIRED` is true, such as the Funnel worker pods' client.
 # Those tokens are never DPoP-bound, so their holders have no key to sign a proof with. A client
 # that is not listed here is held to the same requirement as a user.
+# The wildcard "*" is supported to make all clients exempt. Use at your own risk!
 # /!\ WARNING: an exempt token is an ordinary bearer credential: whoever holds it can act as any
 # user the client is authorized for, and `DPOP_REQUIRED` does not change that. Keep this list to
 # the clients that need it, and their Arborist policies as narrow as the workflows allow.

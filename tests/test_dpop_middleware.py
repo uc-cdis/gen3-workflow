@@ -501,19 +501,27 @@ async def test_user_token_without_proof_is_rejected_when_dpop_is_required(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exempt_client_ids",
+    [
+        pytest.param([TEST_CLIENT_ID], id="specific-client-id"),
+        pytest.param(["*"], id="wildcard"),
+    ],
+)
 async def test_exempt_client_token_without_proof_is_accepted_when_dpop_is_required(
     client,
     access_token_patcher,
     token_signing_key,
     reset_config_dpop_required,
     reset_config_dpop_exempt_clients,
+    exempt_client_ids,
 ):
     """
     Requiring DPoP does not lock out the worker pods: a listed client's `client_credentials`
     token, which is never DPoP-bound, is still accepted without a proof.
     """
     config["DPOP_REQUIRED"] = True
-    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
+    config["DPOP_EXEMPT_CLIENT_IDS"] = exempt_client_ids
     access_token = create_client_credentials_token(token_signing_key)
     res = await client.post(
         TES_PATH,
@@ -530,6 +538,13 @@ async def test_exempt_client_token_without_proof_is_accepted_when_dpop_is_requir
     indirect=True,
 )
 @pytest.mark.parametrize("s3_path", S3_PATHS)
+@pytest.mark.parametrize(
+    "exempt_client_ids",
+    [
+        pytest.param([TEST_CLIENT_ID], id="specific-client-id"),
+        pytest.param(["*"], id="wildcard"),
+    ],
+)
 async def test_exempt_client_token_without_proof_is_accepted_on_s3_endpoint_when_dpop_is_required(
     client,
     access_token_patcher,
@@ -537,13 +552,14 @@ async def test_exempt_client_token_without_proof_is_accepted_on_s3_endpoint_when
     reset_config_dpop_required,
     reset_config_dpop_exempt_clients,
     s3_path,
+    exempt_client_ids,
 ):
     """
     The exemption also covers the S3 endpoint, where a client presents its token as the AWS
     access key ID, with the ID of the user it acts on behalf of appended to it.
     """
     config["DPOP_REQUIRED"] = True
-    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
+    config["DPOP_EXEMPT_CLIENT_IDS"] = exempt_client_ids
     access_token = create_client_credentials_token(token_signing_key)
     res = await client.get(
         s3_path,

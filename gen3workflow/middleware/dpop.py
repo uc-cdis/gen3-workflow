@@ -305,7 +305,10 @@ def _is_exempt_client_token(access_token: str) -> bool:
     # expected to hold a bound one
     if "sub" in claims:
         return False
-    return claims.get("azp") in config["DPOP_EXEMPT_CLIENT_IDS"]
+    return (
+        "*" in config["DPOP_EXEMPT_CLIENT_IDS"]
+        or claims.get("azp") in config["DPOP_EXEMPT_CLIENT_IDS"]
+    )
 
 
 def _record_exempt_request(
