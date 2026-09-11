@@ -92,9 +92,11 @@ async def set_access_token_and_get_user_id(
         access_token = access_key_id
     else:  # format B (see docstring)
         access_token, user_id = access_key_id.split(";userId=")
-        raise Exception(
+        err_msg = (
             f"'{method} {path}' from Funnel worker: rejected - this path is deprecated"
         )
+        logger.error(f"{err_msg}. Debug: {token_claims=}")
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     # set the token so we can perform authn/authz checks on it
     auth.bearer_token = HTTPAuthorizationCredentials(
