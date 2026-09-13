@@ -24,6 +24,8 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = fa
 
 # overwrite gen3-workflow config `EKS_CLUSTER_NAME` to an empty string
 yq eval -i '.global.clusterName = ""' values.yaml
+yq eval -i '.global.netPolicy.enabled = true' values.yaml
+yq eval -i '.global.netPolicy.dbSubnets = []' values.yaml
 
 # update fence and indexd configs to generate secrets instead of looking for pre-existing secrets.
 # update fields in the private fence config because it takes precedence over the public config.
@@ -85,10 +87,6 @@ yq eval -i '.funnel.stsRegion = ""' funnel.yaml
 # "zzz-" file name hack so it's the last file to be processed and these values override
 # previous ones.
 cat <<EOF > zzz-disable-services.yaml
-global:
-  netPolicy:
-    enabled: false
-    dbSubnets: []
 access-backend:
   enabled: false
 ambassador:
