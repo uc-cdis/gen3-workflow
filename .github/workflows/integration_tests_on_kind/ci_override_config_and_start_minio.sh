@@ -22,6 +22,10 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.kmsEncryptionEnabled = false' gen3
 # kind clusters do not have nodepools
 yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = false' gen3-workflow.yaml
 
+# Pin the image tag to a new value so that the workflow service pod is recreated and
+# picks up the new config values. Temporary. Remove this line once before PR merge
+yq eval -i '.gen3-workflow.image.tag = "update_netpol_kind"' gen3-workflow.yaml
+
 # overwrite gen3-workflow config `EKS_CLUSTER_NAME` to an empty string
 yq eval -i '.global.clusterName = ""' values.yaml
 yq eval -i '.global.netPolicy.enabled = false' values.yaml
