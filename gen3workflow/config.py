@@ -142,6 +142,21 @@ def get_dpop_allowed_issuers() -> list:
     return config["DPOP_ALLOWED_ISSUERS"] or [f"https://{config['HOSTNAME']}/user"]
 
 
+def get_dpop_external_base_url() -> str:
+    """
+    Get the origin of this service as the client sees it.
+
+    Defaults to the configured hostname, which is where the reverse proxy serves this
+    service, so that a deployment only has to set this when clients reach it elsewhere.
+    Any trailing slash is dropped so callers can append a path directly.
+
+    Returns:
+        str: the base URL, without a trailing slash
+    """
+    base_url = config["DPOP_EXTERNAL_BASE_URL"] or f"https://{config['HOSTNAME']}"
+    return base_url.rstrip("/")
+
+
 def get_dpop_shared_secret() -> str | None:
     """
     Get the secret used to sign and verify the stateless DPoP nonces.

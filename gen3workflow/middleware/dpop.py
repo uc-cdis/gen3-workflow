@@ -21,6 +21,7 @@ from gen3workflow import logger
 from gen3workflow.config import (
     config,
     get_dpop_allowed_issuers,
+    get_dpop_external_base_url,
     get_dpop_shared_secret,
 )
 from gen3workflow.routes.s3 import S3_PATH_PREFIX, get_access_key_id_from_auth_header
@@ -201,9 +202,8 @@ def _get_url(path: str, path_prefix: str) -> str:
     Returns:
         str: the URL to validate `htu` against
     """
-    base_url = config["DPOP_EXTERNAL_BASE_URL"] or f"https://{config['HOSTNAME']}"
     external_prefix = config["DPOP_PROTECTED_PATHS"][path_prefix]
-    return f"{base_url.rstrip('/')}{external_prefix}{path}"
+    return f"{get_dpop_external_base_url()}{external_prefix}{path}"
 
 
 def _get_access_token(auth_header: str) -> str | None:
