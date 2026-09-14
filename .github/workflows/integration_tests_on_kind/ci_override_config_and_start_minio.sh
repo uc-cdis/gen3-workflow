@@ -24,7 +24,7 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = fa
 
 # overwrite gen3-workflow config `EKS_CLUSTER_NAME` to an empty string
 yq eval -i '.global.clusterName = ""' values.yaml
-yq eval -i '.global.netPolicy.enabled = true' values.yaml
+yq eval -i '.global.netPolicy.enabled = false' values.yaml
 yq eval -i '.global.netPolicy.dbSubnets = []' values.yaml
 
 # update fence and indexd configs to generate secrets instead of looking for pre-existing secrets.
