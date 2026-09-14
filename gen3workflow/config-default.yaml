@@ -53,6 +53,15 @@ VALID_AUTHZ_AUDIENCE:
 # When true, DPoP-bound access tokens presented to the GA4GH TES and S3 endpoints must come
 # with a valid DPoP proof. Tokens that are not DPoP-bound (no `cnf.jkt` claim) are unaffected,
 # so worker pods using the `client_credentials` flow keep working.
+#
+# /!\ KNOWN GAP: proofs are not single-use here. This service does not track proof `jti`
+# values, so RFC 9449 section 11.1 replay protection is NOT in force: a proof captured off
+# the wire can be replayed against the same method and URL until it ages out of
+# `authutils.dpop.DPOP_PROOF_MAX_TTL`. This is why that default TTL is short-lived.
+#
+# Fixing this needs a `jti` store shared across pod replicas and across services
+# in some ideally fast in-mem store or something (infrastructure we don't really have in Gen3
+# and requires broader architectural desig, TBD).
 DPOP_ENABLED: false
 
 # When true, the DPoP-protected endpoints reject any request that does not present a DPoP-bound

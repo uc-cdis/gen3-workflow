@@ -48,6 +48,7 @@ S3_RETRY_BACKOFF_FACTOR = 2
 async def set_access_token_and_get_user_id(
     auth: Auth,
     headers: Headers,
+    dpop_validated: bool = False,
 ) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
@@ -68,6 +69,8 @@ async def set_access_token_and_get_user_id(
     Args:
         auth (Auth): Gen3Workflow auth instance
         headers (Headers): request headers
+        dpop_validated (bool): whether the DPoP middleware validated a proof for this
+            request. A DPoP-bound token is refused without one.
 
     Returns:
         tuple(str, str): the user's ID and (if relevant) the client's ID
@@ -104,6 +107,27 @@ async def set_access_token_and_get_user_id(
 
     # ensure token validity
     token_claims = await auth.get_token_claims()
+
+    # a bound token names the key its holder must prove possession of, so accepting one here
+    # without a validated proof would make it usable as an ordinary bearer credential (which
+    # we do not want - b/c if it's DPoP-Bound, it MUST be used with a proof).
+    #
+    # The DPoP middleware identifies an S3 request by its
+    # Authorization header, so it is checked again here: this endpoint accepts header formats
+    # the middleware may not recognize, and it is the one place that knows the token was used.
+    cnf = token_claims.get("cnf")
+    if (
+        config["DPOP_ENABLED"]
+        and not dpop_validated
+        and isinstance(cnf, dict)
+        and cnf.get("jkt")
+    ):
+        err_msg = (
+            "This access token is DPoP-bound and can only be used with a DPoP proof"
+        )
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
     sub = token_claims.get("sub")
     client_id = token_claims.get("azp")
     if is_user_token:
@@ -252,7 +276,9 @@ async def s3_endpoint(path: str, request: Request):
     # the list of files for a specific task.
     auth = Auth(api_request=request)
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(auth, in_headers)
+    user_id, client_id = await set_access_token_and_get_user_id(
+        auth, in_headers, dpop_validated=getattr(request.state, "dpop_validated", False)
+    )
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )

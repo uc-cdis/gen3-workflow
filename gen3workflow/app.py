@@ -10,6 +10,7 @@ from fastapi import Request
 from gen3authz.client.arborist.async_client import ArboristClient
 from starlette.responses import Response
 
+from authutils.dpop import DPOP_PROOF_MAX_TTL
 from cdispyutils.observability.continuous_profiling import configure_profiling
 from cdispyutils.observability.request_metrics import add_request_metrics_middleware
 from cdispyutils.observability.tracing import (
@@ -121,6 +122,17 @@ def get_app(httpx_client=None) -> FastAPI:
         logger.info(
             f"DPoP validation is enabled on {sorted(config['DPOP_PROTECTED_PATHS'])}, "
             f"required={config['DPOP_REQUIRED']}, issuers={get_dpop_allowed_issuers()}"
+        )
+        # Said at every startup on purpose: a reader who sees DPoP enabled might otherwise
+        # reasonably assume proofs are single-use, and they are not yet
+        logger.warning(
+            "DPoP proofs are not single-use: this service does not track proof 'jti' "
+            "values, so RFC 9449 section 11.1 replay protection is not in force. A "
+            "captured proof can be replayed against the same method and URL until it ages "
+            f"out of DPOP_PROOF_MAX_TTL ({DPOP_PROOF_MAX_TTL}s). The default for DPOP_PROOF_MAX_TTL "
+            "was intentionally a short time period (minutes). So if this is configured for longer "
+            "recognize that this is increasing the time window for replay. Closing this needs a "
+            "'jti' store shared across pod replicas and services which is TBD architecturally."
         )
     else:
         logger.warning("DPoP validation is disabled")

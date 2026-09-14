@@ -9,7 +9,7 @@ that the tests do not need a live token issuer.
 import time
 from unittest.mock import AsyncMock, patch
 
-from authutils.dpop import generate_dpop_proof
+from authutils.dpop import DPOP_PROOF_MAX_TTL, generate_dpop_proof
 from authutils.token.dpop_nonce import generate_stateless_nonce
 from joserfc import jwk, jwt
 import pytest
@@ -33,6 +33,31 @@ S3_BUCKET = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 S3_PATHS = [
     pytest.param(f"/s3/{S3_BUCKET}", id="s3-prefix"),
     pytest.param(f"/{S3_BUCKET}", id="root-mount"),
+]
+
+# Authorization header formats the S3 endpoint accepts that do not start with one of the
+# canonical AWS scheme prefixes. It reads the token out of a `Credential=` field or out of an
+# `AWS ` segment anywhere in the header, and never checks the request signature, so each of
+# these carries a usable credential and has to be held to the same DPoP requirement as a
+# canonical one. A horizontal tab is a legal HTTP field value character, so the first needs no
+# protocol abuse.
+NON_CANONICAL_S3_AUTH_HEADERS = [
+    pytest.param(
+        "AWS4-HMAC-SHA256\tCredential={token}/20260101/us-east-1/s3/aws4_request, "
+        "SignedHeaders=host, Signature=stubbed-client-signature",
+        id="tab-after-scheme",
+    ),
+    pytest.param(
+        "Foo Credential={token}/20260101/us-east-1/s3/aws4_request, "
+        "SignedHeaders=host, Signature=stubbed-client-signature",
+        id="unknown-scheme",
+    ),
+    pytest.param(
+        "Credential={token}/20260101/us-east-1/s3/aws4_request, "
+        "SignedHeaders=host, Signature=stubbed-client-signature",
+        id="no-scheme",
+    ),
+    pytest.param("xAWS {token}:stubbed-client-signature", id="scheme-behind-a-prefix"),
 ]
 
 
@@ -258,6 +283,58 @@ async def test_proof_is_required_on_s3_endpoint_when_dpop_is_required(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("auth_header_format", NON_CANONICAL_S3_AUTH_HEADERS)
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_bound_token_without_proof_is_rejected_on_s3_endpoint_whatever_the_auth_header_format(
+    client,
+    access_token_patcher,
+    token_signing_key,
+    dpop_key,
+    s3_path,
+    auth_header_format,
+):
+    """
+    A DPoP-bound token is rejected without a proof however its Authorization header is
+    formatted. The root mount matches no `DPOP_PROTECTED_PATHS` prefix, so the header is the
+    only thing identifying an S3 request there: a format the middleware fails to recognize
+    would otherwise let a stolen bound token through as an ordinary bearer credential.
+    """
+    access_token = create_access_token(token_signing_key, dpop_key)
+    res = await client.get(
+        s3_path,
+        params={"list-type": "2"},
+        headers={"Authorization": auth_header_format.format(token=access_token)},
+    )
+    assert res.status_code == 401, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("auth_header_format", NON_CANONICAL_S3_AUTH_HEADERS)
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_proof_is_required_on_s3_endpoint_whatever_the_auth_header_format(
+    client,
+    access_token_patcher,
+    token_signing_key,
+    reset_config_dpop_required,
+    s3_path,
+    auth_header_format,
+):
+    """
+    When DPoP is required, an unrecognized Authorization header format does not exempt an S3
+    request from presenting a proof.
+    """
+    config["DPOP_REQUIRED"] = True
+    access_token = create_access_token(token_signing_key)
+    res = await client.get(
+        s3_path,
+        params={"list-type": "2"},
+        headers={"Authorization": auth_header_format.format(token=access_token)},
+    )
+    assert res.status_code == 401, res.text
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
 async def test_bound_token_without_proof_is_rejected(
     client, access_token_patcher, token_signing_key, dpop_key
 ):
@@ -392,6 +469,77 @@ async def test_proof_that_does_not_match_the_request_is_rejected(
     )
     assert res.status_code == 401
     assert res.json()["error"] == "invalid_dpop_proof"
+
+
+@pytest.mark.asyncio
+async def test_a_second_request_with_a_fresh_proof_is_accepted(
+    client, access_token_patcher, token_signing_key, dpop_key
+):
+    """
+    Single-use applies to the proof, not to the token: the same token keeps working as long
+    as each request carries its own proof.
+    """
+    access_token = create_access_token(token_signing_key, dpop_key)
+    for _ in range(2):
+        res = await client.post(
+            TES_PATH,
+            json={"name": "test-task"},
+            headers={
+                "Authorization": f"DPoP {access_token}",
+                "DPoP": create_proof(dpop_key, "POST", TES_PATH, access_token),
+            },
+        )
+        assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+async def test_stale_proof_is_rejected(
+    client, access_token_patcher, token_signing_key, dpop_key
+):
+    """
+    A proof is refused once it is older than `DPOP_PROOF_MAX_TTL`. With no `jti` tracking
+    here, that age is what bounds how long a captured proof can be replayed, so it is worth
+    asserting at this layer and not only in authutils.
+    """
+    access_token = create_access_token(token_signing_key, dpop_key)
+    stale_iat = int(time.time()) - DPOP_PROOF_MAX_TTL - 10
+    with patch("authutils.dpop.time.time", return_value=stale_iat):
+        stale_proof = create_proof(dpop_key, "POST", TES_PATH, access_token)
+
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": f"DPoP {access_token}", "DPoP": stale_proof},
+    )
+    assert res.status_code == 401, res.text
+    assert res.json()["error"] == "invalid_dpop_proof"
+
+
+@pytest.mark.asyncio
+async def test_rejection_does_not_echo_the_expected_request_url(
+    client, access_token_patcher, token_signing_key, dpop_key
+):
+    """
+    A rejection says what went wrong without quoting the URL this service expected. That URL
+    describes the reverse proxy's path mapping, which a caller has no need for.
+    """
+    access_token = create_access_token(token_signing_key, dpop_key)
+    proof = create_proof(
+        dpop_key,
+        "POST",
+        TES_PATH,
+        access_token,
+        signed_overrides={
+            "url": "https://somewhere-else.example.org/ga4gh/tes/v1/tasks"
+        },
+    )
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": f"DPoP {access_token}", "DPoP": proof},
+    )
+    assert res.status_code == 401
+    assert config["DPOP_EXTERNAL_BASE_URL"] not in res.text
 
 
 @pytest.mark.asyncio

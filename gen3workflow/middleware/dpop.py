@@ -31,10 +31,6 @@ from gen3workflow.routes.s3 import S3_PATH_PREFIX, get_access_key_id_from_auth_h
 REQUIRED_SCOPES = frozenset({"user", "openid"})
 REQUIRED_PURPOSE = "access"
 
-# Authorization header prefixes of the 2 signed-request formats the S3 endpoint accepts,
-# lowercased for a case-insensitive match.
-AWS_AUTH_SCHEMES = ("aws4-hmac-sha256 ", "aws ")
-
 # Counter of the requests that reached a protected endpoint without a proof because they carried
 # an exempt client's token. Labeled by the `DPOP_PROTECTED_PATHS` prefix rather than the request
 # path: an S3 path carries the object key, which would make the label cardinality unbounded.
@@ -125,11 +121,22 @@ async def dpop_middleware(
         logger.info(f"Challenging request to '{request.url.path}' for a DPoP nonce")
         return JSONResponse(status_code=e.code, content=e.json, headers=e.error_headers)
     except ValueError as e:
+        # The exact reason is logged, not returned on purpose: these messages quote the `htu` this service
+        # expected and the token's `cnf.jkt`, which would hand a caller more info
+        # than necessary.
         logger.warning(f"Invalid DPoP proof for '{request.url.path}': {e}")
-        return _error_response(HTTP_401_UNAUTHORIZED, "invalid_dpop_proof", str(e))
+        return _error_response(
+            HTTP_401_UNAUTHORIZED,
+            "invalid_dpop_proof",
+            "The DPoP proof is missing, malformed, stale or does not match this request",
+        )
     except AuthError as e:
         logger.warning(f"Invalid access token for '{request.url.path}': {e}")
-        return _error_response(HTTP_401_UNAUTHORIZED, "invalid_token", str(e))
+        return _error_response(
+            HTTP_401_UNAUTHORIZED,
+            "invalid_token",
+            "The access token is missing, malformed, expired or not accepted here",
+        )
     except RuntimeError as e:
         # `authutils` raises this when it has no secret to sign a nonce with
         # This should never happen, but if it does, capture and log it instead of
@@ -144,6 +151,11 @@ async def dpop_middleware(
     logger.debug(
         f"Valid DPoP proof for user '{token_claims.get('sub')}' on '{request.url.path}'"
     )
+
+    # The S3 endpoint reads this to refuse a DPoP-bound token that reached it without a
+    # validated proof, so that this middleware is not the only thing standing between a stolen
+    # bound token and the bucket it is bound for.
+    request.state.dpop_validated = True
 
     if _is_scheme_auth_header(auth_header):
         # Downstream token validation only accepts the `Bearer` scheme. The AWS-signed
@@ -162,8 +174,12 @@ def _get_protected_path_prefix(path: str, auth_header: str) -> str | None:
 
     The S3 endpoint is mounted at the root as well as under `S3_PATH_PREFIX`, so an S3 request
     can arrive on a path that matches no prefix, and protecting the root prefix itself would
-    cover every unrouted path including `/_status`. An AWS-signed Authorization header is what
-    separates the two: only an S3 client sends one.
+    cover every unrouted path including `/_status`. On the root mount the Authorization header
+    is the only thing identifying an S3 request, so this asks the endpoint's own parser whether
+    it can read a token out of the header rather than matching the scheme name. Matching the
+    scheme would leave every header format the parser accepts and this function does not - a
+    tab after the scheme, an unknown scheme, no scheme at all - unprotected while still
+    carrying a usable credential.
 
     Args:
         path (str): the path of the incoming request, as this service sees it
@@ -180,9 +196,9 @@ def _get_protected_path_prefix(path: str, auth_header: str) -> str | None:
     if matches:
         return max(matches, key=len)
 
-    if S3_PATH_PREFIX in config["DPOP_PROTECTED_PATHS"] and _is_aws_signed_auth_header(
-        auth_header
-    ):
+    if S3_PATH_PREFIX in config[
+        "DPOP_PROTECTED_PATHS"
+    ] and _carries_an_s3_access_key_id(auth_header):
         return S3_PATH_PREFIX
     return None
 
@@ -248,17 +264,26 @@ def _is_scheme_auth_header(auth_header: str) -> bool:
     return auth_header.lower().startswith(("dpop ", "bearer "))
 
 
-def _is_aws_signed_auth_header(auth_header: str) -> bool:
+def _carries_an_s3_access_key_id(auth_header: str) -> bool:
     """
-    Check whether an Authorization header carries an AWS request signature.
+    Check whether the S3 endpoint would read an access token out of an Authorization header.
+
+    Defers to the endpoint's own parser so that the set of headers this middleware protects
+    cannot drift from the set the endpoint authenticates. A `DPoP` or `Bearer` header is
+    excluded because the endpoint refuses those outright.
 
     Args:
         auth_header (str): value of the Authorization header
 
     Returns:
-        bool: True if the header is in one of the 2 signed formats the S3 endpoint accepts
+        bool: True if the header carries a usable access key ID
     """
-    return auth_header.lower().startswith(AWS_AUTH_SCHEMES)
+    if not auth_header or _is_scheme_auth_header(auth_header):
+        return False
+    try:
+        return bool(get_access_key_id_from_auth_header(auth_header))
+    except ValueError:
+        return False
 
 
 def _is_dpop_bound(access_token: str) -> bool:
