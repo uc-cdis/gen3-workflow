@@ -24,7 +24,7 @@ from typing import List
 import asyncio
 import boto3
 from botocore.config import Config
-from cdislogging import get_logger
+from gen3logging import get_logger
 
 ENDPOINT = "https://brhstaging.data-commons.org"
 BUCKET = "gen3wf-brhstaging-data-commons-org-35"

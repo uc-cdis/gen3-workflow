@@ -2,16 +2,28 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 import httpx
 from importlib.metadata import version
+import logging
 import os
-import time
 
-from cdislogging import get_logger
+from gen3logging import get_logger
 from fastapi import Request
 from gen3authz.client.arborist.async_client import ArboristClient
+from starlette.responses import Response
+
+from authutils.dpop import DPOP_PROOF_MAX_TTL
+from cdispyutils.observability.continuous_profiling import configure_profiling
+from cdispyutils.observability.request_metrics import add_request_metrics_middleware
+from cdispyutils.observability.tracing import (
+    LoggingInstrumentorWithContext,
+    configure_tracing,
+)
+from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 from gen3workflow import logger
-from gen3workflow.config import config
+from gen3workflow.config import config, get_dpop_allowed_issuers
 from gen3workflow.metrics import Metrics
+from gen3workflow.middleware.dpop import dpop_middleware
 from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import s3_root_router, s3_router
 from gen3workflow.routes.storage import router as storage_router
@@ -23,6 +35,10 @@ def get_app(httpx_client=None) -> FastAPI:
     """
     Initialize the FastAPI app
     """
+    # First, so that even the startup lines below go out in the configured format. Only reads
+    # config values that loading the config file already populated
+    configure_logging()
+
     existing_route_ids = set()
 
     def generate_unique_route_id(route: APIRoute) -> str:
@@ -57,8 +73,30 @@ def get_app(httpx_client=None) -> FastAPI:
     logger.info("Initializing app")
     config.validate()
 
+    if config["DEBUG_STUB_EXTERNAL_SERVICES"]:
+        logger.warning(
+            "*** RUNNING IN MOCKED DEBUG MODE: 'DEBUG_STUB_EXTERNAL_SERVICES' IS ENABLED. "
+            "THE GA4GH TES AND S3 ENDPOINTS RETURN STUBBED RESPONSES AND NEVER CONTACT THE TES "
+            "SERVER, AWS OR S3. NO TASK RUNS AND NO OBJECT IS STORED. THIS MUST NOT BE ENABLED "
+            "IN PRODUCTION! ***"
+        )
+
     debug = config["APP_DEBUG"]
     log_level = "debug" if debug else "info"
+
+    # Before configure_tracing, which only links spans to profiles when it can see that an agent
+    # is already running. Safe here because dockerrun.bash runs one uvicorn worker and never
+    # forks: adding --workers would leave the children unprofiled.
+    configure_profiling(
+        "gen3-workflow",
+        enabled=config["ENABLE_CONTINUOUS_PROFILING"],
+        server_address=config["PYROSCOPE_SERVER_ADDRESS"],
+        sample_rate=config["PYROSCOPE_SAMPLE_RATE"],
+        upload_interval=config["PYROSCOPE_UPLOAD_INTERVAL"],
+        profile_cpu=config["PROFILE_CPU"],
+        profile_memory=config["PROFILE_MEMORY"],
+        on_cpu_only=config["PROFILE_ON_CPU_ONLY"],
+    )
 
     app = FastAPI(
         title="Gen3Workflow",
@@ -80,8 +118,24 @@ def get_app(httpx_client=None) -> FastAPI:
     app.include_router(system_router, tags=["System"])
     app.include_router(ui_router, tags=["UI"])
 
-    # Following will update logger level, propagate, and handlers
-    get_logger("gen3workflow", log_level=log_level)
+    if config["DPOP_ENABLED"]:
+        logger.info(
+            f"DPoP validation is enabled on {sorted(config['DPOP_PROTECTED_PATHS'])}, "
+            f"required={config['DPOP_REQUIRED']}, issuers={get_dpop_allowed_issuers()}"
+        )
+        # Said at every startup on purpose: a reader who sees DPoP enabled might otherwise
+        # reasonably assume proofs are single-use, and they are not yet
+        logger.warning(
+            "DPoP proofs are not single-use: this service does not track proof 'jti' "
+            "values, so RFC 9449 section 11.1 replay protection is not in force. A "
+            "captured proof can be replayed against the same method and URL until it ages "
+            f"out of DPOP_PROOF_MAX_TTL ({DPOP_PROOF_MAX_TTL}s). The default for DPOP_PROOF_MAX_TTL "
+            "was intentionally a short time period (minutes). So if this is configured for longer "
+            "recognize that this is increasing the time window for replay. Closing this needs a "
+            "'jti' store shared across pod replicas and services which is TBD architecturally."
+        )
+    else:
+        logger.warning("DPoP validation is disabled")
 
     logger.info("Initializing Arborist client")
     if config["MOCK_AUTH"]:
@@ -93,12 +147,20 @@ def get_app(httpx_client=None) -> FastAPI:
         app.arborist_client = ArboristClient(
             arborist_base_url=custom_arborist_url,
             authz_provider="gen3-workflow",
-            logger=get_logger("gen3workflow.gen3authz", log_level=log_level),
+            logger=get_logger(
+                "gen3workflow.gen3authz",
+                log_level=log_level,
+                json_logs=config["ENABLE_JSON_LOGS"],
+            ),
         )
     else:
         app.arborist_client = ArboristClient(
             authz_provider="gen3-workflow",
-            logger=get_logger("gen3workflow.gen3authz", log_level=log_level),
+            logger=get_logger(
+                "gen3workflow.gen3authz",
+                log_level=log_level,
+                json_logs=config["ENABLE_JSON_LOGS"],
+            ),
         )
 
     app.metrics = Metrics(
@@ -111,42 +173,107 @@ def get_app(httpx_client=None) -> FastAPI:
 
     app.include_router(s3_root_router, tags=["S3"])
 
+    # Registered before the metrics middleware below: Starlette makes the last-registered
+    # middleware the outermost one, so this ordering keeps DPoP rejections inside the metrics
+    # middleware instead of bypassing it.
     @app.middleware("http")
-    async def middleware_log_response_and_api_metric(
-        request: Request, call_next
-    ) -> None:
+    async def middleware_dpop_validation(request: Request, call_next) -> Response:
         """
-        This FastAPI middleware effectively allows pre and post logic to a request.
-
-        We are using this to log the response consistently across defined endpoints (including execution time).
+        Validate the DPoP proof of requests to the DPoP-protected endpoints.
 
         Args:
             request (Request): the incoming HTTP request
-            call_next (Callable): function to call (this is handled by FastAPI's middleware support)
+            call_next (Callable): function to call (this is handled by FastAPI's middleware
+                support)
+
+        Returns:
+            Response: the response from the rest of the app, or an error response
         """
-        start_time = time.perf_counter()
-        response = await call_next(request)
-        response_time_seconds = time.perf_counter() - start_time
+        return await dpop_middleware(request, call_next)
 
-        path = request.url.path
-        method = request.method
+    add_request_metrics_middleware(
+        app,
+        app.metrics,
+        counter_name="gen3_workflow_api_requests",
+        counter_description="API requests served by gen3-workflow.",
+        duration_histogram_name="gen3_workflow_api_request_duration_seconds",
+    )
 
-        # NOTE: If adding more endpoints to metrics, try making it configurable using a list of paths and methods in config.
-        # For now, we are only interested in the "/ga4gh/tes/v1/tasks" endpoint for metrics.
-        if method != "POST" or path.rstrip("/") != "/ga4gh/tes/v1/tasks":
-            return response
-
-        metrics = app.metrics
-        metrics.add_create_task_api_interaction(
-            method=method,
-            path=path,
-            response_time_seconds=response_time_seconds,
-            status_code=response.status_code,
-        )
-
-        return response
+    # Last, so the OpenTelemetry middleware ends up outermost: Starlette makes the
+    # last-registered middleware the outermost one, and a server span that did not wrap the
+    # DPoP middleware would miss every rejected request.
+    configure_tracing(
+        app,
+        "gen3-workflow",
+        enabled=config["ENABLE_TRACING"],
+        otlp_endpoint=config["OTEL_EXPORTER_OTLP_ENDPOINT"],
+        otlp_protocol=config["OTEL_EXPORTER_OTLP_PROTOCOL"],
+        # This service makes no `requests` calls, and its slowest work is the blocking boto3
+        # calls in gen3workflow/aws/, which the default set would not cover.
+        instrumentors=[
+            HTTPXClientInstrumentor(),
+            BotocoreInstrumentor(),
+            LoggingInstrumentorWithContext(),
+        ],
+    )
 
     return app
+
+
+def configure_logging() -> None:
+    """
+    Route every logger the service uses through gen3logging, so that all log lines share one
+    format.
+
+    Must run before the app's httpx client is created: httpx keeps the log level it sees when
+    it is initialized, and it is verbose enough to need a setting of its own.
+
+    Every `get_logger` call is paired with a `remove_log_handlers` call, which is both what
+    makes the format apply at all and what makes running this more than once per process safe.
+    """
+    log_level = "debug" if config["APP_DEBUG"] else "info"
+    json_logs = config["ENABLE_JSON_LOGS"]
+
+    remove_log_handlers(None)
+    get_logger(
+        None,
+        log_level="debug" if config["HTTPX_DEBUG"] else "warn",
+        json_logs=json_logs,
+    )
+
+    # Each of these is handed a handler by another library before this runs: uvicorn installs its
+    # own before it imports this app, and gen3config's comes from the pre-rename cdislogging,
+    # which cannot emit JSON at all. Left in place, each would keep emitting its own format
+    # alongside this service's.
+    for logger_name in [
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+        "gen3config.config",
+    ]:
+        remove_log_handlers(logger_name)
+        get_logger(logger_name, log_level=log_level, json_logs=json_logs)
+
+    # gen3workflow/__init__.py attaches a handler at import time, before the config is readable,
+    # and get_logger will not replace a handler that is already attached.
+    remove_log_handlers("gen3workflow")
+    get_logger("gen3workflow", log_level=log_level, json_logs=json_logs)
+
+
+def remove_log_handlers(logger_name: str | None) -> None:
+    """
+    Remove every handler attached to a logger.
+
+    Callers must attach a replacement: `get_logger` turns propagation off for any logger it gives
+    a level to, so one left with no handlers falls through to `logging.lastResort`, which writes
+    to stderr at WARNING and drops everything below it.
+
+    Args:
+        logger_name (str | None): name of the logger, or None for the root logger
+    """
+    logger_to_clear = logging.getLogger(logger_name)
+    while logger_to_clear.handlers:
+        logger_to_clear.removeHandler(logger_to_clear.handlers[0])
 
 
 app = get_app()

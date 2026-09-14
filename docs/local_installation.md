@@ -69,6 +69,24 @@ Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/doc
 
 > Note: Although the Gen3Workflow service can run as a standalone component, a complete end-to-end experience with Funnel and the Funnel plugin requires interaction with the Fence service. While support for this flow is planned for future releases, it is not currently supported out of the box.
 
+## DPoP
+
+The GA4GH TES and S3 endpoints support DPoP ([RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449)). When it is enabled, an access token that is bound to a client's key - the auth service (e.g. Fence) marks it with a `cnf.jkt` claim - is only accepted if the request also carries a DPoP proof signed by the matching private key (demonstrating proof of possession).
+
+Tokens that are not bound are unaffected, so worker pods using the `client_credentials` flow keep working.
+
+To enable it, in your configuration file:
+- set `DPOP_ENABLED` to `true`
+- set `DPOP_REQUIRED` to `true` to reject any request to those endpoints that does not present a DPoP-bound token and a valid proof, rather than only enforcing the binding of tokens that have one.
+- set `DPOP_EXEMPT_CLIENT_IDS` to the client IDs whose `client_credentials` tokens may reach those endpoints without a proof when `DPOP_REQUIRED` is `true`, for example the Funnel worker pods' client. Such a token is never DPoP-bound, so its holder has no key to sign a proof with. Leave the list empty and those clients are rejected too. An exempt token is an ordinary bearer credential: whoever holds it can act as any user the client is authorized for, and `DPOP_REQUIRED` does not change that - see [Authorization](authorization.md#client-credentials-and-dpop).
+- set `DPOP_ALLOWED_ISSUERS` to the issuers allowed to sign the tokens, for example `["https://<commons hostname>/user"]`
+- set `DPOP_SHARED_SECRET` to the **exact same value** as the auth service's `DPOP_SHARED_SECRET`, or set the `DPOP_SHARED_SECRET` environment variable, which takes precedence. Clients reuse the nonce the auth service handed them for their first request here, and a nonce signed with a different secret does not verify.
+- if this service is not reached directly, set `DPOP_EXTERNAL_BASE_URL` to the URL clients use, and make sure `DPOP_PROTECTED_PATHS` maps each protected path prefix to the prefix the reverse proxy exposes it at. The Gen3 reverse proxy serves the S3 endpoint under `/workflows`, which it strips before forwarding, so the default configuration adds it back. Getting this wrong shows up as an `htu mismatch` error.
+
+Optionally, set the `DPOP_NONCE_TTL` environment variable to change how long a nonce stays valid (defaults to 300 seconds).
+
+Clients can generate the proofs with the [Gen3 Python SDK/CLI](https://github.com/uc-cdis/gen3sdk-python), which exchanges an API key for a bound token and then proxies Nextflow's TES and S3 traffic through freshly signed proofs.
+
 ## Run Nextflow workflows with Gen3Workflow
 
 - Hit the `/storage/setup` endpoint to get your working directory

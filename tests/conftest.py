@@ -285,6 +285,35 @@ async def reset_requests_mocks_and_caches():
     USER_BUCKET_CACHE.clear()
 
 
+def get_debug_stub_warnings(caplog) -> list:
+    """
+    Extract the warnings logged for stubbed requests from the captured logs.
+
+    Args:
+        caplog: pytest's log capturing fixture
+
+    Returns:
+        list: the logged messages, one per stubbed request
+    """
+    return [
+        record.message
+        for record in caplog.records
+        if record.levelname == "WARNING" and "DEBUG MODE" in record.message
+    ]
+
+
+@pytest.fixture(scope="function")
+def debug_stub_mode():
+    """
+    Run the endpoints in debug stub mode for the duration of the test, and restore the original
+    configuration afterwards. See `DEBUG_STUB_EXTERNAL_SERVICES`.
+    """
+    original_val = config["DEBUG_STUB_EXTERNAL_SERVICES"]
+    config["DEBUG_STUB_EXTERNAL_SERVICES"] = True
+    yield
+    config["DEBUG_STUB_EXTERNAL_SERVICES"] = original_val
+
+
 class UvicornServer(uvicorn.Server):
     """
     Server that can be stopped when the unit test completes. Used for tests that need to hit

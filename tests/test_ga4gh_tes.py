@@ -5,6 +5,7 @@ import pytest
 
 from gen3workflow.config import config
 from tests.conftest import (
+    get_debug_stub_warnings,
     mock_arborist_request,
     mock_tes_server_request,
     TEST_USER_ID,
@@ -612,3 +613,28 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
             body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )
+
+
+@pytest.mark.asyncio
+async def test_endpoints_in_debug_stub_mode(client, debug_stub_mode, caplog):
+    """
+    In debug stub mode, the TES endpoints return canned responses without contacting the TES
+    server, and log a warning for each stubbed request, so that a stubbed deployment cannot be
+    mistaken for a working one.
+    """
+    res = await client.post(
+        "/ga4gh/tes/v1/tasks",
+        json={"name": "test-task"},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["id"].startswith("stubbed-task-")
+
+    res = await client.get(
+        "/ga4gh/tes/v1/tasks", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {"tasks": []}
+
+    mock_tes_server_request.assert_not_called()
+    assert len(get_debug_stub_warnings(caplog)) == 2
