@@ -339,6 +339,9 @@ async def _create_user_bucket(user_id: str) -> str:
     """
     user_bucket_name = get_bucket_name_from_user_id(user_id)
     try:
+        logger.debug(
+            f"Checking if bucket '{user_bucket_name}' exists for user '{user_id}'"
+        )
         clients.s3_client.head_bucket(Bucket=user_bucket_name)
         logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
     except ClientError as e:
