@@ -22,6 +22,20 @@ EOF
 
 kubectl wait --for=condition=Ready nodes --all --timeout=180s
 
+echo "=== VERIFYING KUBE-SYSTEM NAMESPACE LABELS ==="
+# This prints all labels attached to kube-system.
+# Check if "kubernetes.io/metadata.name: kube-system" is missing.
+kubectl get ns kube-system --show-labels
+
+echo "=== VERIFYING COREDNS UPSTREAM FORWARDING ==="
+# This prints the active CoreDNS config.
+# Look for the line containing "forward . /etc/resolv.conf".
+kubectl get configmap coredns -n kube-system -o yaml
+
+echo "=== VERIFYING CONTAINER RESOLV.CONF CONTENTS ==="
+# This shows the host resolvers that KIND inherited from the GHA runner.
+# Check if it contains a loopback address like "nameserver 127.0.0.53".
+kubectl exec -n kube-system deployment/coredns -- cat /etc/resolv.conf
 
 ###############################################
 
