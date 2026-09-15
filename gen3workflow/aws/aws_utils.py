@@ -65,3 +65,10 @@ def get_bucket_name_from_user_id(user_id: str) -> str:
     """
     # Abstracted for future flexibility — currently same as safe name.
     return get_safe_name_from_hostname(user_id)
+
+
+def all_outputs_ready(body: dict) -> bool:
+    # TODO skip if the task completed more than X hours ago
+    # TODO compare now to task end time, and quit if too long (maybe same logic as above?)
+    # TODO add cache once outputs are available
+    return True

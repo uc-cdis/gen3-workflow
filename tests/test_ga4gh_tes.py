@@ -106,6 +106,38 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("has_outputs", "outputs_ready"),
+    [(False, None), (True, True), (True, False)],
+    ids=["no outputs", "outputs ready", "outputs not ready"],
+)
+async def test_get_task_with_logs_outputs(
+    client, access_token_patcher, has_outputs, outputs_ready
+):
+    """
+    `GET /ga4gh/tes/v1/tasks/<task ID>` responses should be intercepted to check the list of
+    outputs. If the task is "COMPLETE" and the outputs are not ready yet, the task state should
+    be rewritten to "RUNNING".
+    """
+    task_id = "with-logs-outputs" if has_outputs else "123"
+    url = f"/ga4gh/tes/v1/tasks/{task_id}?view=FULL"
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
+    assert res.status_code == 200, res.text
+    task = res.json()
+    if not has_outputs or outputs_ready:
+        assert task["state"] == "COMPLETE"
+        if has_outputs:
+            assert task["logs"][-1]["system_logs"][-1].endswith(
+                "all outputs are available; task complete"
+            )
+    else:
+        assert task["state"] == "RUNNING"
+        assert task["logs"][-1]["system_logs"][-1].endswith(
+            "waiting for outputs to be available..."
+        )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 async def test_create_task(
     client, access_token_patcher, mock_aws_services, trailing_slash

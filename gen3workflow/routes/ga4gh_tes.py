@@ -5,6 +5,7 @@ GA4GH TES spec:
 https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-execution-schemas/develop/openapi/task_execution_service.openapi.yaml
 """
 
+from datetime import datetime, timezone
 import json
 import re
 
@@ -151,7 +152,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     # Add internal tags
-    if "tags" not in body:
+    if not body.get("tags"):
         body["tags"] = {}
     if type(body["tags"]) != dict:
         err_msg = f"Tags should be a dictionary (tag name -> tag value mapping). Received type {type(body['tags'])}: {body["tags"]}"
@@ -355,6 +356,24 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
     body["tags"]["_AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
+
+    # TODO comment
+    # TODO add to list endpoint too
+    if body["state"] == "COMPLETE" and body["logs"][-1].get("outputs"):
+        # NOTE: we use `body["logs"][-1]` here because the last set of logs represents
+        # the last retry (see GA4GH TES spec)
+        if not aws_utils.all_outputs_ready(body["logs"][-1]["outputs"]):
+            msg = (
+                f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
+            )
+            body["state"] = "RUNNING"
+        else:
+            msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
+        if not body.get("logs"):
+            body["logs"] = [{}]
+        if not body["logs"][-1].get("system_logs"):
+            body["logs"][-1]["system_logs"] = []
+        body["logs"][-1]["system_logs"].append(msg)
 
     return apply_view_to_task(requested_view, body)
 

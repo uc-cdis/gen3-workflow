@@ -193,6 +193,23 @@ def mock_tes_server_request_function(
             "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER"
         },
     }
+    task_with_logs_outputs = {
+        "id": "with-logs-outputs",
+        "state": "COMPLETE",
+        "logs": [
+            {
+                "system_logs": ["blah"],
+                "outputs": {
+                    "url": f"s3://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}/file.txt",
+                    "path": "file.txt",
+                    "size_bytes": "16",
+                },
+            }
+        ],
+        "tags": {
+            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER"
+        },
+    }
     # paths to reponses: { URL: { METHOD: response body } }
     paths_to_responses = {
         "/service-info": {"GET": {"name": "TES server"}},
@@ -218,6 +235,7 @@ def mock_tes_server_request_function(
         },
         "/tasks/123": {"GET": accessible_task},
         "/tasks/123:cancel": {"POST": {}},
+        "/tasks/with-logs-outputs": {"GET": task_with_logs_outputs},
     }
     text, out = None, None
     if path not in paths_to_responses:
