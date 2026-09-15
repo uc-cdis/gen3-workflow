@@ -36,6 +36,7 @@ echo "=== PATCHING COREDNS CONFIGMAP ==="
 # This replaces "forward . /etc/resolv.conf" with a direct public fallback
 kubectl get configmap coredns -n kube-system -o yaml | \
     sed 's/forward . \/etc\/resolv.conf/forward . 8.8.8.8 1.1.1.1/g' | \
+    sed '/ready/i \        log' | \
     kubectl apply -f -
 
 ###############################################
