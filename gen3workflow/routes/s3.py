@@ -69,13 +69,12 @@ async def _dechunk_stream(stream):
                 header_end = buf.find(b"\r\n")
                 if header_end == -1:
                     break  # header split across segments; wait for more data
-                chunk_size = int(buf[:header_end].split(b";")[0], 16)
-                if chunk_size == 0:
+                chunk_bytes_left = int(buf[:header_end].split(b";")[0], 16)
+                if chunk_bytes_left == 0:
                     if output_buffer:
                         yield output_buffer
                     return
                 del buf[: header_end + _CRLF_LEN]
-                chunk_bytes_left = chunk_size
 
             consumable_bytes_in_buf = min(chunk_bytes_left, len(buf))
             if consumable_bytes_in_buf == 0:
