@@ -32,10 +32,11 @@ echo "=== VERIFYING COREDNS UPSTREAM FORWARDING ==="
 # Look for the line containing "forward . /etc/resolv.conf".
 kubectl get configmap coredns -n kube-system -o yaml
 
-echo "=== VERIFYING CONTAINER RESOLV.CONF CONTENTS ==="
-# This shows the host resolvers that KIND inherited from the GHA runner.
-# Check if it contains a loopback address like "nameserver 127.0.0.53".
-kubectl exec -n kube-system deployment/coredns -- cat /etc/resolv.conf
+echo "=== PATCHING COREDNS CONFIGMAP ==="
+# This replaces "forward . /etc/resolv.conf" with a direct public fallback
+kubectl get configmap coredns -n kube-system -o yaml | \
+    sed 's/forward . \/etc\/resolv.conf/forward . 8.8.8.8 1.1.1.1/g' | \
+    kubectl apply -f -
 
 ###############################################
 
