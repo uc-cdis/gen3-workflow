@@ -59,44 +59,44 @@ async def _dechunk_stream(stream):
     vs. per-TCP-segment (64 KB) yielding.
     """
     buf = bytearray()
-    out = bytearray()
-    chunk_remaining = 0  # bytes left to consume in the current S3 chunk
-
+    output_buffer = bytearray()
+    chunk_bytes_left = 0  # proceed to the next chunk when this reaches 0
+    _CRLF_LEN = 2
     async for raw in stream:
-        buf += raw
+        buf.extend(raw)
         while buf:
-            if chunk_remaining == 0:
+            if chunk_bytes_left == 0:
                 header_end = buf.find(b"\r\n")
                 if header_end == -1:
                     break  # header split across segments; wait for more data
                 chunk_size = int(buf[:header_end].split(b";")[0], 16)
                 if chunk_size == 0:
-                    if out:
-                        yield out
+                    if output_buffer:
+                        yield output_buffer
                     return
-                del buf[: header_end + 2]  # consume header + \r\n
-                chunk_remaining = chunk_size
+                del buf[: header_end + _CRLF_LEN]
+                chunk_bytes_left = chunk_size
 
-            available = min(chunk_remaining, len(buf))
-            if available == 0:
+            consumable_bytes_in_buf = min(chunk_bytes_left, len(buf))
+            if consumable_bytes_in_buf == 0:
                 break
-            is_last = available == chunk_remaining
-            if is_last and len(buf) < available + 2:
+            chunk_complete = consumable_bytes_in_buf == chunk_bytes_left
+            if chunk_complete and len(buf) < consumable_bytes_in_buf + _CRLF_LEN:
                 break  # trailing \r\n hasn't arrived yet; wait
-            out += buf[:available]
-            del buf[: available + (2 if is_last else 0)]
-            chunk_remaining -= available
+            output_buffer += buf[:consumable_bytes_in_buf]
+            del buf[: consumable_bytes_in_buf + (_CRLF_LEN if chunk_complete else 0)]
+            chunk_bytes_left -= consumable_bytes_in_buf
 
-            if len(out) >= _DECHUNK_YIELD_SIZE:
-                yield out
-                out = bytearray()
+            if len(output_buffer) >= _DECHUNK_YIELD_SIZE:
+                yield output_buffer
+                output_buffer = bytearray()
                 # On fast networks the httpx socket write completes without an epoll wait,
                 # so the event loop never naturally yields between chunks. This forces a
                 # scheduling gap so other coroutines (health probe, task creation) can run.
                 await asyncio.sleep(0)
 
-    if out:
-        yield out
+    if output_buffer:
+        yield output_buffer
 
 
 async def set_access_token_and_get_user_id(
