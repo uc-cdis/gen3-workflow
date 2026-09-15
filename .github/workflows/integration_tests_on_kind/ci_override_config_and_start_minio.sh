@@ -174,6 +174,42 @@ spec:
   ports:
     - port: 9000
       targetPort: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-minio-ingress-netpolicy
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ${NAMESPACE}
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: workflow-pods-${NAMESPACE}
+      podSelector:
+        matchLabels:
+          app: funnel-worker
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-minio-egress-netpolicy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: minio
 EOF
 
 # external-secrets is required to install gen3 and is not installed out of the box in kind clusters
