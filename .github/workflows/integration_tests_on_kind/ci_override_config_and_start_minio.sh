@@ -179,6 +179,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: dev-minio-ingress-netpolicy
+  namespace: ${NAMESPACE}
 spec:
   podSelector:
     matchLabels:
@@ -201,6 +202,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: dev-minio-egress-netpolicy
+  namespace: ${NAMESPACE}
 spec:
   podSelector: {}
   policyTypes:
