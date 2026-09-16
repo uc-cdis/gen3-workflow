@@ -366,7 +366,6 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     task_logs = body["logs"][-1]
     if body["state"] == "COMPLETE" and task_logs.get("outputs"):
         ready, logs = aws_utils.are_outputs_ready(user_id, task_logs["outputs"])
-        print(logs)
         if not ready:
             msg = (
                 f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."

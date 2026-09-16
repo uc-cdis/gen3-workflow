@@ -106,6 +106,7 @@ def are_outputs_ready(user_id: str, outputs: list) -> bool:
             all_ready = False
         else:
             if not output.get("size_bytes"):
+                # TODO if dir, size is 0
                 logs.append(
                     f"Output '{output['url']}' is present and missing 'size_bytes' field: assuming it's ready"
                 )
