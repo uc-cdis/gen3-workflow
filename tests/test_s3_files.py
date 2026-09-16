@@ -575,7 +575,9 @@ def test_get_or_create_security_groups_ingress_reraises_non_duplicate_error(
         with pytest.raises(ClientError) as exc_info:
             s3_files._get_or_create_security_groups(vpc_id=vpc_id)
 
-    assert exc_info.value.response["Error"]["Code"] == "InvalidGroup.NotFound"
+    assert (
+        exc_info.value.response.get("Error", {}).get("Code") == "InvalidGroup.NotFound"
+    )
 
 
 def test_get_or_create_security_groups_egress_reraises_non_duplicate_error(
@@ -602,7 +604,9 @@ def test_get_or_create_security_groups_egress_reraises_non_duplicate_error(
         with pytest.raises(ClientError) as exc_info:
             s3_files._get_or_create_security_groups(vpc_id=vpc_id)
 
-    assert exc_info.value.response["Error"]["Code"] == "InvalidGroup.NotFound"
+    assert (
+        exc_info.value.response.get("Error", {}).get("Code") == "InvalidGroup.NotFound"
+    )
 
 
 # --------------------------------------------------------------------------- #

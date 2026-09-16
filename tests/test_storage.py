@@ -8,6 +8,7 @@ from tests.conftest import (
     TEST_USER_TOKEN,
     NEW_TEST_USER_ID,
     mock_arborist_request,
+    s3_put_object,
 )
 from gen3workflow.aws import bucket, clients
 from gen3workflow.config import config
@@ -293,18 +294,11 @@ async def test_delete_user_bucket_with_files(
     )
     bucket_name = res.json()["bucket"]
 
-    # Remove the bucket policy enforcing KMS encryption
-    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
-    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
-    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
-
     # Upload more than 1000 objects to ensure batching is working correctly. Not too many so the
     # test doesn't take too long to run.
     object_count = 1050
     for i in range(object_count):
-        clients.s3_client.put_object(
-            Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
-        )
+        s3_put_object(bucket=bucket_name, key=f"file_{i}", body=b"Dummy file contents")
 
     # Start a multipart upload, don't complete it, and check that the bucket can still be emptied
     # and deleted
@@ -390,16 +384,9 @@ async def test_delete_user_bucket_objects_with_existing_files(
     )
     bucket_name = res.json()["bucket"]
 
-    # Remove the bucket policy enforcing KMS encryption
-    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
-    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
-    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
-
     object_count = 10
     for i in range(object_count):
-        clients.s3_client.put_object(
-            Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
-        )
+        s3_put_object(bucket=bucket_name, key=f"file_{i}", body=b"Dummy file contents")
 
     # Delete all the bucket objects
     res = await client.delete(
@@ -435,23 +422,14 @@ async def test_delete_user_bucket_with_versioning(
     )
     bucket_name = res.json()["bucket"]
 
-    # Remove the bucket policy enforcing KMS encryption
-    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
-    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
-    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
-
     # Create a file
-    clients.s3_client.put_object(
-        Bucket=bucket_name, Key=f"file", Body=b"Dummy file contents"
-    )
+    s3_put_object(bucket=bucket_name, key=f"file", body=b"Dummy file contents")
     response = clients.s3_client.list_object_versions(Bucket=bucket_name)
     versions = response.get("Versions", [])
     assert len(versions) == 1
 
     # Create a new version of the file
-    clients.s3_client.put_object(
-        Bucket=bucket_name, Key=f"file", Body=b"Updated file contents"
-    )
+    s3_put_object(bucket=bucket_name, key=f"file", body=b"Updated file contents")
     response = clients.s3_client.list_object_versions(Bucket=bucket_name)
     versions = response.get("Versions", [])
     assert len(versions) == 2

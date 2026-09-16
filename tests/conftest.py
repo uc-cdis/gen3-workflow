@@ -199,11 +199,13 @@ def mock_tes_server_request_function(
         "logs": [
             {
                 "system_logs": ["blah"],
-                "outputs": {
-                    "url": f"s3://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}/file.txt",
-                    "path": "file.txt",
-                    "size_bytes": "16",
-                },
+                "outputs": [
+                    {
+                        "url": f"s3://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}/file.txt",
+                        "path": "file.txt",
+                        "size_bytes": "19",
+                    },
+                ],
             }
         ],
         "tags": {
@@ -498,3 +500,14 @@ def trailing_slash(request):
     slash
     """
     return request.param
+
+
+def s3_put_object(bucket, key, body):
+    """
+    Remove the bucket policy enforcing KMS encryption before making the put_object call.
+
+    Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
+    More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
+    """
+    clients.s3_client.delete_bucket_policy(Bucket=bucket)
+    clients.s3_client.put_object(Bucket=bucket, Key=key, Body=body)

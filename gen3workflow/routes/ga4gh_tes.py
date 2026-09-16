@@ -359,20 +359,24 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
 
     # TODO comment
     # TODO add to list endpoint too
-    if body["state"] == "COMPLETE" and body["logs"][-1].get("outputs"):
-        # NOTE: we use `body["logs"][-1]` here because the last set of logs represents
-        # the last retry (see GA4GH TES spec)
-        if not aws_utils.all_outputs_ready(body["logs"][-1]["outputs"]):
+    # NOTE: we use `body["logs"][-1]` here because the last set of logs represents the last
+    # retry (see GA4GH TES spec)
+    if not body.get("logs"):
+        body["logs"] = [{}]
+    task_logs = body["logs"][-1]
+    if body["state"] == "COMPLETE" and task_logs.get("outputs"):
+        ready, logs = aws_utils.are_outputs_ready(user_id, task_logs["outputs"])
+        print(logs)
+        if not ready:
             msg = (
                 f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
             )
             body["state"] = "RUNNING"
         else:
             msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
-        if not body.get("logs"):
-            body["logs"] = [{}]
-        if not body["logs"][-1].get("system_logs"):
+        if not task_logs.get("system_logs"):
             body["logs"][-1]["system_logs"] = []
+        body["logs"][-1]["system_logs"].extend(logs)
         body["logs"][-1]["system_logs"].append(msg)
 
     return apply_view_to_task(requested_view, body)

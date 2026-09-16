@@ -44,7 +44,7 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         output = clients.kms_client.describe_key(KeyId=kms_key_alias)
         return kms_key_alias, output["KeyMetadata"]["Arn"]
     except ClientError as e:
-        if e.response["Error"]["Code"] == "NotFoundException":
+        if e.response.get("Error", {}).get("Code") == "NotFoundException":
             return kms_key_alias, ""
         raise
 
@@ -112,7 +112,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
                 PolicyDocument=json.dumps(assume_role_policy_document),
             )
     except ClientError as e:
-        if e.response["Error"]["Code"] != "NoSuchEntity":
+        if e.response.get("Error", {}).get("Code") != "NoSuchEntity":
             raise
         logger.info(f"Creating IAM role '{role_name}'")
         worker_role = clients.iam_client.create_role(
@@ -222,7 +222,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
             # remove this default to allow comparing with the new rules
             existing_bucket_encryption["Rules"][0].pop("BlockedEncryptionTypes")
     except ClientError as e:
-        error_code = e.response["Error"]["Code"]
+        error_code = e.response.get("Error", {}).get("Code")
         if error_code != "ServerSideEncryptionConfigurationNotFoundError":
             raise
         existing_bucket_encryption = None
@@ -251,7 +251,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
             clients.s3_client.get_bucket_policy(Bucket=bucket_name)["Policy"]
         )
     except ClientError as e:
-        error_code = e.response["Error"]["Code"]
+        error_code = e.response.get("Error", {}).get("Code")
         if error_code != "NoSuchBucketPolicy":
             raise
         existing_bucket_policy = None
@@ -342,7 +342,7 @@ async def _create_user_bucket(user_id: str) -> str:
         clients.s3_client.head_bucket(Bucket=user_bucket_name)
         logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
     except ClientError as e:
-        error_code = e.response["Error"]["Code"]
+        error_code = e.response.get("Error", {}).get("Code")
         if error_code != "404":
             logger.error(
                 f"Error checking existence of bucket '{user_bucket_name}' for user '{user_id}': {e}"
@@ -454,7 +454,7 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             return bucket_name
         except ClientError as e:
             if (
-                e.response["Error"]["Code"]
+                e.response.get("Error", {}).get("Code")
                 not in ["OperationAborted", "AlreadyExistsException"]
                 or attempt == max_tries
             ):
@@ -519,7 +519,7 @@ def cleanup_user_bucket(user_id: str, delete_bucket: bool) -> Union[str, None]:
     try:
         clients.s3_client.head_bucket(Bucket=user_bucket_name)
     except ClientError as e:
-        error_code = e.response["Error"]["Code"]
+        error_code = e.response.get("Error", {}).get("Code")
         if error_code == "404":
             logger.warning(
                 f"Bucket '{user_bucket_name}' not found for user '{user_id}'."

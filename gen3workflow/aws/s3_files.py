@@ -321,7 +321,7 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
             compute_security_groups,
         )
     except ClientError as exc:
-        if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
+        if exc.response.get("Error", {}).get("Code") == "InvalidPermission.Duplicate":
             logger.info(
                 "Inbound TCP/%s on %s (%s) from %s already exists; skipping.",
                 NFS_PORT,
@@ -358,7 +358,10 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
                 mount_target_sg_name,
             )
         except ClientError as exc:
-            if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
+            if (
+                exc.response.get("Error", {}).get("Code")
+                == "InvalidPermission.Duplicate"
+            ):
                 logger.info(
                     "Outbound TCP/%s on %s (%s) to %s (%s) already exists; skipping.",
                     NFS_PORT,

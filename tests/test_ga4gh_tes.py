@@ -9,6 +9,7 @@ from tests.conftest import (
     mock_tes_server_request,
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    s3_put_object,
 )
 
 client_parameters = [
@@ -111,30 +112,51 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
     [(False, None), (True, True), (True, False)],
     ids=["no outputs", "outputs ready", "outputs not ready"],
 )
-async def test_get_task_with_logs_outputs(
-    client, access_token_patcher, has_outputs, outputs_ready
+async def test_get_task_check_if_outputs_ready(
+    client, access_token_patcher, mock_aws_services, has_outputs, outputs_ready
 ):
     """
     `GET /ga4gh/tes/v1/tasks/<task ID>` responses should be intercepted to check the list of
     outputs. If the task is "COMPLETE" and the outputs are not ready yet, the task state should
     be rewritten to "RUNNING".
     """
+    # create the bucket if it doesn't exist
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    bucket_name = res.json()["bucket"]
+
+    if outputs_ready:
+        # create the expected output file in the bucket
+        s3_put_object(bucket=bucket_name, key=f"file.txt", body=b"Dummy file contents")
+
     task_id = "with-logs-outputs" if has_outputs else "123"
     url = f"/ga4gh/tes/v1/tasks/{task_id}?view=FULL"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
     assert res.status_code == 200, res.text
     task = res.json()
-    if not has_outputs or outputs_ready:
+    logs = task["logs"][-1]["system_logs"]
+
+    if not has_outputs:
         assert task["state"] == "COMPLETE"
-        if has_outputs:
-            assert task["logs"][-1]["system_logs"][-1].endswith(
-                "all outputs are available; task complete"
-            )
+        return
+
+    output = task["logs"][-1]["outputs"][0]
+    if outputs_ready:
+        assert task["state"] == "COMPLETE"
+        assert (
+            logs[-2]
+            == f"Output '{output['url']}' of expected size {output['size_bytes']} is present with size {output['size_bytes']}: ready"
+        )
+        assert logs[-1].endswith("all outputs are available; task complete")
     else:
         assert task["state"] == "RUNNING"
-        assert task["logs"][-1]["system_logs"][-1].endswith(
-            "waiting for outputs to be available..."
+        assert (
+            logs[-2]
+            == f"Output '{output['url']}' is not present in the bucket: not ready"
         )
+        assert logs[-1].endswith("waiting for outputs to be available...")
 
 
 @pytest.mark.asyncio

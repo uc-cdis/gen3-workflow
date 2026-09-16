@@ -1,5 +1,10 @@
 import json
 from typing import Union
+from urllib.parse import urlparse
+
+from botocore.exceptions import ClientError
+
+from gen3workflow.aws import clients
 from gen3workflow.config import config
 
 
@@ -67,8 +72,47 @@ def get_bucket_name_from_user_id(user_id: str) -> str:
     return get_safe_name_from_hostname(user_id)
 
 
-def all_outputs_ready(body: dict) -> bool:
+def are_outputs_ready(user_id: str, outputs: list) -> bool:
     # TODO skip if the task completed more than X hours ago
     # TODO compare now to task end time, and quit if too long (maybe same logic as above?)
     # TODO add cache once outputs are available
-    return True
+    user_bucket_name = get_bucket_name_from_user_id(user_id)
+    all_ready = True
+    logs = []
+    for output in outputs:
+        if not output.get("url"):
+            logs.append(f"Output {output} is missing 'url' field: assuming it's ready")
+            continue
+        if not all_ready:
+            # if one file is not ready, skip checking the rest of the files
+            logs.append(f"Not checked: '{output['url']}'")
+            continue
+        parsed_url = urlparse(output["url"])
+        if parsed_url.netloc != user_bucket_name:
+            logs.append(
+                f"Output '{output['url']}' is not in user's bucket '{user_bucket_name}': assuming it's ready"
+            )
+            continue
+        try:
+            response = clients.s3_client.head_object(
+                Bucket=parsed_url.netloc, Key=parsed_url.path.lstrip("/")
+            )
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "404":
+                raise
+            logs.append(
+                f"Output '{output['url']}' is not present in the bucket: not ready"
+            )
+            all_ready = False
+        else:
+            if not output.get("size_bytes"):
+                logs.append(
+                    f"Output '{output['url']}' is present and missing 'size_bytes' field: assuming it's ready"
+                )
+                continue
+            # `size_bytes` in the GA4GH TES spec is a string and `ContentLength` is an int: convert
+            all_ready = str(output["size_bytes"]) == str(response["ContentLength"])
+            logs.append(
+                f"Output '{output['url']}' of expected size {output['size_bytes']} is present with size {response['ContentLength']}: {'' if all_ready else 'not '}ready"
+            )
+    return all_ready, logs
