@@ -591,8 +591,9 @@ async def test_list_tasks_repeated_params(
     client, access_token_patcher, get_all, view, trailing_slash
 ):
     """
-    Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
-    unsupported query params should be filtered out. Tasks the user does not have access
+    Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server.
+    Repeated params are allowed, such as repeated 'tag_key' or 'tag_velue'.
+    Any unsupported query params should be filtered out. Tasks the user does not have access
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
