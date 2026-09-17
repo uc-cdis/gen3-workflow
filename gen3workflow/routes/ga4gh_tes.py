@@ -292,23 +292,26 @@ async def list_tasks(
         "page_token",
         "view",
     }
-    query_params = {
-        k: v for k, v in dict(request.query_params).items() if k in supported_params
-    }
 
+    # preserve multiple tag_key/tag_value values from the request
+    query_params = []
+    for k, v in request.query_params.multi_items():
+        if k not in supported_params:
+            continue
+        query_params.append((k, v))
+    requested_view = next((v for k, v in query_params if k == "view"), None)
+    query_params = [(k, v) for k, v in query_params if k != "view"]
     # force the use of "FULL" view so the response includes tags
-    requested_view = query_params.get("view")
-    query_params["view"] = "FULL"
+    query_params.append(("view", "FULL"))
 
     if all is None:
-        query_params["tag_key"] = "_AUTHZ"
-        # construct an authz value
+        query_params.append(("tag_key", "_AUTHZ"))
         if not user_id:
             err_msg = "Login required when parameter 'all' is not used"
             logger.error(err_msg)
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
         authz_resource = get_authz_string_for_user(user_id)
-        query_params["tag_value"] = authz_resource
+        query_params.append(("tag_value", authz_resource))
 
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(

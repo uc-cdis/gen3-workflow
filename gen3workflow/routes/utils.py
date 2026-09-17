@@ -13,7 +13,7 @@ async def make_tes_server_request(
     url: str,
     json: dict = {},
     headers: dict = {},
-    params: dict = {},
+    params: list | dict | None = None,
 ) -> Response:
     """
     Utility function to make a request to the external TES server and check the response

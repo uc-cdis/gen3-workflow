@@ -1,5 +1,6 @@
 import json
 from unittest.mock import patch
+from urllib.parse import parse_qsl
 
 import pytest
 
@@ -61,7 +62,7 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks/123",
-        query_params={"view": "FULL"},
+        query_params=[("view", "FULL")],
         body="",
         status_code=client.tes_resp_code,
     )
@@ -151,7 +152,7 @@ async def test_create_task(
         mock_tes_server_request.assert_called_once_with(
             method="POST",
             path="/tasks",
-            query_params={},
+            query_params=[],
             body=json.dumps(expected_body, separators=(",", ":")),
             status_code=client.tes_resp_code,
         )
@@ -238,7 +239,7 @@ async def test_create_gpu_task(
     mock_tes_server_request.assert_called_once_with(
         method="POST",
         path="/tasks",
-        query_params={},
+        query_params=[],
         body=json.dumps(expected_body, separators=(",", ":")),
         status_code=200,
     )
@@ -417,7 +418,7 @@ async def test_create_task_with_whitelist_images(
         mock_tes_server_request.assert_called_once_with(
             method="POST",
             path="/tasks",
-            query_params={},
+            query_params=[],
             body=json.dumps(expected_body, separators=(",", ":")),
             status_code=200,
         )
@@ -467,7 +468,7 @@ async def test_create_task_optimized_node_scheduling(
     mock_tes_server_request.assert_called_once_with(
         method="POST",
         path="/tasks",
-        query_params={},
+        query_params=[],
         body=json.dumps(expected_body, separators=(",", ":")),
         status_code=client.tes_resp_code,
     )
@@ -520,10 +521,120 @@ async def test_list_tasks(client, access_token_patcher, get_all, view, trailing_
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
     # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params = {"state": "COMPLETE", "view": "FULL"}
+    query_params = [("state", "COMPLETE"), ("view", "FULL")]
     if not get_all:
-        query_params["tag_key"] = "_AUTHZ"
-        query_params["tag_value"] = get_authz_string_for_user(TEST_USER_ID)
+        query_params += [
+            ("tag_key", "_AUTHZ"),
+            ("tag_value", get_authz_string_for_user(TEST_USER_ID)),
+        ]
+    mock_tes_server_request.assert_called_once_with(
+        method="GET",
+        path="/tasks",
+        query_params=query_params,
+        body="",
+        status_code=client.tes_resp_code,
+    )
+
+    if client.tes_resp_code == 500:
+        assert res.status_code == 500, res.text
+        assert res.json() == {"detail": "TES server error"}
+    else:
+        assert res.status_code == 200, res.text
+        if not client.authorized:
+            assert res.json() == {"tasks": []}
+        else:
+            # check that the view was applied:
+            if view == "BASIC":
+                assert res.json() == {"tasks": [{"id": "123", "state": "COMPLETE"}]}
+            elif view == "FULL":
+                assert res.json() == {
+                    "tasks": [
+                        {
+                            "id": "123",
+                            "state": "COMPLETE",
+                            "logs": [{"system_logs": ["blah"]}],
+                            "tags": {
+                                "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
+                            },
+                        }
+                    ]
+                }
+            else:  # view == None or "MINIMAL"
+                assert res.json() == {
+                    "tasks": [
+                        {
+                            "id": "123",
+                            "state": "COMPLETE",
+                            "logs": [{}],
+                            "tags": {
+                                "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
+                            },
+                        }
+                    ]
+                }
+
+    # check that the appropriate authorization checks were made
+    if client.tes_resp_code != 500:
+        mock_arborist_request.assert_called_with(
+            method="POST",
+            path="/auth/mapping",
+            body="",
+            authorized=client.authorized,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client", client_parameters, indirect=True)
+@pytest.mark.parametrize("get_all", [False, True])
+@pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
+async def test_list_tasks_repeated_params(
+    client, access_token_patcher, get_all, view, trailing_slash
+):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
+    unsupported query params should be filtered out. Tasks the user does not have access
+    to should be filtered out.
+    When the TES server returns an error, gen3-workflow should return it as well.
+    """
+    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
+    if view:
+        url += f"&view={view}"
+    if get_all:
+        url += "&all"
+    repeated_params = (
+        "&tag_key=tag_key_1&tag_value=tag_val_1&tag_key=tag_key_2&tag_value=tag_val_2"
+    )
+    url += repeated_params
+
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
+
+    # the call to the TES server groups repeated params with same name
+    # eg,
+    # query_params = [
+    #     ("state", "COMPLETE"),
+    #     ("tag_key", "tag_key_1"),
+    #     ("tag_key", "tag_key_2"),
+    #     ("tag_value", "tag_val_1"),
+    #     ("tag_value", "tag_val_2"),
+    # ]
+    repeated_parsed = parse_qsl(repeated_params.lstrip("&"))
+    tag_keys = [p for p in repeated_parsed if p[0] == "tag_key"]
+    tag_values = [p for p in repeated_parsed if p[0] == "tag_value"]
+
+    query_params = (
+        [("state", "COMPLETE")]
+        + tag_keys
+        + ([("tag_key", "_AUTHZ")] if not get_all else [])
+        + tag_values
+        + (
+            [("tag_value", get_authz_string_for_user(TEST_USER_ID))]
+            if not get_all
+            else []
+        )
+    )
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    query_params += [("view", "FULL")]
+
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
@@ -642,7 +753,7 @@ async def test_get_tasks_no_user(client, access_token_patcher, trailing_slash):
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
     # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params = {"view": "FULL"}
+    query_params = [("view", "FULL")]
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
@@ -670,7 +781,7 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
     mock_tes_server_request.assert_any_call(
         method="GET",
         path="/tasks/123",
-        query_params={"view": "FULL"},
+        query_params=[("view", "FULL")],
         body="",
         status_code=client.tes_resp_code,
     )
@@ -689,7 +800,7 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
         mock_tes_server_request.assert_called_with(
             method="POST",
             path="/tasks/123:cancel",
-            query_params={},
+            query_params=[],
             body="",
             status_code=client.tes_resp_code,
         )
