@@ -180,7 +180,7 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
 
 
 def mock_tes_server_request_function(
-    method: str, path: str, query_params: dict, body: str, status_code: int
+    method: str, path: str, query_params: list, body: str, status_code: int
 ):
     """
     Mock responses from an external TES server
@@ -340,7 +340,7 @@ async def client(request):
             mocked_response = mock_tes_server_request(
                 method=request.method,
                 path=path,
-                query_params=dict(parse_qsl(parsed_url.query)),
+                query_params=parse_qsl(parsed_url.query),
                 body=request.content.decode(),
                 status_code=tes_resp_code,
             )
