@@ -4,8 +4,11 @@ from urllib.parse import urlparse
 
 from botocore.exceptions import ClientError
 
+from gen3workflow import logger
 from gen3workflow.aws import clients
 from gen3workflow.config import config
+
+_OUTPUTS_ARE_READY_CACHE: set[str] = set()
 
 
 def dict_to_sorted_json_str(obj: dict) -> str:
@@ -72,14 +75,14 @@ def get_bucket_name_from_user_id(user_id: str) -> str:
     return get_safe_name_from_hostname(user_id)
 
 
-def are_outputs_ready(user_id: str, outputs: list) -> bool:
-    # TODO skip if the task completed more than X hours ago
-    # TODO compare now to task end time, and quit if too long (maybe same logic as above?)
-    # TODO add cache once outputs are available
+def are_outputs_ready(user_id: str, task_id, task_logs: list) -> bool:
+    if task_id in _OUTPUTS_ARE_READY_CACHE:
+        return True, []
+
     user_bucket_name = get_bucket_name_from_user_id(user_id)
     all_ready = True
     logs = []
-    for output in outputs:
+    for output in task_logs["outputs"]:
         if not output.get("url"):
             logs.append(f"Output {output} is missing 'url' field: assuming it's ready")
             continue
@@ -116,4 +119,8 @@ def are_outputs_ready(user_id: str, outputs: list) -> bool:
             logs.append(
                 f"Output '{output['url']}' of expected size {output['size_bytes']} is present with size {response['ContentLength']}: {'' if all_ready else 'not '}ready"
             )
+
+    if all_ready:
+        _OUTPUTS_ARE_READY_CACHE.add(task_id)
+
     return all_ready, logs

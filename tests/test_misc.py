@@ -1,6 +1,10 @@
 import pytest
 
-from gen3workflow.aws.aws_utils import get_safe_name_from_hostname, are_outputs_ready
+from gen3workflow.aws.aws_utils import (
+    get_safe_name_from_hostname,
+    are_outputs_ready,
+    _OUTPUTS_ARE_READY_CACHE,
+)
 from gen3workflow.config import config
 from tests.conftest import TEST_USER_ID, TEST_USER_TOKEN, s3_put_object
 
@@ -133,7 +137,11 @@ async def test_are_outputs_ready(
             f"Output '{outputs[0]['url']}' is present and missing 'size_bytes' field: assuming it's ready"
         ]
     elif state == "skip_next_files":
-        outputs = [ready_file, not_present_file, ready_file]
+        outputs = [
+            ready_file,
+            not_present_file,
+            {"url": f"s3://{bucket}/should_be_skipped"},
+        ]
         expected_logs = [
             ready_log,
             not_present_log,
@@ -141,7 +149,11 @@ async def test_are_outputs_ready(
         ]
 
     # call `are_outputs_ready` and check the returned values
-    ready, logs = are_outputs_ready(TEST_USER_ID, outputs)
+    ready, logs = are_outputs_ready(
+        TEST_USER_ID,
+        f"test-task-id-{state}",
+        {"outputs": outputs, "end_time": "2020-10-02T11:00:00-05:00"},
+    )
     expected_ready = state in [
         "all_ready",
         "wrong_bucket",
@@ -152,3 +164,82 @@ async def test_are_outputs_ready(
         ready == expected_ready
     ), f"`are_outputs_ready` should have returned ready={state == "all_ready"}. Logs: {logs}"
     assert logs == expected_logs
+
+
+@pytest.mark.asyncio
+async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_services):
+    # create the bucket if it doesn't exist
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    bucket = res.json()["bucket"]
+
+    file_contents = b"Dummy file contents"
+    size = str(len(file_contents))
+    ready_file = {
+        "url": f"s3://{bucket}/ready",
+        "path": "file.txt",
+        "size_bytes": size,
+    }
+
+    # the output file is not in the bucket, so `are_outputs_ready` should return "ready=False".
+    # nothing should be cached since the outputs are not ready.
+    task_id = "test-task-id"
+    ready, logs = are_outputs_ready(
+        TEST_USER_ID,
+        task_id,
+        {"outputs": [ready_file], "end_time": "2020-10-02T11:00:00-05:00"},
+    )
+    assert (
+        ready == False
+    ), f"`are_outputs_ready` should have returned ready=False. Logs: {logs}"
+    assert logs == [
+        f"Output 's3://{bucket}/ready' is not present in the bucket: not ready"
+    ]
+    assert _OUTPUTS_ARE_READY_CACHE == set()
+
+    # on the 2nd try, `are_outputs_ready` should be looking for the output file again
+    ready, logs = are_outputs_ready(
+        TEST_USER_ID,
+        task_id,
+        {"outputs": [ready_file], "end_time": "2020-10-02T11:00:00-05:00"},
+    )
+    assert (
+        ready == False
+    ), f"`are_outputs_ready` should have returned ready=False. Logs: {logs}"
+    assert logs == [
+        f"Output 's3://{bucket}/ready' is not present in the bucket: not ready"
+    ]
+    assert _OUTPUTS_ARE_READY_CACHE == set()
+
+    # create the expected output file in the bucket
+    s3_put_object(bucket=bucket, key="ready", body=file_contents)
+
+    # `are_outputs_ready` should now find the output file and return "ready=True".
+    # the task ID should be cached since the outputs are ready.
+    ready, logs = are_outputs_ready(
+        TEST_USER_ID,
+        task_id,
+        {"outputs": [ready_file], "end_time": "2020-10-02T11:00:00-05:00"},
+    )
+    assert (
+        ready == True
+    ), f"`are_outputs_ready` should have returned ready=True. Logs: {logs}"
+    assert logs == [
+        f"Output 's3://{bucket}/ready' of expected size {size} is present with size {size}: ready"
+    ]
+    assert _OUTPUTS_ARE_READY_CACHE == {task_id}
+
+    # on the 2nd try after uploading the output file, `are_outputs_ready` should use the cached
+    # result and not look for the output file again (so the returned logs should be empty)
+    ready, logs = are_outputs_ready(
+        TEST_USER_ID,
+        task_id,
+        {"outputs": [ready_file], "end_time": "2020-10-02T11:00:00-05:00"},
+    )
+    assert (
+        ready == True
+    ), f"`are_outputs_ready` should have returned ready=True. Logs: {logs}"
+    assert logs == []
+    assert _OUTPUTS_ARE_READY_CACHE == {task_id}

@@ -32,7 +32,7 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
-from gen3workflow.aws import clients
+from gen3workflow.aws import aws_utils, clients
 from gen3workflow.aws.bucket import USER_BUCKET_CACHE
 
 TEST_USER_ID = "user-64"
@@ -299,9 +299,10 @@ async def reset_requests_mocks_and_caches():
     previous function calls. Also clear caches.
     """
     global mock_tes_server_request
-    global mock_arborist_request
     mock_tes_server_request.reset_mock()
+    global mock_arborist_request
     mock_arborist_request.reset_mock()
+    aws_utils._OUTPUTS_ARE_READY_CACHE.clear()
     USER_BUCKET_CACHE.clear()
 
 

@@ -5,10 +5,11 @@ GA4GH TES spec:
 https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-execution-schemas/develop/openapi/task_execution_service.openapi.yaml
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import re
 
+from dateutil import parser
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import (
@@ -365,18 +366,32 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
         body["logs"] = [{}]
     task_logs = body["logs"][-1]
     if body["state"] == "COMPLETE" and task_logs.get("outputs"):
-        ready, logs = aws_utils.are_outputs_ready(user_id, task_logs["outputs"])
-        if not ready:
-            msg = (
-                f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
+        task_len = (
+            datetime.now(timezone.utc) - parser.parse(task_logs["end_time"])
+            if task_logs.get("end_time")
+            else 0
+        )
+        if task_len > timedelta(hours=12):
+            logger.debug(
+                "Task completed more than 12 hours ago: assuming outputs are ready"
             )
-            body["state"] = "RUNNING"
         else:
-            msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
-        if not task_logs.get("system_logs"):
-            body["logs"][-1]["system_logs"] = []
-        body["logs"][-1]["system_logs"].extend(logs)
-        body["logs"][-1]["system_logs"].append(msg)
+            ready, logs = aws_utils.are_outputs_ready(
+                user_id, body.get("id"), task_logs
+            )
+            if not ready:
+                if task_len > timedelta(hours=3):
+                    msg = f"{datetime.now(timezone.utc)}: task completed more than 3 hours ago but outputs are still not ready: marking as failed"
+                    body["state"] = "SYSTEM_ERROR"
+                else:
+                    msg = f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
+                    body["state"] = "RUNNING"
+            else:
+                msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
+            if not task_logs.get("system_logs"):
+                body["logs"][-1]["system_logs"] = []
+            body["logs"][-1]["system_logs"].extend(logs)
+            body["logs"][-1]["system_logs"].append(msg)
 
     return apply_view_to_task(requested_view, body)
 
