@@ -94,6 +94,11 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
         if not output.get("url"):
             logs.append(f"Output {output} is missing 'url' field: assuming it's ready")
             continue
+        if output.get("size_bytes") == 0:
+            logs.append(
+                f"Output {output} has 'size_bytes' 0: assuming it's a directory and it's ready"
+            )
+            continue
         if not all_ready:
             # if one file is not ready, skip checking the rest of the files
             logs.append(f"Not checked: '{output['url']}'")
@@ -117,7 +122,6 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
             all_ready = False
         else:
             if not output.get("size_bytes"):
-                # TODO if dir, size is 0
                 logs.append(
                     f"Output '{output['url']}' is present and missing 'size_bytes' field: assuming it's ready"
                 )
