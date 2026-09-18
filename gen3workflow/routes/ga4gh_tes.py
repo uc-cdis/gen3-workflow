@@ -224,6 +224,43 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     return res.json()
 
 
+def check_task_outputs(user_id, body: dict) -> dict:
+    # TODO comment
+    # NOTE: we use `body["logs"][-1]` here because the last set of logs represents the last
+    # retry (see GA4GH TES spec)
+    if not body.get("logs"):
+        body["logs"] = [{}]
+    task_logs = body["logs"][-1]
+    if body["state"] == "COMPLETE" and task_logs.get("outputs"):
+        task_len = (
+            datetime.now(timezone.utc) - parser.parse(task_logs["end_time"])
+            if task_logs.get("end_time")
+            else timedelta(0)
+        )
+        if task_len > timedelta(hours=12):
+            logger.debug(
+                "Task completed more than 12 hours ago: assuming outputs are ready"
+            )
+        else:
+            ready, logs = aws_utils.are_outputs_ready(
+                user_id, body.get("id"), task_logs
+            )
+            if not ready:
+                if task_len > timedelta(hours=3):
+                    msg = f"{datetime.now(timezone.utc)}: task completed more than 3 hours ago but outputs are still not ready: marking as failed"
+                    body["state"] = "SYSTEM_ERROR"
+                else:
+                    msg = f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
+                    body["state"] = "RUNNING"
+            else:
+                msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
+            if not task_logs.get("system_logs"):
+                body["logs"][-1]["system_logs"] = []
+            body["logs"][-1]["system_logs"].extend(logs)
+            body["logs"][-1]["system_logs"].append(msg)
+    return body
+
+
 def apply_view_to_task(view: str, task: dict) -> dict:
     """
     We always set the view to "FULL" when making get/list requests to the TES server, because we
@@ -317,7 +354,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 
     # filter out tasks the current user does not have access to
     listed_tasks["tasks"] = [
-        apply_view_to_task(requested_view, task)
+        apply_view_to_task(requested_view, check_task_outputs(user_id, task))
         for task in listed_tasks.get("tasks", [])
         if user_access.get(task.get("tags", {}).get("_AUTHZ"))
     ]
@@ -358,42 +395,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     body["tags"]["_AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
 
-    # TODO comment
-    # TODO add to list endpoint too
-    # NOTE: we use `body["logs"][-1]` here because the last set of logs represents the last
-    # retry (see GA4GH TES spec)
-    if not body.get("logs"):
-        body["logs"] = [{}]
-    task_logs = body["logs"][-1]
-    if body["state"] == "COMPLETE" and task_logs.get("outputs"):
-        task_len = (
-            datetime.now(timezone.utc) - parser.parse(task_logs["end_time"])
-            if task_logs.get("end_time")
-            else 0
-        )
-        if task_len > timedelta(hours=12):
-            logger.debug(
-                "Task completed more than 12 hours ago: assuming outputs are ready"
-            )
-        else:
-            ready, logs = aws_utils.are_outputs_ready(
-                user_id, body.get("id"), task_logs
-            )
-            if not ready:
-                if task_len > timedelta(hours=3):
-                    msg = f"{datetime.now(timezone.utc)}: task completed more than 3 hours ago but outputs are still not ready: marking as failed"
-                    body["state"] = "SYSTEM_ERROR"
-                else:
-                    msg = f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
-                    body["state"] = "RUNNING"
-            else:
-                msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
-            if not task_logs.get("system_logs"):
-                body["logs"][-1]["system_logs"] = []
-            body["logs"][-1]["system_logs"].extend(logs)
-            body["logs"][-1]["system_logs"].append(msg)
-
-    return apply_view_to_task(requested_view, body)
+    return apply_view_to_task(requested_view, check_task_outputs(user_id, body))
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
