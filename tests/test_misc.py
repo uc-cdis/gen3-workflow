@@ -1,7 +1,7 @@
 import pytest
 
 from gen3workflow.aws.aws_utils import (
-    _OUTPUTS_ARE_READY_CACHE,
+    OUTPUTS_ARE_READY_CACHE,
     are_outputs_ready,
     get_safe_name_from_hostname,
 )
@@ -172,7 +172,7 @@ async def test_are_outputs_ready(
 @pytest.mark.asyncio
 async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_services):
     """
-    Check the `_OUTPUTS_ARE_READY_CACHE`'s functionality
+    Check the `OUTPUTS_ARE_READY_CACHE`'s functionality
     """
     # create the bucket if it doesn't exist
     res = await client.get(
@@ -203,7 +203,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
     assert logs == [
         f"Output 's3://{bucket}/ready' is not present in the bucket: not ready"
     ]
-    assert _OUTPUTS_ARE_READY_CACHE == set()
+    assert OUTPUTS_ARE_READY_CACHE == set()
 
     # on the 2nd try, `are_outputs_ready` should be looking for the output file again
     ready, logs = are_outputs_ready(
@@ -217,7 +217,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
     assert logs == [
         f"Output 's3://{bucket}/ready' is not present in the bucket: not ready"
     ]
-    assert _OUTPUTS_ARE_READY_CACHE == set()
+    assert OUTPUTS_ARE_READY_CACHE == set()
 
     # create the expected output file in the bucket
     s3_put_object(bucket=bucket, key="ready", body=file_contents)
@@ -235,7 +235,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
     assert logs == [
         f"Output 's3://{bucket}/ready' of expected size {size} is present with size {size}: ready"
     ]
-    assert _OUTPUTS_ARE_READY_CACHE == {task_id}
+    assert OUTPUTS_ARE_READY_CACHE == {task_id}
 
     # on the 2nd try after uploading the output file, `are_outputs_ready` should use the cached
     # result and not look for the output file again (so the returned logs should be empty)
@@ -248,4 +248,4 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
         ready == True
     ), f"`are_outputs_ready` should have returned ready=True. Logs: {logs}"
     assert logs == []
-    assert _OUTPUTS_ARE_READY_CACHE == {task_id}
+    assert OUTPUTS_ARE_READY_CACHE == {task_id}

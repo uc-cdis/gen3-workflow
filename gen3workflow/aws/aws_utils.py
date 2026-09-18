@@ -8,7 +8,7 @@ from gen3workflow import logger
 from gen3workflow.aws import clients
 from gen3workflow.config import config
 
-_OUTPUTS_ARE_READY_CACHE: set[str] = set()
+OUTPUTS_ARE_READY_CACHE: set[str] = set()
 
 
 def dict_to_sorted_json_str(obj: dict) -> str:
@@ -84,7 +84,7 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
         tuple (bool, list[str]): whether all outputs are ready, and any detailed logs to return to
             the user
     """
-    if task_id in _OUTPUTS_ARE_READY_CACHE:
+    if task_id in OUTPUTS_ARE_READY_CACHE:
         return True, []
 
     user_bucket_name = get_bucket_name_from_user_id(user_id)
@@ -129,6 +129,6 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
             )
 
     if all_ready:
-        _OUTPUTS_ARE_READY_CACHE.add(task_id)
+        OUTPUTS_ARE_READY_CACHE.add(task_id)
 
     return all_ready, logs
