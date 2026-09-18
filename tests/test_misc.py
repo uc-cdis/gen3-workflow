@@ -1,9 +1,9 @@
 import pytest
 
 from gen3workflow.aws.aws_utils import (
-    get_safe_name_from_hostname,
-    are_outputs_ready,
     _OUTPUTS_ARE_READY_CACHE,
+    are_outputs_ready,
+    get_safe_name_from_hostname,
 )
 from gen3workflow.config import config
 from tests.conftest import TEST_USER_ID, TEST_USER_TOKEN, s3_put_object

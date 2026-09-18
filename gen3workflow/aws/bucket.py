@@ -1,15 +1,15 @@
+import asyncio
 import json
 import random
-from cachelib import SimpleCache
 from typing import Tuple, Union
 
-import asyncio
 from botocore.exceptions import ClientError
+from cachelib import SimpleCache
 from fastapi import HTTPException
 from starlette.status import HTTP_400_BAD_REQUEST
-from cachelib import SimpleCache
 
 from gen3workflow import logger
+from gen3workflow.aws import clients
 from gen3workflow.aws.aws_utils import (
     dict_to_sorted_json_str,
     get_bucket_name_from_user_id,
@@ -17,8 +17,6 @@ from gen3workflow.aws.aws_utils import (
     get_worker_sa_name,
 )
 from gen3workflow.config import config
-
-from gen3workflow.aws import clients
 
 USER_BUCKET_CACHE = SimpleCache(default_timeout=config["USER_BUCKET_CACHE_SECONDS"])
 

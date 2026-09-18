@@ -1,5 +1,5 @@
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, HTTPException
 from starlette.status import (
     HTTP_200_OK,
     HTTP_202_ACCEPTED,

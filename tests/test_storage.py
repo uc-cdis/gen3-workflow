@@ -1,17 +1,18 @@
-from botocore.exceptions import ClientError
 import json
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+from botocore.exceptions import ClientError
+
+from gen3workflow.aws import bucket, clients
+from gen3workflow.config import config
 from tests.conftest import (
+    NEW_TEST_USER_ID,
     TEST_USER_ID,
     TEST_USER_TOKEN,
-    NEW_TEST_USER_ID,
     mock_arborist_request,
     s3_put_object,
 )
-from gen3workflow.aws import bucket, clients
-from gen3workflow.config import config
 
 
 @pytest.fixture(scope="function")

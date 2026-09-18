@@ -1,13 +1,13 @@
+import json
+import time
 from typing import List
 
 from botocore.exceptions import ClientError
-import time
-import json
 
 from gen3workflow import logger
+from gen3workflow.aws import clients
 from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
-from gen3workflow.aws import clients
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
 NFS_PORT = 2049

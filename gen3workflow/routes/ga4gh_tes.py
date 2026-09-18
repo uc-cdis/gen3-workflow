@@ -5,9 +5,9 @@ GA4GH TES spec:
 https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-execution-schemas/develop/openapi/task_execution_service.openapi.yaml
 """
 
-from datetime import datetime, timedelta, timezone
 import json
 import re
+from datetime import datetime, timedelta, timezone
 
 from dateutil import parser
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -21,10 +21,10 @@ from starlette.status import (
 
 from gen3workflow import logger
 from gen3workflow.auth import Auth
-from gen3workflow.config import config
-from gen3workflow.routes.utils import make_tes_server_request
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import create_iam_role_for_funnel_bucket_access
+from gen3workflow.config import config
+from gen3workflow.routes.utils import make_tes_server_request
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
 

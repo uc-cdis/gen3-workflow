@@ -3,24 +3,24 @@ See https://github.com/uc-cdis/gen3-user-data-library/blob/main/tests/conftest.p
 """
 
 import contextlib
-from datetime import datetime
-from dateutil.tz import tzutc
 import json
 import os
 import time
+from datetime import datetime
+from threading import Thread
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
 
 import boto3
-from botocore.exceptions import ClientError
-from fastapi import Request
 import httpx
-from moto import mock_aws
 import pytest
 import pytest_asyncio
-from starlette.config import environ
-from threading import Thread
 import uvicorn
+from botocore.exceptions import ClientError
+from dateutil.tz import tzutc
+from fastapi import Request
+from moto import mock_aws
+from starlette.config import environ
 
 # Set up the config *before* loading the app, which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))

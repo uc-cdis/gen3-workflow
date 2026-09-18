@@ -3,22 +3,22 @@ import tempfile
 from unittest.mock import AsyncMock, patch
 
 import boto3
+import pytest
+import pytest_asyncio
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-import pytest
-import pytest_asyncio
 
+from gen3workflow.config import config
+from gen3workflow.routes.s3 import (
+    chunked_to_non_chunked_body,
+    set_access_token_and_get_user_id,
+)
 from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
     TEST_USER_ID,
     TEST_USER_TOKEN,
     mock_aws_s3_request,
-)
-from gen3workflow.config import config
-from gen3workflow.routes.s3 import (
-    set_access_token_and_get_user_id,
-    chunked_to_non_chunked_body,
 )
 
 TEST_CLIENT_ID = "client-azp"

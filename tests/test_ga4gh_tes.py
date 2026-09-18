@@ -5,10 +5,10 @@ import pytest
 
 from gen3workflow.config import config
 from tests.conftest import (
-    mock_arborist_request,
-    mock_tes_server_request,
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    mock_arborist_request,
+    mock_tes_server_request,
     s3_put_object,
 )
 
@@ -494,7 +494,9 @@ async def test_create_task_with_bad_tags(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
-async def test_list_tasks(client, access_token_patcher, view, trailing_slash, mock_aws_services):
+async def test_list_tasks(
+    client, access_token_patcher, view, trailing_slash, mock_aws_services
+):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
     unsupported query params should be filtered out. Tasks the user does not have access
@@ -533,7 +535,9 @@ async def test_list_tasks(client, access_token_patcher, view, trailing_slash, mo
             # skip the `with-logs-outputs` task, that one is checked in
             # `test_get_and_list_check_if_outputs_ready`
             tasks = res.json()
-            tasks["tasks"] = [t for t in tasks["tasks"] if t["id"] != "with-logs-outputs"]
+            tasks["tasks"] = [
+                t for t in tasks["tasks"] if t["id"] != "with-logs-outputs"
+            ]
 
             # check that the view was applied:
             if view == "BASIC":
@@ -693,4 +697,3 @@ async def test_get_and_list_check_if_outputs_ready(
             == f"Output '{output['url']}' is not present in the bucket: not ready"
         )
         assert logs[-1].endswith("waiting for outputs to be available...")
-
