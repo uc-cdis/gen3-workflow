@@ -112,13 +112,19 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
     [(False, None), (True, True), (True, False)],
     ids=["no outputs", "outputs ready", "outputs not ready"],
 )
-async def test_get_task_check_if_outputs_ready(
-    client, access_token_patcher, mock_aws_services, has_outputs, outputs_ready
+@pytest.mark.parametrize("request_type", ["get_task", "list_tasks"])
+async def test_get_and_list_check_if_outputs_ready(
+    client,
+    access_token_patcher,
+    mock_aws_services,
+    has_outputs,
+    outputs_ready,
+    request_type,
 ):
     """
-    `GET /ga4gh/tes/v1/tasks/<task ID>` responses should be intercepted to check the list of
-    outputs. If the task is "COMPLETE" and the outputs are not ready yet, the task state should
-    be rewritten to "RUNNING".
+    `GET /ga4gh/tes/v1/tasks` and `GET /ga4gh/tes/v1/tasks/<task ID>` responses should be
+    intercepted to check the list of outputs. If the task is "COMPLETE" and the outputs are not
+    ready yet, the task state should be rewritten to "RUNNING".
     """
     # create the bucket if it doesn't exist
     res = await client.get(
@@ -132,10 +138,18 @@ async def test_get_task_check_if_outputs_ready(
         s3_put_object(bucket=bucket_name, key=f"file.txt", body=b"Dummy file contents")
 
     task_id = "with-logs-outputs" if has_outputs else "123"
-    url = f"/ga4gh/tes/v1/tasks/{task_id}?view=FULL"
+    url = (
+        f"/ga4gh/tes/v1/tasks/{task_id if request_type == "get_task" else ''}?view=FULL"
+    )
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
     assert res.status_code == 200, res.text
     task = res.json()
+    if request_type == "list_tasks":
+        _tasks = [t for t in task.get("tasks", []) if t.get("id") == task_id]
+        assert (
+            len(_tasks) == 1
+        ), f"Expected to find 1 task with id '{task_id}' in listing result"
+        task = _tasks[0]
     logs = task["logs"][-1]["system_logs"]
 
     if not has_outputs:
