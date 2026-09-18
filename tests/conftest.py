@@ -124,6 +124,9 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
                         f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/with-logs-outputs": [
                             {"service": "gen3-workflow", "method": "read"}
                         ],
+                        f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/incomplete-with-logs-outputs": [
+                            {"service": "gen3-workflow", "method": "read"}
+                        ],
                     }
                     if authorized
                     else {}
@@ -234,8 +237,13 @@ def mock_tes_server_request_function(
                     },
                     # test that the app can handle a task with no tags:
                     {"id": "456", "state": "COMPLETE"},
-                    # a task with the `logs.outputs` field:
+                    # tasks with the `logs.outputs` field:
                     task_with_logs_outputs,
+                    {
+                        **task_with_logs_outputs,
+                        "id": "incomplete-with-logs-outputs",
+                        "state": "INITIALIZING",
+                    },
                 ],
             },
             "POST": {"id": "123"},
@@ -243,6 +251,13 @@ def mock_tes_server_request_function(
         "/tasks/123": {"GET": accessible_task},
         "/tasks/123:cancel": {"POST": {}},
         "/tasks/with-logs-outputs": {"GET": task_with_logs_outputs},
+        "/tasks/incomplete-with-logs-outputs": {
+            "GET": {
+                **task_with_logs_outputs,
+                "id": "incomplete-with-logs-outputs",
+                "state": "INITIALIZING",
+            }
+        },
     }
     text, out = None, None
     if path not in paths_to_responses:

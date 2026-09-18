@@ -70,6 +70,9 @@ def test_get_safe_name_from_hostname(reset_config_hostname):
 async def test_are_outputs_ready(
     client, access_token_patcher, mock_aws_services, state
 ):
+    """
+    Check `are_outputs_ready`'s functionality and returned values
+    """
     # create the bucket if it doesn't exist
     res = await client.get(
         "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
@@ -168,6 +171,9 @@ async def test_are_outputs_ready(
 
 @pytest.mark.asyncio
 async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_services):
+    """
+    Check the `_OUTPUTS_ARE_READY_CACHE`'s functionality
+    """
     # create the bucket if it doesn't exist
     res = await client.get(
         "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}

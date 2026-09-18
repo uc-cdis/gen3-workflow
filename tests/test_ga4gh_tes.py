@@ -532,11 +532,11 @@ async def test_list_tasks(
         if not client.authorized:
             assert res.json() == {"tasks": []}
         else:
-            # skip the `with-logs-outputs` task, that one is checked in
+            # skip the `with-logs-outputs` tasks, they are checked in
             # `test_get_and_list_check_if_outputs_ready`
             tasks = res.json()
             tasks["tasks"] = [
-                t for t in tasks["tasks"] if t["id"] != "with-logs-outputs"
+                t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]
             ]
 
             # check that the view was applied:
@@ -631,8 +631,8 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
         )
 
 
-# TODO if task is not COMPLETE, no check
 @pytest.mark.asyncio
+@pytest.mark.parametrize("task_complete", [True, False])
 @pytest.mark.parametrize(
     ("has_outputs", "outputs_ready"),
     [(False, None), (True, True), (True, False)],
@@ -643,6 +643,7 @@ async def test_get_and_list_check_if_outputs_ready(
     client,
     access_token_patcher,
     mock_aws_services,
+    task_complete,
     has_outputs,
     outputs_ready,
     request_type,
@@ -664,6 +665,7 @@ async def test_get_and_list_check_if_outputs_ready(
         s3_put_object(bucket=bucket_name, key=f"file.txt", body=b"Dummy file contents")
 
     task_id = "with-logs-outputs" if has_outputs else "123"
+    task_id = task_id if task_complete else "incomplete-with-logs-outputs"
     url = (
         f"/ga4gh/tes/v1/tasks/{task_id if request_type == "get_task" else ''}?view=FULL"
     )
@@ -674,9 +676,16 @@ async def test_get_and_list_check_if_outputs_ready(
         _tasks = [t for t in task.get("tasks", []) if t.get("id") == task_id]
         assert (
             len(_tasks) == 1
-        ), f"Expected to find 1 task with id '{task_id}' in listing result"
+        ), f"Expected to find 1 task with id '{task_id}' in listing result, found: {task.get("tasks")}"
         task = _tasks[0]
     logs = task["logs"][-1]["system_logs"]
+    print(f"Task system logs: {json.dumps(logs, indent=2)}")
+
+    if not task_complete:
+        # no state change, no additional logs
+        assert task["state"] == "INITIALIZING"
+        assert logs == ["blah"]
+        return
 
     if not has_outputs:
         assert task["state"] == "COMPLETE"
