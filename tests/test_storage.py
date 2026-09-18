@@ -144,7 +144,13 @@ async def test_storage_setup(
             "AbortIncompleteMultipartUpload": {
                 "DaysAfterInitiation": config["S3_OBJECTS_EXPIRATION_DAYS"]
             },
-        }
+        },
+        {
+            "Expiration": {"ExpiredObjectDeleteMarker": True},
+            "ID": "RemoveExpiredDeleteMarkers",
+            "Filter": {"Prefix": ""},
+            "Status": "Enabled",
+        },
     ]
 
     # check that arborist calls to grant the user access to their own data were made

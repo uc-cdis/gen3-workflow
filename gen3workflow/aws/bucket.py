@@ -374,12 +374,6 @@ async def _create_user_bucket(user_id: str) -> str:
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
 
-    # TODO enable object lock on bucket in gen3-wf code, and add integration test
-    # TODO add PutObjectLegalHold permission to gen3-wf SA
-    # TODO check bucket emptying endpoint
-    # TODO add to user-facing doc:
-    # `aws --profile tes-brh-stg s3api put-object-legal-hold --bucket XYZ --key ABCz --legal-hold Status=ON`
-
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
     clients.s3_client.put_bucket_lifecycle_configuration(
         Bucket=user_bucket_name,
@@ -398,15 +392,17 @@ async def _create_user_bucket(user_id: str) -> str:
                     # apply to all objects:
                     "Filter": {"Prefix": ""},
                 },
-                # TODO fix: `Unknown parameter in LifecycleConfiguration.Rules[1]: "ExpiredObjectDeleteMarker", must be one of: Expiration, ID, Prefix, Filter, Status, Transitions, NoncurrentVersionTransitions, NoncurrentVersionExpiration, AbortIncompleteMultipartUpload`
-                # {
-                #     # cannot be combined with the previous rule, which creates delete markers
-                #     # through `NoncurrentVersionExpiration`
-                #     "ID": "RemoveExpiredDeleteMarkers",
-                #     "ExpiredObjectDeleteMarker": True,
-                #     "Filter": {"Prefix": ""},
-                #     "Status": "Enabled",
-                # },
+                # When deleting an object in a versioned S3 bucket, S3 does not delete the file
+                # immediately, it creates a delete marker. When all versions of the object are
+                # deleted by the previous rule, orphan delete marker may remain; this rule deletes
+                # them. NOTE: this 2nd rule cannot be combined with the 1st rule, which creates
+                # delete markers through `NoncurrentVersionExpiration`.
+                {
+                    "ID": "RemoveExpiredDeleteMarkers",
+                    "Expiration": {"ExpiredObjectDeleteMarker": True},
+                    "Filter": {"Prefix": ""},
+                    "Status": "Enabled",
+                },
             ],
         },
         # Explicitly set the algorithm to SHA-256. The default algorithm used by S3 is MD5,

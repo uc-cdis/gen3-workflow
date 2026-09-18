@@ -513,8 +513,12 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
 
 
 @pytest.mark.asyncio
-async def test_TODO(client, access_token_patcher, mock_aws_services):
-    """ """
+async def test_are_outputs_ready_size_bytes_0(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Check that `are_outputs_ready` handles `size_bytes = 0` which may be set by Funnel workers
+    """
     # create the bucket if it doesn't exist
     res = await client.get(
         "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
@@ -523,9 +527,7 @@ async def test_TODO(client, access_token_patcher, mock_aws_services):
     bucket = res.json()["bucket"]
 
     # create the output directory and file in the bucket
-    file_contents = b"Dummy file contents"
-    size = str(len(file_contents))
-    s3_put_object(bucket=bucket, key="ready/file.txt", body=file_contents)
+    s3_put_object(bucket=bucket, key="ready/file.txt", body=b"Dummy file contents")
 
     # the task output lists the directory "ready", not the file "ready/file.txt"
     ready, logs = are_outputs_ready(
