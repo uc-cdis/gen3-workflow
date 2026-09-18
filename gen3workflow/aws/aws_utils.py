@@ -75,14 +75,22 @@ def get_bucket_name_from_user_id(user_id: str) -> str:
     return get_safe_name_from_hostname(user_id)
 
 
-def are_outputs_ready(user_id: str, task_id, task_logs: list) -> bool:
+def are_outputs_ready(user_id: str, task_id, outputs: list):
+    """
+    Check if all the files in the provided list of outputs are up to date in the user's bucket.
+    Once all the outputs are ready, the result is cached to avoid unnecessary S3 requests.
+
+    Returns:
+        tuple (bool, list[str]): whether all outputs are ready, and any detailed logs to return to
+            the user
+    """
     if task_id in _OUTPUTS_ARE_READY_CACHE:
         return True, []
 
     user_bucket_name = get_bucket_name_from_user_id(user_id)
     all_ready = True
     logs = []
-    for output in task_logs["outputs"]:
+    for output in outputs:
         if not output.get("url"):
             logs.append(f"Output {output} is missing 'url' field: assuming it's ready")
             continue

@@ -152,7 +152,7 @@ async def test_are_outputs_ready(
     ready, logs = are_outputs_ready(
         TEST_USER_ID,
         f"test-task-id-{state}",
-        {"outputs": outputs, "end_time": "2020-10-02T11:00:00-05:00"},
+        outputs,
     )
     expected_ready = state in [
         "all_ready",
@@ -189,7 +189,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
     ready, logs = are_outputs_ready(
         TEST_USER_ID,
         task_id,
-        {"outputs": [ready_file], "end_time": "2020-10-02T11:00:00-05:00"},
+        [ready_file],
     )
     assert (
         ready == False
@@ -203,7 +203,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
     ready, logs = are_outputs_ready(
         TEST_USER_ID,
         task_id,
-        {"outputs": [ready_file], "end_time": "2020-10-02T11:00:00-05:00"},
+        [ready_file],
     )
     assert (
         ready == False
@@ -221,7 +221,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
     ready, logs = are_outputs_ready(
         TEST_USER_ID,
         task_id,
-        {"outputs": [ready_file], "end_time": "2020-10-02T11:00:00-05:00"},
+        [ready_file],
     )
     assert (
         ready == True
@@ -236,7 +236,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
     ready, logs = are_outputs_ready(
         TEST_USER_ID,
         task_id,
-        {"outputs": [ready_file], "end_time": "2020-10-02T11:00:00-05:00"},
+        [ready_file],
     )
     assert (
         ready == True

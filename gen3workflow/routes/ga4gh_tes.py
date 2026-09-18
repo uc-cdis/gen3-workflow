@@ -225,39 +225,49 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
 
 def check_task_outputs(user_id, body: dict) -> dict:
-    # TODO comment
+    """
+    Call `are_outputs_ready` and process the result: update the task's `state` if needed, and add
+    any detailed logs to the `system_logs` returned to the user.
+    """
     # NOTE: we use `body["logs"][-1]` here because the last set of logs represents the last
     # retry (see GA4GH TES spec)
     if not body.get("logs"):
         body["logs"] = [{}]
     task_logs = body["logs"][-1]
-    if body["state"] == "COMPLETE" and task_logs.get("outputs"):
-        task_len = (
-            datetime.now(timezone.utc) - parser.parse(task_logs["end_time"])
-            if task_logs.get("end_time")
-            else timedelta(0)
+
+    if body["state"] != "COMPLETE" or not task_logs.get("outputs"):
+        return body
+
+    task_len = (
+        datetime.now(timezone.utc) - parser.parse(task_logs["end_time"])
+        if task_logs.get("end_time")
+        else timedelta(0)
+    )
+    if task_len > timedelta(hours=config["SKIP_CHECK_TASK_OUTPUTS_HOURS"]):
+        logger.debug(
+            f"Task completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
         )
-        if task_len > timedelta(hours=12):
-            logger.debug(
-                "Task completed more than 12 hours ago: assuming outputs are ready"
-            )
+        return body
+
+    ready, logs = aws_utils.are_outputs_ready(
+        user_id, body.get("id"), task_logs["outputs"]
+    )
+    if not ready:
+        if task_len > timedelta(hours=config["GIVE_UP_CHECK_TASK_OUTPUTS_HOURS"]):
+            msg = f"{datetime.now(timezone.utc)}: task completed more than {config['GIVE_UP_CHECK_TASK_OUTPUTS_HOURS']} hours ago but outputs are still not ready: marking as failed"
+            body["state"] = "SYSTEM_ERROR"
         else:
-            ready, logs = aws_utils.are_outputs_ready(
-                user_id, body.get("id"), task_logs
+            msg = (
+                f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
             )
-            if not ready:
-                if task_len > timedelta(hours=3):
-                    msg = f"{datetime.now(timezone.utc)}: task completed more than 3 hours ago but outputs are still not ready: marking as failed"
-                    body["state"] = "SYSTEM_ERROR"
-                else:
-                    msg = f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
-                    body["state"] = "RUNNING"
-            else:
-                msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
-            if not task_logs.get("system_logs"):
-                body["logs"][-1]["system_logs"] = []
-            body["logs"][-1]["system_logs"].extend(logs)
-            body["logs"][-1]["system_logs"].append(msg)
+            body["state"] = "RUNNING"
+    else:
+        msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
+
+    if not task_logs.get("system_logs"):
+        body["logs"][-1]["system_logs"] = []
+    body["logs"][-1]["system_logs"].extend(logs)
+    body["logs"][-1]["system_logs"].append(msg)
     return body
 
 
