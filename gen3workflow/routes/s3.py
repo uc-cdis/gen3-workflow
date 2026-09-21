@@ -91,6 +91,7 @@ async def set_access_token_and_get_user_id(
     if is_user_token:  # format A (see docstring)
         access_token = access_key_id
     else:  # format B (see docstring)
+        # TODO remove this path later, for now just reject the calls
         access_token, user_id = access_key_id.split(";userId=")
         err_msg = (
             f"'{method} {path}' from Funnel worker: rejected - this path is deprecated"

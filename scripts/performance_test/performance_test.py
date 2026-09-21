@@ -1,6 +1,12 @@
 # pylint: disable=missing-function-docstring
 
 """
+-----------------------------
+
+NOTE: the latest version of this script lives in `gen3-code-vigil/gen3-load-tests`
+
+-----------------------------
+
 Usage:
 - Install the Gen3 SDK
 - Save your API key at`~/.gen3/credentials.json`
