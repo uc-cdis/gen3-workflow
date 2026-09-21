@@ -61,7 +61,7 @@ async def _dechunk_stream(stream):
     buf = bytearray()
     output_buffer = bytearray()
     chunk_bytes_left = 0  # proceed to the next chunk when this reaches 0
-    _CRLF_LEN = 2
+    CRLF_LEN = 2
     async for raw in stream:
         buf.extend(raw)
         while buf:
@@ -74,16 +74,16 @@ async def _dechunk_stream(stream):
                     if output_buffer:
                         yield output_buffer
                     return
-                del buf[: header_end + _CRLF_LEN]
+                del buf[: header_end + CRLF_LEN]
 
             consumable_bytes_in_buf = min(chunk_bytes_left, len(buf))
             if consumable_bytes_in_buf == 0:
                 break
             chunk_complete = consumable_bytes_in_buf == chunk_bytes_left
-            if chunk_complete and len(buf) < consumable_bytes_in_buf + _CRLF_LEN:
+            if chunk_complete and len(buf) < consumable_bytes_in_buf + CRLF_LEN:
                 break  # trailing \r\n hasn't arrived yet; wait
             output_buffer += buf[:consumable_bytes_in_buf]
-            del buf[: consumable_bytes_in_buf + (_CRLF_LEN if chunk_complete else 0)]
+            del buf[: consumable_bytes_in_buf + (CRLF_LEN if chunk_complete else 0)]
             chunk_bytes_left -= consumable_bytes_in_buf
 
             if len(output_buffer) >= _DECHUNK_YIELD_SIZE:
