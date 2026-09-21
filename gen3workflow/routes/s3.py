@@ -39,6 +39,7 @@ S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
 _DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB
+CRLF_LEN = 2
 
 
 async def _dechunk_stream(stream):
@@ -61,7 +62,6 @@ async def _dechunk_stream(stream):
     buf = bytearray()
     output_buffer = bytearray()
     chunk_bytes_left = 0  # proceed to the next chunk when this reaches 0
-    CRLF_LEN = 2
     async for raw in stream:
         buf.extend(raw)
         while buf:
