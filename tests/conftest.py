@@ -525,7 +525,9 @@ def trailing_slash(request):
 
 @pytest_asyncio.fixture
 async def user_bucket(client):
-    # create the bucket if it doesn't exist
+    """
+    Create the bucket if it doesn't exist and return its name
+    """
     res = await client.get(
         "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
     )
