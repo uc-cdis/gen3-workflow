@@ -503,7 +503,8 @@ async def test_list_tasks(
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
-    # create the bucket if it doesn't exist
+    # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
+    # call is conditional
     if client.authorized:
         res = await client.get(
             "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
@@ -643,6 +644,7 @@ async def test_get_and_list_check_if_outputs_ready(
     client,
     access_token_patcher,
     mock_aws_services,
+    user_bucket,
     task_complete,
     has_outputs,
     outputs_ready,
@@ -653,17 +655,10 @@ async def test_get_and_list_check_if_outputs_ready(
     intercepted to check the list of outputs. If the task is "COMPLETE" and the outputs are not
     ready yet, the task state should be rewritten to "RUNNING".
     """
-    # create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    assert res.status_code == 200, res.text
-    bucket_name = res.json()["bucket"]
-
     if outputs_ready:
         # create the expected output file in the bucket
         remove_bucket_policy_and_put_object(
-            bucket=bucket_name, key=f"file.txt", body=b"Dummy file contents"
+            bucket=user_bucket, key=f"file.txt", body=b"Dummy file contents"
         )
 
     task_id = "with-logs-outputs" if has_outputs else "123"

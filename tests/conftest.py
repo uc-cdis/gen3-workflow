@@ -523,6 +523,16 @@ def trailing_slash(request):
     return request.param
 
 
+@pytest_asyncio.fixture
+async def user_bucket(client):
+    # create the bucket if it doesn't exist
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    return res.json()["bucket"]
+
+
 def remove_bucket_policy_and_put_object(bucket, key, body):
     """
     Remove the bucket policy enforcing KMS encryption before making the put_object call.

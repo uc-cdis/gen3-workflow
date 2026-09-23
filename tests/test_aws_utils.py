@@ -333,31 +333,26 @@ def test_create_role_for_bucket_access_with_no_kms_enabled(
     ],
 )
 async def test_are_outputs_ready(
-    client, access_token_patcher, mock_aws_services, state
+    access_token_patcher, mock_aws_services, user_bucket, state
 ):
     """
     Check `are_outputs_ready`'s functionality and returned values
     """
-    # create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    assert res.status_code == 200, res.text
-    bucket = res.json()["bucket"]
-
     # create the expected output file in the bucket
     file_contents = b"Dummy file contents"
     size = str(len(file_contents))
     ready_file = {
-        "url": f"s3://{bucket}/ready",
+        "url": f"s3://{user_bucket}/ready",
         "path": "file.txt",
         "size_bytes": size,
     }
-    ready_log = f"Output 's3://{bucket}/ready' of expected size {size} is present with size {size}: ready"
-    remove_bucket_policy_and_put_object(bucket=bucket, key="ready", body=file_contents)
+    ready_log = f"Output 's3://{user_bucket}/ready' of expected size {size} is present with size {size}: ready"
+    remove_bucket_policy_and_put_object(
+        bucket=user_bucket, key="ready", body=file_contents
+    )
 
     not_present_file = {
-        "url": f"s3://{bucket}/not_present",
+        "url": f"s3://{user_bucket}/not_present",
         "path": "file.txt",
         "size_bytes": size,
     }
@@ -365,6 +360,7 @@ async def test_are_outputs_ready(
         f"Output '{not_present_file['url']}' is not present in the bucket: not ready"
     )
 
+    # --- start parametrization block --- (done here to allow using dynamic values)
     expected_logs = []
     if state == "all_ready":
         outputs = [ready_file, ready_file]
@@ -381,12 +377,12 @@ async def test_are_outputs_ready(
             }
         ]
         expected_logs = [
-            f"Output '{outputs[0]['url']}' is not in user's bucket '{bucket}': assuming it's ready"
+            f"Output '{outputs[0]['url']}' is not in user's bucket '{user_bucket}': assuming it's ready"
         ]
     elif state == "wrong_size":
         outputs = [
             {
-                "url": f"s3://{bucket}/ready",
+                "url": f"s3://{user_bucket}/ready",
                 "path": "file.txt",
                 "size_bytes": str(len(file_contents) + 2),
             }
@@ -400,7 +396,7 @@ async def test_are_outputs_ready(
             f"Output {outputs[0]} is missing 'url' field: assuming it's ready"
         ]
     elif state == "missing_size":
-        outputs = [{"url": f"s3://{bucket}/ready", "path": "file.txt"}]
+        outputs = [{"url": f"s3://{user_bucket}/ready", "path": "file.txt"}]
         expected_logs = [
             f"Output '{outputs[0]['url']}' is present and missing 'size_bytes' field: assuming it's ready"
         ]
@@ -408,13 +404,14 @@ async def test_are_outputs_ready(
         outputs = [
             ready_file,
             not_present_file,
-            {"url": f"s3://{bucket}/should_be_skipped"},
+            {"url": f"s3://{user_bucket}/should_be_skipped"},
         ]
         expected_logs = [
             ready_log,
             not_present_log,
             f"Not checked: '{outputs[2]['url']}'",
         ]
+    # --- end parametrization block ---
 
     # call `are_outputs_ready` and check the returned values
     ready, logs = are_outputs_ready(
@@ -435,21 +432,16 @@ async def test_are_outputs_ready(
 
 
 @pytest.mark.asyncio
-async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_services):
+async def test_are_outputs_ready_cache(
+    access_token_patcher, mock_aws_services, user_bucket
+):
     """
     Check the `OUTPUTS_ARE_READY_CACHE`'s functionality
     """
-    # create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    assert res.status_code == 200, res.text
-    bucket = res.json()["bucket"]
-
     file_contents = b"Dummy file contents"
     size = str(len(file_contents))
     ready_file = {
-        "url": f"s3://{bucket}/ready",
+        "url": f"s3://{user_bucket}/ready",
         "path": "file.txt",
         "size_bytes": size,
     }
@@ -466,7 +458,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
         ready == False
     ), f"`are_outputs_ready` should have returned ready=False. Logs: {logs}"
     assert logs == [
-        f"Output 's3://{bucket}/ready' is not present in the bucket: not ready"
+        f"Output 's3://{user_bucket}/ready' is not present in the bucket: not ready"
     ]
     assert OUTPUTS_ARE_READY_CACHE == set()
 
@@ -480,12 +472,14 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
         ready == False
     ), f"`are_outputs_ready` should have returned ready=False. Logs: {logs}"
     assert logs == [
-        f"Output 's3://{bucket}/ready' is not present in the bucket: not ready"
+        f"Output 's3://{user_bucket}/ready' is not present in the bucket: not ready"
     ]
     assert OUTPUTS_ARE_READY_CACHE == set()
 
     # create the expected output file in the bucket
-    remove_bucket_policy_and_put_object(bucket=bucket, key="ready", body=file_contents)
+    remove_bucket_policy_and_put_object(
+        bucket=user_bucket, key="ready", body=file_contents
+    )
 
     # `are_outputs_ready` should now find the output file and return "ready=True".
     # the task ID should be cached since the outputs are ready.
@@ -498,7 +492,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
         ready == True
     ), f"`are_outputs_ready` should have returned ready=True. Logs: {logs}"
     assert logs == [
-        f"Output 's3://{bucket}/ready' of expected size {size} is present with size {size}: ready"
+        f"Output 's3://{user_bucket}/ready' of expected size {size} is present with size {size}: ready"
     ]
     assert OUTPUTS_ARE_READY_CACHE == {task_id}
 
@@ -518,32 +512,25 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
 
 @pytest.mark.asyncio
 async def test_are_outputs_ready_size_bytes_0(
-    client, access_token_patcher, mock_aws_services
+    access_token_patcher, mock_aws_services, user_bucket
 ):
     """
     Check that `are_outputs_ready` handles `size_bytes = 0` which may be set by Funnel workers
     """
-    # create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    assert res.status_code == 200, res.text
-    bucket = res.json()["bucket"]
-
     # create the output directory and file in the bucket
     remove_bucket_policy_and_put_object(
-        bucket=bucket, key="ready/file.txt", body=b"Dummy file contents"
+        bucket=user_bucket, key="ready/file.txt", body=b"Dummy file contents"
     )
 
     # the task output lists the directory "ready", not the file "ready/file.txt"
     ready, logs = are_outputs_ready(
         TEST_USER_ID,
         "test-task-id",
-        [{"url": f"s3://{bucket}/ready", "path": "file.txt", "size_bytes": 0}],
+        [{"url": f"s3://{user_bucket}/ready", "path": "file.txt", "size_bytes": 0}],
     )
     assert (
         ready == True
     ), f"`are_outputs_ready` should have returned ready=True. Logs: {logs}"
     assert logs == [
-        f"Output {{'url': 's3://{bucket}/ready', 'path': 'file.txt', 'size_bytes': 0}} has 'size_bytes' 0: assuming it's a directory and it's ready"
+        f"Output {{'url': 's3://{user_bucket}/ready', 'path': 'file.txt', 'size_bytes': 0}} has 'size_bytes' 0: assuming it's a directory and it's ready"
     ]

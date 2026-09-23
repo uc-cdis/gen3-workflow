@@ -194,21 +194,15 @@ async def test_storage_setup(
 
 @pytest.mark.asyncio
 async def test_bucket_enforces_encryption(
-    client, access_token_patcher, mock_aws_services
+    access_token_patcher, mock_aws_services, user_bucket
 ):
     """
     Attempting to PUT an object that does not respect the bucket policy should fail (not using KMS
     encryption, or not using the right KMS key). It should succeed when using KMS encryption and
     the right key.
     """
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    assert res.status_code == 200, res.text
-    storage_info = res.json()
-
     with pytest.raises(ClientError, match="Forbidden"):
-        clients.s3_client.put_object(Bucket=storage_info["bucket"], Key="test-file.txt")
+        clients.s3_client.put_object(Bucket=user_bucket, Key="test-file.txt")
 
     unauthorized_kms_key_arn = clients.kms_client.create_key(
         Tags=[
@@ -220,7 +214,7 @@ async def test_bucket_enforces_encryption(
     )["KeyMetadata"]["Arn"]
     with pytest.raises(ClientError, match="Forbidden"):
         clients.s3_client.put_object(
-            Bucket=storage_info["bucket"],
+            Bucket=user_bucket,
             Key="test-file.txt",
             ServerSideEncryption="aws:kms",
             SSEKMSKeyId=unauthorized_kms_key_arn,
@@ -229,10 +223,9 @@ async def test_bucket_enforces_encryption(
     # For some reason the call below is denied when it should be allowed. I believe there is a bug
     # in `moto.mock_aws`. This test works well when ran against the real AWS.
     # Against the real AWS, the 2 calls above also raise `AccessDenied` instead of `Forbidden`.
-
-    # authorized_kms_key_arn = clients.kms_client.describe_key(KeyId=f"alias/{storage_info['bucket']}")["KeyMetadata"]["Arn"]
+    # authorized_kms_key_arn = clients.kms_client.describe_key(KeyId=f"alias/{user_bucket}")["KeyMetadata"]["Arn"]
     # clients.s3_client.put_object(
-    #     Bucket=storage_info["bucket"],
+    #     Bucket=user_bucket,
     #     Key="test-file.txt",
     #     ServerSideEncryption="aws:kms",
     #     SSEKMSKeyId=authorized_kms_key_arn,
@@ -241,20 +234,13 @@ async def test_bucket_enforces_encryption(
 
 @pytest.mark.asyncio
 async def test_delete_user_bucket(
-    client, access_token_patcher, mock_aws_services, trailing_slash
+    client, access_token_patcher, mock_aws_services, trailing_slash, user_bucket
 ):
     """
     The user should be able to delete their own bucket.
     """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    bucket_name = res.json()["bucket"]
-
     # Verify the bucket exists
-    bucket_exists = clients.s3_client.head_bucket(Bucket=bucket_name)
+    bucket_exists = clients.s3_client.head_bucket(Bucket=user_bucket)
     assert bucket_exists, "Bucket does not exist"
 
     # Delete the bucket
@@ -266,7 +252,7 @@ async def test_delete_user_bucket(
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
-        clients.s3_client.head_bucket(Bucket=bucket_name)
+        clients.s3_client.head_bucket(Bucket=user_bucket)
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket still exists: {e.value}"
@@ -288,41 +274,34 @@ async def test_delete_user_bucket(
 
 @pytest.mark.asyncio
 async def test_delete_user_bucket_with_files(
-    client, access_token_patcher, mock_aws_services
+    client, access_token_patcher, mock_aws_services, user_bucket
 ):
     """
     Attempt to delete a bucket that is not empty.
     Endpoint must be able to delete all the files and then delete the bucket.
     """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    bucket_name = res.json()["bucket"]
-
     # Upload more than 1000 objects to ensure batching is working correctly. Not too many so the
     # test doesn't take too long to run.
     object_count = 1050
     for i in range(object_count):
         remove_bucket_policy_and_put_object(
-            bucket=bucket_name, key=f"file_{i}", body=b"Dummy file contents"
+            bucket=user_bucket, key=f"file_{i}", body=b"Dummy file contents"
         )
 
     # Start a multipart upload, don't complete it, and check that the bucket can still be emptied
     # and deleted
     response = clients.s3_client.create_multipart_upload(
-        Bucket=bucket_name, Key="large_file.zip"
+        Bucket=user_bucket, Key="large_file.zip"
     )
     upload_id = response["UploadId"]
     clients.s3_client.upload_part(
-        Bucket=bucket_name,
+        Bucket=user_bucket,
         Key="large_file.zip",
         PartNumber=1,
         UploadId=upload_id,
         Body="file contents",
     )
-    res = clients.s3_client.list_multipart_uploads(Bucket=bucket_name)
+    res = clients.s3_client.list_multipart_uploads(Bucket=user_bucket)
     assert res["Uploads"][0]["UploadId"] == upload_id
 
     # Delete the bucket
@@ -333,7 +312,7 @@ async def test_delete_user_bucket_with_files(
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
-        clients.s3_client.head_bucket(Bucket=bucket_name)
+        clients.s3_client.head_bucket(Bucket=user_bucket)
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket still exists: {e.value}"
@@ -380,23 +359,16 @@ async def test_delete_user_bucket_unauthorized(
 
 @pytest.mark.asyncio
 async def test_delete_user_bucket_objects_with_existing_files(
-    client, access_token_patcher, mock_aws_services
+    client, access_token_patcher, mock_aws_services, user_bucket
 ):
     """
     Attempt to delete all the objects in a bucket that is not empty.
     Endpoint must be able to delete all the files but should not delete the bucket.
     """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    bucket_name = res.json()["bucket"]
-
     object_count = 10
     for i in range(object_count):
         remove_bucket_policy_and_put_object(
-            bucket=bucket_name, key=f"file_{i}", body=b"Dummy file contents"
+            bucket=user_bucket, key=f"file_{i}", body=b"Dummy file contents"
         )
 
     # Delete all the bucket objects
@@ -407,11 +379,11 @@ async def test_delete_user_bucket_objects_with_existing_files(
     assert res.status_code == 204, res.text
 
     # Verify the bucket still exists
-    bucket_exists = clients.s3_client.head_bucket(Bucket=bucket_name)
-    assert bucket_exists, f"Bucket '{bucket_name} is expected to exist but not found"
+    bucket_exists = clients.s3_client.head_bucket(Bucket=user_bucket)
+    assert bucket_exists, f"Bucket '{user_bucket} is expected to exist but not found"
 
     # Verify all the objects in the bucket are deleted
-    response = clients.s3_client.list_objects_v2(Bucket=bucket_name)
+    response = clients.s3_client.list_objects_v2(Bucket=user_bucket)
     object_list = response.get("Contents", [])
     assert (
         len(object_list) == 0
@@ -420,32 +392,25 @@ async def test_delete_user_bucket_objects_with_existing_files(
 
 @pytest.mark.asyncio
 async def test_delete_user_bucket_with_versioning(
-    client, access_token_patcher, mock_aws_services, enable_s3_files
+    client, access_token_patcher, mock_aws_services, enable_s3_files, user_bucket
 ):
     """
     Attempt to delete all the objects in non-empty bucket with versioning enabled (when S3Files
     is enabled, versioning is enabled on the user's bucket.
     """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    bucket_name = res.json()["bucket"]
-
     # Create a file
     remove_bucket_policy_and_put_object(
-        bucket=bucket_name, key=f"file", body=b"Dummy file contents"
+        bucket=user_bucket, key=f"file", body=b"Dummy file contents"
     )
-    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    response = clients.s3_client.list_object_versions(Bucket=user_bucket)
     versions = response.get("Versions", [])
     assert len(versions) == 1
 
     # Create a new version of the file
     remove_bucket_policy_and_put_object(
-        bucket=bucket_name, key=f"file", body=b"Updated file contents"
+        bucket=user_bucket, key=f"file", body=b"Updated file contents"
     )
-    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    response = clients.s3_client.list_object_versions(Bucket=user_bucket)
     versions = response.get("Versions", [])
     assert len(versions) == 2
 
@@ -457,7 +422,7 @@ async def test_delete_user_bucket_with_versioning(
     assert res.status_code == 204, res.text
 
     # Verify all the versions in the bucket are deleted
-    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    response = clients.s3_client.list_object_versions(Bucket=user_bucket)
     versions = response.get("Versions", [])
     delete_markers = response.get("DeleteMarkers", [])
     assert len(versions) == 0
