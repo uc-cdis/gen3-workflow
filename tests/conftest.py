@@ -523,7 +523,7 @@ def trailing_slash(request):
     return request.param
 
 
-def s3_put_object(bucket, key, body):
+def remove_bucket_policy_and_put_object(bucket, key, body):
     """
     Remove the bucket policy enforcing KMS encryption before making the put_object call.
 

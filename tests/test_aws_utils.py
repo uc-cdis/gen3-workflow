@@ -6,7 +6,11 @@ import pytest
 from gen3workflow.aws import aws_utils, bucket, clients
 from gen3workflow.aws.aws_utils import OUTPUTS_ARE_READY_CACHE, are_outputs_ready
 from gen3workflow.config import config
-from tests.conftest import TEST_USER_ID, TEST_USER_TOKEN, s3_put_object
+from tests.conftest import (
+    TEST_USER_ID,
+    TEST_USER_TOKEN,
+    remove_bucket_policy_and_put_object,
+)
 
 
 def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_services):
@@ -350,7 +354,7 @@ async def test_are_outputs_ready(
         "size_bytes": size,
     }
     ready_log = f"Output 's3://{bucket}/ready' of expected size {size} is present with size {size}: ready"
-    s3_put_object(bucket=bucket, key="ready", body=file_contents)
+    remove_bucket_policy_and_put_object(bucket=bucket, key="ready", body=file_contents)
 
     not_present_file = {
         "url": f"s3://{bucket}/not_present",
@@ -481,7 +485,7 @@ async def test_are_outputs_ready_cache(client, access_token_patcher, mock_aws_se
     assert OUTPUTS_ARE_READY_CACHE == set()
 
     # create the expected output file in the bucket
-    s3_put_object(bucket=bucket, key="ready", body=file_contents)
+    remove_bucket_policy_and_put_object(bucket=bucket, key="ready", body=file_contents)
 
     # `are_outputs_ready` should now find the output file and return "ready=True".
     # the task ID should be cached since the outputs are ready.
@@ -527,7 +531,9 @@ async def test_are_outputs_ready_size_bytes_0(
     bucket = res.json()["bucket"]
 
     # create the output directory and file in the bucket
-    s3_put_object(bucket=bucket, key="ready/file.txt", body=b"Dummy file contents")
+    remove_bucket_policy_and_put_object(
+        bucket=bucket, key="ready/file.txt", body=b"Dummy file contents"
+    )
 
     # the task output lists the directory "ready", not the file "ready/file.txt"
     ready, logs = are_outputs_ready(

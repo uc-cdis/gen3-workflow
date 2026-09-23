@@ -6,6 +6,7 @@ import urllib.parse
 from datetime import datetime, timezone
 from typing import Tuple
 
+from botocore.credentials import Credentials
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from starlette.background import BackgroundTask
@@ -149,7 +150,7 @@ async def set_access_token_and_get_user_id(
         access_token = access_key_id
     else:  # format B (see docstring)
         # TODO remove this path later, for now just reject the calls
-        access_token, user_id = access_key_id.split(";userId=")
+        # access_token, user_id = access_key_id.split(";userId=")
         err_msg = (
             f"'{method} {path}' from Funnel worker: rejected - this path is deprecated"
         )

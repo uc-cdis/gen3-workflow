@@ -41,6 +41,7 @@ class Gen3WorkflowConfig(Config):
                 "ARBORIST_URL": {"type": ["string", "null"]},
                 "MOCK_AUTH": {"type": "boolean"},
                 "USER_BUCKET_CACHE_SECONDS": {"type": "integer", "minimum": 1},
+                "OUTPUTS_ARE_READY_CACHE_MAX_SIZE": {"type": "integer"},
                 "GIVE_UP_CHECK_TASK_OUTPUTS_HOURS": {"type": "number"},
                 "SKIP_CHECK_TASK_OUTPUTS_HOURS": {"type": "number"},
                 "USER_BUCKETS_REGION": {"type": "string"},

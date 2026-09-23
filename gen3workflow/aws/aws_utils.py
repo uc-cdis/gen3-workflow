@@ -1,14 +1,16 @@
 import json
+from collections import deque
 from typing import Union
 from urllib.parse import urlparse
 
 from botocore.exceptions import ClientError
 
-from gen3workflow import logger
 from gen3workflow.aws import clients
 from gen3workflow.config import config
 
+# The cache set allows fast lookups. We also maintain a deque to manage cache size.
 OUTPUTS_ARE_READY_CACHE: set[str] = set()
+OUTPUTS_ARE_READY_CACHE_ORDER = deque(maxlen=config["OUTPUTS_ARE_READY_CACHE_MAX_SIZE"])
 
 
 def dict_to_sorted_json_str(obj: dict) -> str:
@@ -133,6 +135,16 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
             )
 
     if all_ready:
+        # When the deque is full, it silently drops the oldest item.
+        # We manually remove the oldest value from the cache.
+        if (
+            len(OUTPUTS_ARE_READY_CACHE_ORDER)
+            == config["OUTPUTS_ARE_READY_CACHE_MAX_SIZE"]
+        ):
+            oldest = OUTPUTS_ARE_READY_CACHE_ORDER[0]
+            OUTPUTS_ARE_READY_CACHE.remove(oldest)
+
+        OUTPUTS_ARE_READY_CACHE_ORDER.append(task_id)
         OUTPUTS_ARE_READY_CACHE.add(task_id)
 
     return all_ready, logs

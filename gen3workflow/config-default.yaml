@@ -24,6 +24,9 @@ MOCK_AUTH: false
 # (does not allow 0 which means no expiration).
 USER_BUCKET_CACHE_SECONDS: 43200
 
+# Cache the result of output readiness checks for up to `OUTPUTS_ARE_READY_CACHE_MAX_SIZE` tasks.
+OUTPUTS_ARE_READY_CACHE_MAX_SIZE: 300
+
 # `GIVE_UP_CHECK_TASK_OUTPUTS_HOURS` after a task completes, if its output files are still not
 # ready, it is marked as failed.
 GIVE_UP_CHECK_TASK_OUTPUTS_HOURS: 3

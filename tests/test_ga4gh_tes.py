@@ -9,7 +9,7 @@ from tests.conftest import (
     TEST_USER_TOKEN,
     mock_arborist_request,
     mock_tes_server_request,
-    s3_put_object,
+    remove_bucket_policy_and_put_object,
 )
 
 client_parameters = [
@@ -662,7 +662,9 @@ async def test_get_and_list_check_if_outputs_ready(
 
     if outputs_ready:
         # create the expected output file in the bucket
-        s3_put_object(bucket=bucket_name, key=f"file.txt", body=b"Dummy file contents")
+        remove_bucket_policy_and_put_object(
+            bucket=bucket_name, key=f"file.txt", body=b"Dummy file contents"
+        )
 
     task_id = "with-logs-outputs" if has_outputs else "123"
     task_id = task_id if task_complete else "incomplete-with-logs-outputs"

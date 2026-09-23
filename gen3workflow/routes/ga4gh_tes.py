@@ -224,7 +224,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     return res.json()
 
 
-def check_task_outputs(user_id, body: dict) -> dict:
+def process_task_outputs(user_id, body: dict) -> dict:
     """
     Call `are_outputs_ready` and process the result: update the task's `state` if needed, and add
     any detailed logs to the `system_logs` returned to the user.
@@ -364,7 +364,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 
     # filter out tasks the current user does not have access to
     listed_tasks["tasks"] = [
-        apply_view_to_task(requested_view, check_task_outputs(user_id, task))
+        apply_view_to_task(requested_view, process_task_outputs(user_id, task))
         for task in listed_tasks.get("tasks", [])
         if user_access.get(task.get("tags", {}).get("_AUTHZ"))
     ]
@@ -405,7 +405,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     body["tags"]["_AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
 
-    return apply_view_to_task(requested_view, check_task_outputs(user_id, body))
+    return apply_view_to_task(requested_view, process_task_outputs(user_id, body))
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)

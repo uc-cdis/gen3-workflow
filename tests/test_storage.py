@@ -11,7 +11,7 @@ from tests.conftest import (
     TEST_USER_ID,
     TEST_USER_TOKEN,
     mock_arborist_request,
-    s3_put_object,
+    remove_bucket_policy_and_put_object,
 )
 
 
@@ -305,7 +305,9 @@ async def test_delete_user_bucket_with_files(
     # test doesn't take too long to run.
     object_count = 1050
     for i in range(object_count):
-        s3_put_object(bucket=bucket_name, key=f"file_{i}", body=b"Dummy file contents")
+        remove_bucket_policy_and_put_object(
+            bucket=bucket_name, key=f"file_{i}", body=b"Dummy file contents"
+        )
 
     # Start a multipart upload, don't complete it, and check that the bucket can still be emptied
     # and deleted
@@ -393,7 +395,9 @@ async def test_delete_user_bucket_objects_with_existing_files(
 
     object_count = 10
     for i in range(object_count):
-        s3_put_object(bucket=bucket_name, key=f"file_{i}", body=b"Dummy file contents")
+        remove_bucket_policy_and_put_object(
+            bucket=bucket_name, key=f"file_{i}", body=b"Dummy file contents"
+        )
 
     # Delete all the bucket objects
     res = await client.delete(
@@ -430,13 +434,17 @@ async def test_delete_user_bucket_with_versioning(
     bucket_name = res.json()["bucket"]
 
     # Create a file
-    s3_put_object(bucket=bucket_name, key=f"file", body=b"Dummy file contents")
+    remove_bucket_policy_and_put_object(
+        bucket=bucket_name, key=f"file", body=b"Dummy file contents"
+    )
     response = clients.s3_client.list_object_versions(Bucket=bucket_name)
     versions = response.get("Versions", [])
     assert len(versions) == 1
 
     # Create a new version of the file
-    s3_put_object(bucket=bucket_name, key=f"file", body=b"Updated file contents")
+    remove_bucket_policy_and_put_object(
+        bucket=bucket_name, key=f"file", body=b"Updated file contents"
+    )
     response = clients.s3_client.list_object_versions(Bucket=bucket_name)
     versions = response.get("Versions", [])
     assert len(versions) == 2
