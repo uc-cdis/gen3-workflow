@@ -6,13 +6,10 @@ import urllib.parse
 from datetime import datetime, timezone
 from typing import Tuple
 
-import boto3
-from botocore.credentials import Credentials
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from starlette.background import BackgroundTask
 from starlette.datastructures import Headers
-from starlette.requests import ClientDisconnect
 from starlette.responses import Response, StreamingResponse
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
@@ -28,15 +25,75 @@ from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
+from gen3workflow.aws.clients import irsa_session
 from gen3workflow.config import config
 
 s3_root_router = APIRouter(include_in_schema=False)
 s3_router = APIRouter(prefix="/s3")
 
 
-S3_MAX_TRIES = 3
+S3_MAX_TRIES = 3  # body-less requests (GET/HEAD/DELETE) can be retried safely
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
+
+_DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB
+CRLF_LEN = 2
+
+
+async def _dechunk_stream(stream):
+    """Yield de-chunked bytes from an AWS SigV4 streaming chunked body.
+    Turn a chunked body into a non-chunked body.
+
+    Each chunk has:
+        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
+        <chunk-data>\r\n
+    Final chunk:
+        0;chunk-signature=<sig>\r\n\r\n
+
+    Parse the streaming chunks and remove the chunk headers.
+
+    Accumulates de-chunked data into an output buffer and yields only when it reaches
+    _DECHUNK_YIELD_SIZE. This limits peak memory to _DECHUNK_YIELD_SIZE x concurrent_uploads
+    while reducing h11/anyio/TLS Python-stack traversals from ~160 to ~20 for a 10 MB upload,
+    vs. per-TCP-segment (64 KB) yielding.
+    """
+    buf = bytearray()
+    output_buffer = bytearray()
+    chunk_bytes_left = 0  # proceed to the next chunk when this reaches 0
+    async for raw in stream:
+        buf.extend(raw)
+        while buf:
+            if chunk_bytes_left == 0:
+                header_end = buf.find(b"\r\n")
+                if header_end == -1:
+                    break  # header split across segments; wait for more data
+                chunk_bytes_left = int(buf[:header_end].split(b";")[0], 16)
+                if chunk_bytes_left == 0:
+                    if output_buffer:
+                        yield output_buffer
+                    return
+                del buf[: header_end + CRLF_LEN]
+
+            consumable_bytes_in_buf = min(chunk_bytes_left, len(buf))
+            if consumable_bytes_in_buf == 0:
+                break
+            chunk_complete = consumable_bytes_in_buf == chunk_bytes_left
+            if chunk_complete and len(buf) < consumable_bytes_in_buf + CRLF_LEN:
+                break  # trailing \r\n hasn't arrived yet; wait
+            output_buffer += buf[:consumable_bytes_in_buf]
+            del buf[: consumable_bytes_in_buf + (CRLF_LEN if chunk_complete else 0)]
+            chunk_bytes_left -= consumable_bytes_in_buf
+
+            if len(output_buffer) >= _DECHUNK_YIELD_SIZE:
+                yield output_buffer
+                output_buffer = bytearray()
+                # On fast networks the httpx socket write completes without an epoll wait,
+                # so the event loop never naturally yields between chunks. This forces a
+                # scheduling gap so other coroutines (health probe, task creation) can run.
+                await asyncio.sleep(0)
+
+    if output_buffer:
+        yield output_buffer
 
 
 async def set_access_token_and_get_user_id(
@@ -152,39 +209,6 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     ).digest()
     key_signing = hmac.new(key_service, b"aws4_request", hashlib.sha256).digest()
     return key_signing
-
-
-def chunked_to_non_chunked_body(body: bytes) -> bytes:
-    """
-    Turn a chunked body into a non-chunked body.
-
-    Each chunk has:
-        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
-        <chunk-data>\r\n
-    Final chunk:
-        0;chunk-signature=<sig>\r\n\r\n
-
-    Parse the chunks and return a non-chunked body.
-    """
-    result = []
-    i = 0
-    while i < len(body):
-        # find the end of the chunk
-        line_end = body.index(b"\r\n", i)
-        line = body[i:line_end]
-        i = line_end + 2  # skip the separator `\r\n`
-
-        # strip chunk extensions (such as the signature) and extract the chunk size
-        chunk_size_hex = line.split(b";")[0]
-        chunk_size = int(chunk_size_hex, 16)
-
-        if chunk_size == 0:
-            break  # final chunk
-
-        result.append(body[i : i + chunk_size])  # extract exactly `chunk_size` bytes
-        i += chunk_size + 2  # skip chunk data + the separator `\r\n`
-
-    return b"".join(result)
 
 
 @s3_root_router.api_route(
@@ -327,7 +351,7 @@ async def s3_endpoint(path: str, request: Request):
     # - Chunked payload support:
     #   - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
     #     The body includes chunks and checksums. It can be forwarded to AWS without changes as long
-    #     as the necessary headers are forwarded as well.
+    #     as the necessary headers are forwarded as well. The body is streamed directly.
     #   - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
     #     Funnel uses this client.
     #     We overwrite the original `x-amz-content-sha256` header value with the body hash and we
@@ -338,26 +362,26 @@ async def s3_endpoint(path: str, request: Request):
     #   - aws-sdk-java used by Nextflow may use the STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER
     #     method, which is treated similarly to the above.
     #   Note: Chunked uploads != multipart uploads.
-    try:
-        body = await request.body()
-    except ClientDisconnect:  # catch this to avoid throwing 500 errors
-        raise HTTPException(
-            499, "Client disconnected before request body was fully received"
-        )
-    if in_headers.get("x-amz-content-sha256") in [
+    is_chunked_streaming = in_headers.get("x-amz-content-sha256") in [
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
-    ]:
-        # parse the body and update the corresponding headers
-        body = chunked_to_non_chunked_body(body)
-        content_len = str(len(body))
-        out_headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
-        for h in ["content-length", "x-amz-decoded-content-length"]:
-            if h in in_headers:
-                out_headers[h] = content_len
+    ]
+    if is_chunked_streaming:
+        # UNSIGNED-PAYLOAD skips the hash requirement, enabling streaming without
+        # buffering.
+        out_headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
+        decoded_len = out_headers.pop("x-amz-decoded-content-length", None)
+        if decoded_len:
+            out_headers["content-length"] = decoded_len
+
         # the outgoing body is no longer chunked, so there's no trailer/checksum in it anymore
         out_headers.pop("x-amz-trailer", None)
         out_headers.pop("x-amz-sdk-checksum-algorithm", None)
+        request_content = _dechunk_stream(request.stream())
+    else:
+        # Non-chunked: the client already computed x-amz-content-sha256 and content-length,
+        # so we can stream the body directly without buffering it in memory.
+        request_content = request.stream()
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -366,8 +390,7 @@ async def s3_endpoint(path: str, request: Request):
             secret_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
         )
     else:  # assume the service is running in k8s: get credentials from the assumed role
-        session = boto3.Session()
-        credentials = session.get_credentials()
+        credentials = irsa_session.get_credentials()
         assert credentials, "No AWS credentials found"
         out_headers["x-amz-security-token"] = credentials.token
 
@@ -442,11 +465,14 @@ async def s3_endpoint(path: str, request: Request):
         s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
 
     # forward the call to the S3 server with the new Authorization header.
-    # this call is retried with exponential backoff in case of unexpected error from S3.
-    resp_contents = None
-    for attempt in range(1, S3_MAX_TRIES + 1):
-        logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
+    # body-less requests (GET/HEAD/DELETE) can be retried;
+    # whereas, other requests consume the stream and cannot be retried
+    has_body = request.method in {"PUT", "POST", "PATCH"}
+    max_tries = 1 if has_body else S3_MAX_TRIES
+    for attempt in range(1, max_tries + 1):
         should_retry = False
+        resp_contents = None
+        logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
         exception = None
         try:
             response = await request.app.async_client.send(
@@ -455,7 +481,7 @@ async def s3_endpoint(path: str, request: Request):
                     url=s3_api_url,
                     headers=out_headers,
                     params=query_params,
-                    content=body,
+                    content=request_content,
                 ),
                 stream=True,
             )
@@ -467,7 +493,6 @@ async def s3_endpoint(path: str, request: Request):
                 if response.status_code != HTTP_404_NOT_FOUND:
                     should_retry = True
                     resp_contents = await response.aread()
-                    await response.aclose()
                     logger.error(
                         f"Error from S3: {response.status_code} {resp_contents}"
                     )
@@ -486,7 +511,8 @@ async def s3_endpoint(path: str, request: Request):
                         logger.debug(f"String to sign:\n{string_to_sign}")
                         logger.debug(f"Incoming query params:\n{request.query_params}")
                         logger.debug(f"Outgoing query params:\n{query_params}")
-                        logger.debug(f"Outgoing body:\n{body}")
+                        if has_body:
+                            logger.debug(f"Outgoing body:\n{request_content}")
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
@@ -498,9 +524,9 @@ async def s3_endpoint(path: str, request: Request):
         # retries
         if not should_retry:
             break
-        if attempt == S3_MAX_TRIES:
+        if attempt == max_tries:
             logger.error(
-                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Giving up"
+                f"Outgoing S3 request failed (attempt {attempt}/{max_tries}). Giving up"
             )
             if exception:
                 raise exception
@@ -510,7 +536,7 @@ async def s3_endpoint(path: str, request: Request):
         delay = S3_RETRY_BASE_DELAY * (S3_RETRY_BACKOFF_FACTOR**attempt)
         delay += delay * 0.1 * random.uniform(-1, 1)  # add jitter
         logger.warning(
-            f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Retrying in {delay:.2f} seconds"
+            f"Outgoing S3 request failed (attempt {attempt}/{max_tries}). Retrying in {delay:.2f} seconds"
         )
         await asyncio.sleep(delay)
 
@@ -572,9 +598,8 @@ async def s3_endpoint(path: str, request: Request):
             status_code=response.status_code,
             headers=filtered_headers,
         )
-
     # the response is not compressed: stream the raw response bytes (skip the automatic httpx
-    # post-handling)
+    # post-handling).
     return StreamingResponse(
         response.aiter_raw(),
         status_code=response.status_code,
