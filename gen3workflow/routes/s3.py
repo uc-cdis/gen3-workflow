@@ -154,7 +154,7 @@ async def set_access_token_and_get_user_id(
         err_msg = (
             f"'{method} {path}' from Funnel worker: rejected - this path is deprecated"
         )
-        logger.error(f"{err_msg}. Debug: {token_claims=}")
+        logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     # set the token so we can perform authn/authz checks on it
