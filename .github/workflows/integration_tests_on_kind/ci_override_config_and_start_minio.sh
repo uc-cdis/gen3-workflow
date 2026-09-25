@@ -145,7 +145,7 @@ metadata:
 spec:
   containers:
     - name: minio
-      image: quay.io/minio/minio:latest-cicd
+      image: cgr.dev/chainguard/minio:latest
       args:
         - server
         - /data
