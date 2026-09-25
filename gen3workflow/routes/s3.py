@@ -1,17 +1,16 @@
 import asyncio
-from datetime import datetime, timezone
 import hashlib
+import hmac
 import random
-from typing import Tuple
 import urllib.parse
+from datetime import datetime, timezone
+from typing import Tuple
 
+from botocore.credentials import Credentials
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from botocore.credentials import Credentials
-import hmac
 from starlette.background import BackgroundTask
 from starlette.datastructures import Headers
-from starlette.requests import ClientDisconnect
 from starlette.responses import Response, StreamingResponse
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
@@ -99,8 +98,7 @@ async def _dechunk_stream(stream):
 
 
 async def set_access_token_and_get_user_id(
-    auth: Auth,
-    headers: Headers,
+    auth: Auth, headers: Headers, method=None, path=None
 ) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
@@ -151,7 +149,13 @@ async def set_access_token_and_get_user_id(
     if is_user_token:  # format A (see docstring)
         access_token = access_key_id
     else:  # format B (see docstring)
-        access_token, user_id = access_key_id.split(";userId=")
+        # TODO remove this path later, for now just reject the calls
+        # access_token, user_id = access_key_id.split(";userId=")
+        err_msg = (
+            f"'{method} {path}' from Funnel worker: rejected - this path is deprecated"
+        )
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     # set the token so we can perform authn/authz checks on it
     auth.bearer_token = HTTPAuthorizationCredentials(
@@ -233,7 +237,9 @@ async def s3_endpoint(path: str, request: Request):
     # the list of files for a specific task.
     auth = Auth(api_request=request)
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(auth, in_headers)
+    user_id, client_id = await set_access_token_and_get_user_id(
+        auth, in_headers, request.method, path
+    )
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )

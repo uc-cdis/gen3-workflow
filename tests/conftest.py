@@ -3,24 +3,24 @@ See https://github.com/uc-cdis/gen3-user-data-library/blob/main/tests/conftest.p
 """
 
 import contextlib
-from datetime import datetime
-from dateutil.tz import tzutc
 import json
 import os
 import time
+from datetime import datetime
+from threading import Thread
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
 
 import boto3
-from botocore.exceptions import ClientError
-from fastapi import Request
 import httpx
-from moto import mock_aws
 import pytest
 import pytest_asyncio
-from starlette.config import environ
-from threading import Thread
 import uvicorn
+from botocore.exceptions import ClientError
+from dateutil.tz import tzutc
+from fastapi import Request
+from moto import mock_aws
+from starlette.config import environ
 
 # Set up the config *before* loading the app, which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -32,7 +32,7 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
-from gen3workflow.aws import clients
+from gen3workflow.aws import aws_utils, clients
 from gen3workflow.aws.bucket import USER_BUCKET_CACHE
 
 TEST_USER_ID = "user-64"
@@ -121,6 +121,12 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
                         f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123": [
                             {"service": "gen3-workflow", "method": "read"}
                         ],
+                        f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/with-logs-outputs": [
+                            {"service": "gen3-workflow", "method": "read"}
+                        ],
+                        f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/incomplete-with-logs-outputs": [
+                            {"service": "gen3-workflow", "method": "read"}
+                        ],
                     }
                     if authorized
                     else {}
@@ -193,6 +199,25 @@ def mock_tes_server_request_function(
             "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER"
         },
     }
+    task_with_logs_outputs = {
+        "id": "with-logs-outputs",
+        "state": "COMPLETE",
+        "logs": [
+            {
+                "system_logs": ["blah"],
+                "outputs": [
+                    {
+                        "url": f"s3://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}/file.txt",
+                        "path": "file.txt",
+                        "size_bytes": "19",
+                    },
+                ],
+            }
+        ],
+        "tags": {
+            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER"
+        },
+    }
     # paths to reponses: { URL: { METHOD: response body } }
     paths_to_responses = {
         "/service-info": {"GET": {"name": "TES server"}},
@@ -212,12 +237,27 @@ def mock_tes_server_request_function(
                     },
                     # test that the app can handle a task with no tags:
                     {"id": "456", "state": "COMPLETE"},
+                    # tasks with the `logs.outputs` field:
+                    task_with_logs_outputs,
+                    {
+                        **task_with_logs_outputs,
+                        "id": "incomplete-with-logs-outputs",
+                        "state": "INITIALIZING",
+                    },
                 ],
             },
             "POST": {"id": "123"},
         },
         "/tasks/123": {"GET": accessible_task},
         "/tasks/123:cancel": {"POST": {}},
+        "/tasks/with-logs-outputs": {"GET": task_with_logs_outputs},
+        "/tasks/incomplete-with-logs-outputs": {
+            "GET": {
+                **task_with_logs_outputs,
+                "id": "incomplete-with-logs-outputs",
+                "state": "INITIALIZING",
+            }
+        },
     }
     text, out = None, None
     if path not in paths_to_responses:
@@ -279,9 +319,10 @@ async def reset_requests_mocks_and_caches():
     previous function calls. Also clear caches.
     """
     global mock_tes_server_request
-    global mock_arborist_request
     mock_tes_server_request.reset_mock()
+    global mock_arborist_request
     mock_arborist_request.reset_mock()
+    aws_utils.OUTPUTS_ARE_READY_CACHE.clear()
     USER_BUCKET_CACHE.clear()
 
 
@@ -480,3 +521,26 @@ def trailing_slash(request):
     slash
     """
     return request.param
+
+
+@pytest_asyncio.fixture
+async def user_bucket(client):
+    """
+    Create the bucket if it doesn't exist and return its name
+    """
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    return res.json()["bucket"]
+
+
+def remove_bucket_policy_and_put_object(bucket, key, body):
+    """
+    Remove the bucket policy enforcing KMS encryption before making the put_object call.
+
+    Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
+    More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
+    """
+    clients.s3_client.delete_bucket_policy(Bucket=bucket)
+    clients.s3_client.put_object(Bucket=bucket, Key=key, Body=body)

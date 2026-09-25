@@ -5,10 +5,11 @@ import pytest
 
 from gen3workflow.config import config
 from tests.conftest import (
-    mock_arborist_request,
-    mock_tes_server_request,
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    mock_arborist_request,
+    mock_tes_server_request,
+    remove_bucket_policy_and_put_object,
 )
 
 client_parameters = [
@@ -493,13 +494,23 @@ async def test_create_task_with_bad_tags(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
-async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
+async def test_list_tasks(
+    client, access_token_patcher, view, trailing_slash, mock_aws_services
+):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
     unsupported query params should be filtered out. Tasks the user does not have access
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
+    # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
+    # call is conditional
+    if client.authorized:
+        res = await client.get(
+            "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
+        assert res.status_code == 200, res.text
+
     url = f"/ga4gh/tes/v1/tasks?state=COMPLETE&unsupported_param=value{'/' if trailing_slash else ''}"
     if view:
         url += f"&view={view}"
@@ -522,11 +533,18 @@ async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
         if not client.authorized:
             assert res.json() == {"tasks": []}
         else:
+            # skip the `with-logs-outputs` tasks, they are checked in
+            # `test_get_and_list_check_if_outputs_ready`
+            tasks = res.json()
+            tasks["tasks"] = [
+                t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]
+            ]
+
             # check that the view was applied:
             if view == "BASIC":
-                assert res.json() == {"tasks": [{"id": "123", "state": "COMPLETE"}]}
+                assert tasks == {"tasks": [{"id": "123", "state": "COMPLETE"}]}
             elif view == "FULL":
-                assert res.json() == {
+                assert tasks == {
                     "tasks": [
                         {
                             "id": "123",
@@ -539,7 +557,7 @@ async def test_list_tasks(client, access_token_patcher, view, trailing_slash):
                     ]
                 }
             else:  # view == None or "MINIMAL"
-                assert res.json() == {
+                assert tasks == {
                     "tasks": [
                         {
                             "id": "123",
@@ -612,3 +630,76 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
             body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task_complete", [True, False])
+@pytest.mark.parametrize(
+    ("has_outputs", "outputs_ready"),
+    [(False, None), (True, True), (True, False)],
+    ids=["no outputs", "outputs ready", "outputs not ready"],
+)
+@pytest.mark.parametrize("request_type", ["get_task", "list_tasks"])
+async def test_get_and_list_check_if_outputs_ready(
+    client,
+    access_token_patcher,
+    mock_aws_services,
+    user_bucket,
+    task_complete,
+    has_outputs,
+    outputs_ready,
+    request_type,
+):
+    """
+    `GET /ga4gh/tes/v1/tasks` and `GET /ga4gh/tes/v1/tasks/<task ID>` responses should be
+    intercepted to check the list of outputs. If the task is "COMPLETE" and the outputs are not
+    ready yet, the task state should be rewritten to "RUNNING".
+    """
+    if outputs_ready:
+        # create the expected output file in the bucket
+        remove_bucket_policy_and_put_object(
+            bucket=user_bucket, key=f"file.txt", body=b"Dummy file contents"
+        )
+
+    task_id = "with-logs-outputs" if has_outputs else "123"
+    task_id = task_id if task_complete else "incomplete-with-logs-outputs"
+    url = (
+        f"/ga4gh/tes/v1/tasks/{task_id if request_type == "get_task" else ''}?view=FULL"
+    )
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
+    assert res.status_code == 200, res.text
+    task = res.json()
+    if request_type == "list_tasks":
+        _tasks = [t for t in task.get("tasks", []) if t.get("id") == task_id]
+        assert (
+            len(_tasks) == 1
+        ), f"Expected to find 1 task with id '{task_id}' in listing result, found: {task.get("tasks")}"
+        task = _tasks[0]
+    logs = task["logs"][-1]["system_logs"]
+    print(f"Task system logs: {json.dumps(logs, indent=2)}")
+
+    if not task_complete:
+        # no state change, no additional logs
+        assert task["state"] == "INITIALIZING"
+        assert logs == ["blah"]
+        return
+
+    if not has_outputs:
+        assert task["state"] == "COMPLETE"
+        return
+
+    output = task["logs"][-1]["outputs"][0]
+    if outputs_ready:
+        assert task["state"] == "COMPLETE"
+        assert (
+            logs[-2]
+            == f"Output '{output['url']}' of expected size {output['size_bytes']} is present with size {output['size_bytes']}: ready"
+        )
+        assert logs[-1].endswith("all outputs are available; task complete")
+    else:
+        assert task["state"] == "RUNNING"
+        assert (
+            logs[-2]
+            == f"Output '{output['url']}' is not present in the bucket: not ready"
+        )
+        assert logs[-1].endswith("waiting for outputs to be available...")

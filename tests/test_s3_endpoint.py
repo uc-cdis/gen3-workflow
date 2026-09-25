@@ -4,53 +4,35 @@ import tempfile
 from unittest.mock import AsyncMock, patch
 
 import boto3
+import pytest
+import pytest_asyncio
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-import pytest
-import pytest_asyncio
 
+from gen3workflow.config import config
+from gen3workflow.routes.s3 import (
+    _dechunk_stream,
+    set_access_token_and_get_user_id,
+)
 from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
     TEST_USER_ID,
     TEST_USER_TOKEN,
     mock_aws_s3_request,
 )
-from gen3workflow.config import config
-from gen3workflow.routes.s3 import _dechunk_stream, set_access_token_and_get_user_id
 
 TEST_CLIENT_ID = "client-azp"
 
 
 # reusable parametrization of the `s3_client` and `access_token_patcher` fixtures
-s3_client_and_token_test_ids = [
-    "s3 path-user creds",
-    "root path-user creds",
-    "s3 path-client creds",
-    "root path-client creds",
-]
+s3_client_and_token_test_ids = ["s3 path", "root path"]
 s3_client_and_token_test_cases = [
-    # first 2 test cases: user key ID and user token
     (
         {"endpoint": "s3", "aws_access_key_id": TEST_USER_TOKEN},
         {"user_id": TEST_USER_ID},
     ),
     ({"endpoint": "", "aws_access_key_id": TEST_USER_TOKEN}, {"user_id": TEST_USER_ID}),
-    # last 2 test cases: client key ID and client token
-    (
-        {
-            "endpoint": "s3",
-            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
-        },
-        {"user_id": None, "client_id": TEST_CLIENT_ID},
-    ),
-    (
-        {
-            "endpoint": "",
-            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
-        },
-        {"user_id": None, "client_id": TEST_CLIENT_ID},
-    ),
 ]
 
 
@@ -130,13 +112,10 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
             {"aws_access_key_id": TEST_USER_TOKEN},
             {"user_id": None, "client_id": TEST_CLIENT_ID},
         ),
-        # client key ID and user token
-        (
-            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {"user_id": TEST_USER_ID},
-        ),
     ],
-    ids=["client aws_access_key_id-user token", "user aws_access_key_id-client token"],
+    ids=[
+        "client aws_access_key_id-user token",
+    ],
     indirect=True,
 )
 def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
@@ -168,13 +147,10 @@ def test_s3_endpoint_no_token(s3_client):
             {"aws_access_key_id": TEST_USER_TOKEN},
             {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
         ),
-        # client key ID and user+client token
-        (
-            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
-        ),
     ],
-    ids=["supported user+client token", "unsupported user+client token"],
+    ids=[
+        "supported user+client token",
+    ],
     indirect=True,
 )
 def test_s3_endpoint_unsupported_oidc_token(s3_client, access_token_patcher, request):
@@ -272,13 +248,10 @@ async def test_s3_endpoint_with_bearer_token(client, path):
     ids=["with token sub", "without token sub"],
 )
 @pytest.mark.parametrize(
-    "key_includes_user_id", [True, False], ids=["key format A", "key format B"]
-)
-@pytest.mark.parametrize(
     "auth_header_format", [1, 2], ids=["auth format 1", "auth format 2"]
 )
 async def test_set_access_token_and_get_user_id(
-    auth_header_format, key_includes_user_id, token_claims_sub, token_claims_azp
+    auth_header_format, token_claims_sub, token_claims_azp
 ):
     """
     Test `set_access_token_and_get_user_id` behavior with various combinations of access token and
@@ -302,8 +275,6 @@ async def test_set_access_token_and_get_user_id(
     auth.get_token_claims.return_value = token_claims
 
     aws_access_key_id = TEST_USER_TOKEN
-    if key_includes_user_id:
-        aws_access_key_id += f";userId={TEST_USER_ID}"
 
     if auth_header_format == 1:
         auth_header = f"AWS4-HMAC-SHA256 Credential={aws_access_key_id}/<date>/<region>/<service>/aws4_request, SignedHeaders=some-text, Signature=some-text"
@@ -311,20 +282,8 @@ async def test_set_access_token_and_get_user_id(
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
     # no user ID in the token claims or in the key ID: error
-    if not key_includes_user_id and not token_claims_sub:
+    if not token_claims_sub:
         with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
-            await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
-    # user ID in the key ID, which implies a client flow, but no client ID in the token
-    # claims: error
-    elif key_includes_user_id and not token_claims_azp:
-        with pytest.raises(HTTPException, match="401: No client ID in token"):
-            await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
-    # user ID in the key ID, which implies a client flow, AND user ID in the token claims: error.
-    # similar test case as `test_s3_endpoint_unsupported_oidc_token`
-    elif key_includes_user_id and token_claims_sub:
-        with pytest.raises(
-            HTTPException, match="401: Expected a client token not linked to a user"
-        ):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
     else:

@@ -224,7 +224,6 @@ def test_create_s3_files_system_success(mock_aws_services):
     assert result == "fs-new"
     clients.s3files_client.create_file_system.assert_called_once_with(
         bucket="arn:aws:s3:::test-bucket",
-        prefix="funnel-temp-files/",
         roleArn="arn:aws:iam::123456789012:role/s3files-role",
         tags=[{"key": "Name", "value": "gen3wf-localhost"}],
     )
@@ -575,7 +574,9 @@ def test_get_or_create_security_groups_ingress_reraises_non_duplicate_error(
         with pytest.raises(ClientError) as exc_info:
             s3_files._get_or_create_security_groups(vpc_id=vpc_id)
 
-    assert exc_info.value.response["Error"]["Code"] == "InvalidGroup.NotFound"
+    assert (
+        exc_info.value.response.get("Error", {}).get("Code") == "InvalidGroup.NotFound"
+    )
 
 
 def test_get_or_create_security_groups_egress_reraises_non_duplicate_error(
@@ -602,7 +603,9 @@ def test_get_or_create_security_groups_egress_reraises_non_duplicate_error(
         with pytest.raises(ClientError) as exc_info:
             s3_files._get_or_create_security_groups(vpc_id=vpc_id)
 
-    assert exc_info.value.response["Error"]["Code"] == "InvalidGroup.NotFound"
+    assert (
+        exc_info.value.response.get("Error", {}).get("Code") == "InvalidGroup.NotFound"
+    )
 
 
 # --------------------------------------------------------------------------- #

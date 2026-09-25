@@ -1,13 +1,13 @@
+import json
+import time
 from typing import List
 
 from botocore.exceptions import ClientError
-import time
-import json
 
 from gen3workflow import logger
+from gen3workflow.aws import clients
 from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
 from gen3workflow.config import config
-from gen3workflow.aws import clients
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
 NFS_PORT = 2049
@@ -134,8 +134,6 @@ def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
     try:
         response = clients.s3files_client.create_file_system(
             bucket=bucket_arn,
-            # prefix as configured in the Funnel worker PV
-            prefix="funnel-temp-files/",
             roleArn=role_arn,
             tags=[
                 {
@@ -321,7 +319,7 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
             compute_security_groups,
         )
     except ClientError as exc:
-        if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
+        if exc.response.get("Error", {}).get("Code") == "InvalidPermission.Duplicate":
             logger.info(
                 "Inbound TCP/%s on %s (%s) from %s already exists; skipping.",
                 NFS_PORT,
@@ -358,7 +356,10 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
                 mount_target_sg_name,
             )
         except ClientError as exc:
-            if exc.response["Error"]["Code"] == "InvalidPermission.Duplicate":
+            if (
+                exc.response.get("Error", {}).get("Code")
+                == "InvalidPermission.Duplicate"
+            ):
                 logger.info(
                     "Outbound TCP/%s on %s (%s) to %s (%s) already exists; skipping.",
                     NFS_PORT,

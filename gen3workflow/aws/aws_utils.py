@@ -1,6 +1,16 @@
 import json
+from collections import deque
 from typing import Union
+from urllib.parse import urlparse
+
+from botocore.exceptions import ClientError
+
+from gen3workflow.aws import clients
 from gen3workflow.config import config
+
+# The cache set allows fast lookups. We also maintain a deque to manage cache size.
+OUTPUTS_ARE_READY_CACHE: set[str] = set()
+OUTPUTS_ARE_READY_CACHE_ORDER = deque(maxlen=config["OUTPUTS_ARE_READY_CACHE_MAX_SIZE"])
 
 
 def dict_to_sorted_json_str(obj: dict) -> str:
@@ -65,3 +75,76 @@ def get_bucket_name_from_user_id(user_id: str) -> str:
     """
     # Abstracted for future flexibility — currently same as safe name.
     return get_safe_name_from_hostname(user_id)
+
+
+def are_outputs_ready(user_id: str, task_id, outputs: list):
+    """
+    Check if all the files in the provided list of outputs are up to date in the user's bucket.
+    Once all the outputs are ready, the result is cached to avoid unnecessary S3 requests.
+
+    Returns:
+        tuple (bool, list[str]): whether all outputs are ready, and any detailed logs to return to
+            the user
+    """
+    if task_id in OUTPUTS_ARE_READY_CACHE:
+        return True, []
+
+    user_bucket_name = get_bucket_name_from_user_id(user_id)
+    all_ready = True
+    logs = []
+    for output in outputs:
+        if not output.get("url"):
+            logs.append(f"Output {output} is missing 'url' field: assuming it's ready")
+            continue
+        if output.get("size_bytes") == 0:
+            logs.append(
+                f"Output {output} has 'size_bytes' 0: assuming it's a directory and it's ready"
+            )
+            continue
+        if not all_ready:
+            # if one file is not ready, skip checking the rest of the files
+            logs.append(f"Not checked: '{output['url']}'")
+            continue
+        parsed_url = urlparse(output["url"])
+        if parsed_url.netloc != user_bucket_name:
+            logs.append(
+                f"Output '{output['url']}' is not in user's bucket '{user_bucket_name}': assuming it's ready"
+            )
+            continue
+        try:
+            response = clients.s3_client.head_object(
+                Bucket=parsed_url.netloc, Key=parsed_url.path.lstrip("/")
+            )
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "404":
+                raise
+            logs.append(
+                f"Output '{output['url']}' is not present in the bucket: not ready"
+            )
+            all_ready = False
+        else:
+            if not output.get("size_bytes"):
+                logs.append(
+                    f"Output '{output['url']}' is present and missing 'size_bytes' field: assuming it's ready"
+                )
+                continue
+            # `size_bytes` in the GA4GH TES spec is a string and `ContentLength` is an int: convert
+            all_ready = str(output["size_bytes"]) == str(response["ContentLength"])
+            logs.append(
+                f"Output '{output['url']}' of expected size {output['size_bytes']} is present with size {response['ContentLength']}: {'' if all_ready else 'not '}ready"
+            )
+
+    if all_ready:
+        # When the deque is full, it silently drops the oldest item.
+        # We manually remove the oldest value from the cache.
+        if (
+            len(OUTPUTS_ARE_READY_CACHE_ORDER)
+            == config["OUTPUTS_ARE_READY_CACHE_MAX_SIZE"]
+        ):
+            oldest = OUTPUTS_ARE_READY_CACHE_ORDER[0]
+            OUTPUTS_ARE_READY_CACHE.remove(oldest)
+
+        OUTPUTS_ARE_READY_CACHE_ORDER.append(task_id)
+        OUTPUTS_ARE_READY_CACHE.add(task_id)
+
+    return all_ready, logs
