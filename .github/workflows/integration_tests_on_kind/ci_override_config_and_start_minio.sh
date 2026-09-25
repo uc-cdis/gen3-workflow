@@ -200,6 +200,9 @@ helm repo add aws-mountpoint-s3-csi-driver https://awslabs.github.io/mountpoint-
 helm repo update
 helm upgrade --install aws-mountpoint-s3-csi-driver --namespace kube-system aws-mountpoint-s3-csi-driver/aws-mountpoint-s3-csi-driver -f values-kind.yaml
 
+sleep 45
+kubectl get pods -n ${NAMESPACE}
+
 kubectl wait -n ${NAMESPACE} --for=condition=Ready pod/minio --timeout=120s
 kubectl wait -n external-secrets --for=condition=Ready pod --all --timeout=120s
 kubectl wait -n kube-system --for=condition=Ready pod --all --timeout=120s
