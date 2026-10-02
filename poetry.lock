@@ -118,7 +118,7 @@ flask = ["Flask"]
 type = "git"
 url = "https://github.com/uc-cdis/authutils.git"
 reference = "feat/dpop"
-resolved_reference = "3ddae3f4a1c21ce19762aa5c0112543f1157d6f8"
+resolved_reference = "87ad2f94992be3bae9eed2be21f95bc2268888bb"
 
 [[package]]
 name = "backoff"
