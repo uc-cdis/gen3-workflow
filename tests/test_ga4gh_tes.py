@@ -558,7 +558,12 @@ async def test_list_tasks(
             # `test_get_and_list_check_if_outputs_ready`
             tasks = res.json()
             tasks["tasks"] = [
-                t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]
+                t
+                for t in tasks["tasks"]
+                if (
+                    "with-logs-outputs" not in t["id"]
+                    and "incomplete-with-logs-outputs" not in t["id"]
+                )
             ]
 
             # check that the view was applied:
@@ -682,7 +687,12 @@ async def test_list_tasks_repeated_params(
             # `test_get_and_list_check_if_outputs_ready`
             tasks = res.json()
             tasks["tasks"] = [
-                t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]
+                t
+                for t in tasks["tasks"]
+                if (
+                    "with-logs-outputs" not in t["id"]
+                    and "incomplete-with-logs-outputs" not in t["id"]
+                )
             ]
 
             # check that the view was applied:
