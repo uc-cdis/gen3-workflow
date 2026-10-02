@@ -244,6 +244,68 @@ async def test_bound_token_with_valid_proof_is_accepted_on_s3_endpoint(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "external_prefix",
+    [
+        pytest.param("", id="served-as-is"),
+        pytest.param("/workflows", id="served-under-workflows"),
+    ],
+)
+async def test_bound_token_with_valid_proof_is_accepted_on_tes_endpoint_under_every_external_prefix(
+    client, access_token_patcher, token_signing_key, dpop_key, external_prefix
+):
+    """
+    The reverse proxy serves the TES endpoints both as-is and under "/workflows", so a proof
+    signed for either URL is accepted.
+    """
+    access_token = create_access_token(token_signing_key, dpop_key)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={
+            "Authorization": f"DPoP {access_token}",
+            "DPoP": create_proof(
+                dpop_key,
+                "POST",
+                TES_PATH,
+                access_token,
+                external_prefix=external_prefix,
+            ),
+        },
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "object_key",
+    [
+        pytest.param("my%20file.txt", id="space"),
+        pytest.param("caf%C3%A9.txt", id="non-ascii"),
+        pytest.param("folder%2Ffile.txt", id="encoded-slash"),
+    ],
+)
+async def test_bound_token_with_valid_proof_is_accepted_for_percent_encoded_s3_object_key(
+    client, access_token_patcher, token_signing_key, dpop_key, object_key
+):
+    """
+    A proof signed for the percent-encoded URL an S3 client sends is accepted for that request.
+    """
+    access_token = create_access_token(token_signing_key, dpop_key)
+    s3_path = f"/s3/{S3_BUCKET}/{object_key}"
+    res = await client.get(
+        s3_path,
+        headers={
+            "Authorization": aws_auth_header(access_token),
+            "DPoP": create_proof(
+                dpop_key, "GET", s3_path, access_token, external_prefix="/workflows"
+            ),
+        },
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("s3_path", S3_PATHS)
 async def test_bound_token_without_proof_is_rejected_on_s3_endpoint(
     client, access_token_patcher, token_signing_key, dpop_key, s3_path
@@ -440,6 +502,14 @@ async def test_proof_signed_with_a_nonce_from_another_cluster_is_challenged(
         pytest.param(
             {"url": "https://another-commons.net/ga4gh/tes/v1/tasks"},
             id="url-signed-is-another-commons",
+        ),
+        pytest.param(
+            {"url": f"{config['DPOP_EXTERNAL_BASE_URL']}/other/ga4gh/tes/v1/tasks"},
+            id="url-signed-under-an-unconfigured-prefix",
+        ),
+        pytest.param(
+            {"url": f"{config['DPOP_EXTERNAL_BASE_URL']}/ga4gh/tes/v1/tasks%2Fother"},
+            id="url-signed-decodes-to-another-path",
         ),
         pytest.param(
             {"access_token": "an.other.token"}, id="token-hash-does-not-match"

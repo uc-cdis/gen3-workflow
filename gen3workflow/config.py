@@ -61,7 +61,11 @@ class Gen3WorkflowConfig(Config):
                 "DPOP_EXTERNAL_BASE_URL": {"type": ["string", "null"]},
                 "DPOP_PROTECTED_PATHS": {
                     "type": "object",
-                    "additionalProperties": {"type": "string"},
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                    },
                 },
                 "S3_UPSTREAM_ENDPOINT": {"type": ["string", "null"]},
                 "S3_OBJECTS_EXPIRATION_DAYS": {"type": "integer", "minimum": 1},

@@ -24,10 +24,17 @@ from gen3workflow import logger
 from gen3workflow.config import config, get_dpop_allowed_issuers
 from gen3workflow.metrics import Metrics
 from gen3workflow.middleware.dpop import dpop_middleware
+from gen3workflow.routes.debug_stubs import (
+    stubbed_ga4gh_tes_router,
+    stubbed_s3_root_router,
+    stubbed_s3_router,
+    stubbed_status_router,
+    stubbed_storage_router,
+)
 from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import s3_root_router, s3_router
 from gen3workflow.routes.storage import router as storage_router
-from gen3workflow.routes.system import router as system_router
+from gen3workflow.routes.system import router as system_router, status_router
 from gen3workflow.routes.ui import router as ui_router
 
 
@@ -76,9 +83,37 @@ def get_app(httpx_client=None) -> FastAPI:
     if config["DEBUG_STUB_EXTERNAL_SERVICES"]:
         logger.warning(
             "*** RUNNING IN MOCKED DEBUG MODE: 'DEBUG_STUB_EXTERNAL_SERVICES' IS ENABLED. "
-            "THE GA4GH TES AND S3 ENDPOINTS RETURN STUBBED RESPONSES AND NEVER CONTACT THE TES "
+            "THE GA4GH TES, S3 AND STORAGE ENDPOINTS RETURN STUBBED RESPONSES AND NEVER CONTACT THE TES "
             "SERVER, AWS OR S3. NO TASK RUNS AND NO OBJECT IS STORED. THIS MUST NOT BE ENABLED "
             "IN PRODUCTION! ***"
+        )
+        # the stubbed routers replace the real ones wholesale
+        (
+            tes_router,
+            s3_prefix_router,
+            s3_root_mount_router,
+            app_status_router,
+            app_storage_router,
+        ) = (
+            stubbed_ga4gh_tes_router,
+            stubbed_s3_router,
+            stubbed_s3_root_router,
+            stubbed_status_router,
+            stubbed_storage_router,
+        )
+    else:
+        (
+            tes_router,
+            s3_prefix_router,
+            s3_root_mount_router,
+            app_status_router,
+            app_storage_router,
+        ) = (
+            ga4gh_tes_router,
+            s3_router,
+            s3_root_router,
+            status_router,
+            storage_router,
         )
 
     debug = config["APP_DEBUG"]
@@ -112,9 +147,10 @@ def get_app(httpx_client=None) -> FastAPI:
     # external calls when testing.
     app.async_client = httpx_client or httpx.AsyncClient(timeout=120)
 
-    app.include_router(ga4gh_tes_router, tags=["GA4GH TES"])
-    app.include_router(s3_router, tags=["S3"])
-    app.include_router(storage_router, tags=["Storage"])
+    app.include_router(tes_router, tags=["GA4GH TES"])
+    app.include_router(s3_prefix_router, tags=["S3"])
+    app.include_router(app_storage_router, tags=["Storage"])
+    app.include_router(app_status_router, tags=["System"])
     app.include_router(system_router, tags=["System"])
     app.include_router(ui_router, tags=["UI"])
 
@@ -142,26 +178,18 @@ def get_app(httpx_client=None) -> FastAPI:
         logger.warning(
             "Mock authentication and authorization are enabled! 'MOCK_AUTH' should NOT be enabled in production!"
         )
+    arborist_kwargs = {
+        "authz_provider": "gen3-workflow",
+        "logger": get_logger(
+            "gen3workflow.gen3authz",
+            log_level=log_level,
+            json_logs=config["ENABLE_JSON_LOGS"],
+        ),
+    }
     custom_arborist_url = os.environ.get("ARBORIST_URL", config["ARBORIST_URL"])
     if custom_arborist_url:
-        app.arborist_client = ArboristClient(
-            arborist_base_url=custom_arborist_url,
-            authz_provider="gen3-workflow",
-            logger=get_logger(
-                "gen3workflow.gen3authz",
-                log_level=log_level,
-                json_logs=config["ENABLE_JSON_LOGS"],
-            ),
-        )
-    else:
-        app.arborist_client = ArboristClient(
-            authz_provider="gen3-workflow",
-            logger=get_logger(
-                "gen3workflow.gen3authz",
-                log_level=log_level,
-                json_logs=config["ENABLE_JSON_LOGS"],
-            ),
-        )
+        arborist_kwargs["arborist_base_url"] = custom_arborist_url
+    app.arborist_client = ArboristClient(**arborist_kwargs)
 
     app.metrics = Metrics(
         enabled=config["ENABLE_PROMETHEUS_METRICS"],
@@ -171,7 +199,7 @@ def get_app(httpx_client=None) -> FastAPI:
     if app.metrics.enabled:
         app.mount("/metrics", app.metrics.get_asgi_app())
 
-    app.include_router(s3_root_router, tags=["S3"])
+    app.include_router(s3_root_mount_router, tags=["S3"])
 
     # Registered before the metrics middleware below: Starlette makes the last-registered
     # middleware the outermost one, so this ordering keeps DPoP rejections inside the metrics

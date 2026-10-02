@@ -417,23 +417,56 @@ def test_chunked_to_non_chunked_body():
 
 
 @pytest.mark.asyncio
-async def test_s3_endpoint_in_debug_stub_mode(client, debug_stub_mode, caplog):
+async def test_s3_endpoint_in_debug_stub_mode(
+    debug_stub_client, access_token_patcher, caplog
+):
     """
-    In debug stub mode, an S3 request gets a canned response, logged as a warning, without any
-    bucket lookup or forwarding to S3. Requests that no S3 client made are not stubbed, so the
-    root mount still answers unrouted paths as it normally would instead of returning a canned
-    200 for everything.
+    In debug stub mode, an authorized S3 request to the user's bucket gets a canned response,
+    logged as a warning, without being forwarded to S3.
     """
     bucket = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 
-    res = await client.get(
-        f"/s3/{bucket}", headers={"Authorization": "AWS4-HMAC-SHA256 Credential=stub"}
+    res = await debug_stub_client.get(
+        f"/s3/{bucket}",
+        headers={"Authorization": f"AWS4-HMAC-SHA256 Credential={TEST_USER_TOKEN}/"},
     )
     assert res.status_code == 200, res.text
     assert f"<Name>{bucket}</Name>" in res.text
     assert len(get_debug_stub_warnings(caplog)) == 1
 
-    res = await client.get(f"/s3/{bucket}")
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/s3/{bucket}", id="s3-prefix"),
+        pytest.param("/{bucket}", id="root"),
+    ],
+)
+async def test_s3_endpoint_in_debug_stub_mode_requires_an_access_token(
+    debug_stub_client, caplog, path
+):
+    """
+    In debug stub mode, an S3 request without credentials is rejected rather than stubbed, so
+    the root mount does not answer every unrouted path with a canned 200.
+    """
+    bucket = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    res = await debug_stub_client.get(path.format(bucket=bucket))
     assert res.status_code == 401, res.text
-    # the request was not stubbed, so it did not add a warning
-    assert len(get_debug_stub_warnings(caplog)) == 1
+    assert get_debug_stub_warnings(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_s3_endpoint_in_debug_stub_mode_rejects_another_users_bucket(
+    debug_stub_client, access_token_patcher, caplog
+):
+    """
+    In debug stub mode, an S3 request for a bucket other than the user's is rejected rather than
+    stubbed.
+    """
+    res = await debug_stub_client.get(
+        "/s3/someone-elses-bucket",
+        headers={"Authorization": f"AWS4-HMAC-SHA256 Credential={TEST_USER_TOKEN}/"},
+    )
+    assert res.status_code == 403, res.text
+    assert get_debug_stub_warnings(caplog) == []

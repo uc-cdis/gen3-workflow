@@ -20,15 +20,7 @@ from starlette.status import (
 from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
-from gen3workflow.routes.utils import (
-    get_stubbed_tes_task,
-    get_stubbed_tes_task_creation,
-    make_tes_server_request,
-    STUBBED_TES_SERVICE_INFO,
-    STUBBED_TES_TASK_CANCELLATION,
-    STUBBED_TES_TASK_LIST,
-    use_debug_stub,
-)
+from gen3workflow.routes.utils import make_tes_server_request
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import create_iam_role_for_funnel_bucket_access
 
@@ -72,9 +64,6 @@ async def service_info(request: Request, auth=Depends(Auth)) -> dict:
     """
     Get details about the GA4GH TES server
     """
-    if use_debug_stub("GET /service-info"):
-        return STUBBED_TES_SERVICE_INFO
-
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES service info")
 
@@ -130,9 +119,6 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     """
     Create a GA4GH TES task
     """
-    if use_debug_stub("POST /tasks"):
-        return get_stubbed_tes_task_creation()
-
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
@@ -280,9 +266,6 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
     """
     List the user's GA4GH TES tasks
     """
-    if use_debug_stub("GET /tasks"):
-        return STUBBED_TES_TASK_LIST
-
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' listing TES tasks")
 
@@ -349,9 +332,6 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     """
     Get a GA4GH TES task
     """
-    if use_debug_stub("GET /tasks/{task_id}"):
-        return get_stubbed_tes_task(task_id)
-
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' getting TES task '{task_id}'")
 
@@ -390,9 +370,6 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     """
     Cancel a GA4GH TES task
     """
-    if use_debug_stub("POST /tasks/{task_id}:cancel"):
-        return STUBBED_TES_TASK_CANCELLATION
-
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' canceling TES task '{task_id}'")
 

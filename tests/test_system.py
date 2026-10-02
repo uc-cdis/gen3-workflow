@@ -27,15 +27,12 @@ async def test_status_endpoint(client, endpoint):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "client", [pytest.param({"tes_resp_code": 404}, id="TES failure")], indirect=True
-)
-async def test_status_endpoint_in_debug_stub_mode(client, debug_stub_mode):
+async def test_status_endpoint_in_debug_stub_mode(debug_stub_client):
     """
     In debug stub mode, the status endpoint returns 200 without contacting the TES server, so
     that Kubernetes probes neither take the pod out of service nor log a connection error each.
     """
-    res = await client.get("/_status")
+    res = await debug_stub_client.get("/_status")
     assert res.status_code == 200
     assert res.json() == {"status": "OK"}
     # the TES server is not contacted at all, so an unreachable one cannot fill the logs with

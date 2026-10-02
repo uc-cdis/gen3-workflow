@@ -466,3 +466,61 @@ async def test_delete_user_bucket_with_versioning(
     delete_markers = response.get("DeleteMarkers", [])
     assert len(versions) == 0
     assert len(delete_markers) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher", [{"user_id": NEW_TEST_USER_ID}], indirect=True
+)
+async def test_storage_setup_in_debug_stub_mode_grants_access_without_creating_a_bucket(
+    debug_stub_client, access_token_patcher, mock_aws_services
+):
+    """
+    In debug stub mode, `/storage/setup` grants the user access to their own tasks and storage
+    in Arborist, so that the other stubbed endpoints authorize them, but creates no bucket.
+    """
+    expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{NEW_TEST_USER_ID}"
+
+    res = await debug_stub_client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {
+        "bucket": expected_bucket_name,
+        "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
+        "region": config["USER_BUCKETS_REGION"],
+    }
+
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/user/test-username-{NEW_TEST_USER_ID}/policy",
+        body=f'{{"policy":"gen3_workflow_user_sub_{NEW_TEST_USER_ID}"}}',
+        authorized=True,
+    )
+    with pytest.raises(ClientError):
+        clients.s3_client.head_bucket(Bucket=expected_bucket_name)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "debug_stub_client", [pytest.param({"authorized": False})], indirect=True
+)
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        pytest.param("get", "/storage/setup", id="setup"),
+        pytest.param("delete", "/storage/user-bucket", id="delete-bucket"),
+        pytest.param("delete", "/storage/user-bucket/objects", id="empty-bucket"),
+    ],
+)
+async def test_storage_endpoints_in_debug_stub_mode_check_authorization(
+    debug_stub_client, access_token_patcher, method, path
+):
+    """
+    In debug stub mode, a storage request the caller is not authorized to make is rejected
+    rather than stubbed.
+    """
+    res = await getattr(debug_stub_client, method)(
+        path, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 403, res.text

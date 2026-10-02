@@ -29,7 +29,6 @@ from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
 from gen3workflow.config import config
-from gen3workflow.routes.utils import get_stubbed_s3_response, use_debug_stub
 
 # Must stay in sync with the `DPOP_PROTECTED_PATHS` key covering the S3 endpoint: the DPoP
 # middleware protects the root mount below under this prefix, because a root-mounted path
@@ -87,7 +86,7 @@ async def set_access_token_and_get_user_id(
 
     # extract the key ID from the authorization header
     try:
-        access_key_id = get_access_key_id_from_auth_header(auth_header)
+        access_key_id = get_s3_access_key_id_from_auth_header(auth_header)
     except ValueError as e:
         err_msg = "Unexpected format; unable to extract access token from authorization header"
         logger.error(f"{err_msg}: {e}")
@@ -159,7 +158,7 @@ async def set_access_token_and_get_user_id(
     return user_id, client_id
 
 
-def get_access_key_id_from_auth_header(auth_header: str) -> str:
+def get_s3_access_key_id_from_auth_header(auth_header: str) -> str:
     """
     Extract the access key ID from the Authorization header of a signed S3 request.
 
@@ -182,6 +181,91 @@ def get_access_key_id_from_auth_header(auth_header: str) -> str:
         return auth_header.split("AWS ")[1].split(":")[0]  # format 2
     except Exception as e:
         raise ValueError(f"Unable to extract the access key ID: {e}")
+
+
+async def authorize_s3_request(request: Request, path: str) -> str:
+    """
+    Authenticate an incoming S3 request and check the caller may make it.
+
+    The caller (user, or client acting on behalf of the user) must have access to the user's
+    files, and anything but a "list buckets" request must target the user's own bucket.
+    Note: sharing task inputs/output is not supported. Currently, users can only access their own
+    S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
+    the list of files for a specific task.
+
+    Args:
+        request (Request): the incoming S3 request
+        path (str): the requested path, in the `<bucket>[/<key>]` format
+
+    Returns:
+        str: the name of the user's bucket
+
+    Raises:
+        HTTPException: 401 if the caller cannot be authenticated, 403 if they are not allowed to
+            make this request
+    """
+    auth = Auth(api_request=request)
+    user_id, client_id = await set_access_token_and_get_user_id(
+        auth,
+        request.headers,
+        dpop_validated=getattr(request.state, "dpop_validated", False),
+    )
+    auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
+        request.method, "create"
+    )
+    await auth.authorize(
+        auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
+    )
+
+    logger.info(
+        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
+    )
+    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
+
+    if not is_list_buckets_request(request.method, path):
+        request_bucket = path.split("?")[0].split("/")[0]
+        if request_bucket != user_bucket:
+            err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+
+    return user_bucket
+
+
+def is_list_buckets_request(method: str, path: str) -> bool:
+    """
+    Check whether an S3 request is a "list buckets" request.
+
+    Args:
+        method (str): the HTTP method of the request
+        path (str): the requested path
+
+    Returns:
+        bool: True for a "list buckets" request
+    """
+    return method == "GET" and path in ("", "s3")
+
+
+def list_buckets_response(user_bucket: str) -> Response:
+    """
+    Answer a "list buckets" request with the user's bucket only, since it is the only one they
+    can access.
+
+    Args:
+        user_bucket (str): the name of the user's bucket
+
+    Returns:
+        Response: the S3 "list buckets" response
+    """
+    xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult xmlns="http://amazonaws.com">
+    <Buckets>
+        <Bucket>
+            <Name>{user_bucket}</Name>
+        </Bucket>
+    </Buckets>
+</ListAllMyBucketsResult>"""
+    return Response(content=xml_data, media_type="application/xml")
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -252,64 +336,11 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    # Because this endpoint is exposed at root, if the GET path is empty, the user may not be
-    # trying to reach the S3 endpoint: suggest using the status endpoint.
-    # "All buckets" listing requests also land here and are not supported, since users can only
-    # access their own bucket.
-    if request.method == "GET" and path in ("", "s3"):
-        err_msg = f"'{request.method} /{path}': If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
-        logger.error(err_msg)
-        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+    user_bucket = await authorize_s3_request(request, path)
+    if is_list_buckets_request(request.method, path):
+        return list_buckets_response(user_bucket)
 
-    # Only stub requests that an S3 client actually made. This endpoint is also mounted as a
-    # catch-all at the root, so stubbing on the path alone would answer every unrouted path in
-    # the app with a canned 200, hiding both real 404s and the missing-credentials 401 below.
-    if request.headers.get("authorization", "").startswith(
-        ("AWS4-HMAC-SHA256", "AWS ")
-    ) and use_debug_stub(f"{request.method} /{path}"):
-        return get_stubbed_s3_response(request.method, path)
-
-    # Extract the caller's access token from the request headers, and ensure the caller (user, or
-    # client acting on behalf of the user) has access to the user's files.
-    # Note: sharing task inputs/output is not supported. Currently, users can only access their own
-    # S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
-    # the list of files for a specific task.
-    auth = Auth(api_request=request)
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(
-        auth, in_headers, dpop_validated=getattr(request.state, "dpop_validated", False)
-    )
-    auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
-        request.method, "create"
-    )
-    await auth.authorize(
-        auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
-    )
-
-    # get the name of the user's bucket
-    logger.info(
-        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
-    )
-    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
-
-    # this is a "list buckets" request: only return the user's bucket
-    if request.method == "GET" and path in ("", "s3"):
-        xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
-<ListAllMyBucketsResult xmlns="http://amazonaws.com">
-    <Buckets>
-        <Bucket>
-            <Name>{user_bucket}</Name>
-        </Bucket>
-    </Buckets>
-</ListAllMyBucketsResult>"""
-        return Response(content=xml_data, media_type="application/xml")
-
-    # ensure the user is making a call to their own bucket
-    request_bucket = path.split("?")[0].split("/")[0]
-    if request_bucket != user_bucket:
-        err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)

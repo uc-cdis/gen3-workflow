@@ -10,6 +10,7 @@ useless on its own.
 import base64
 import json
 from typing import Awaitable, Callable
+from urllib.parse import unquote, urlsplit
 
 from authutils.dpop import validate_dpop_request_async
 from authutils.errors import AuthError, InvalidNonceError
@@ -24,7 +25,7 @@ from gen3workflow.config import (
     get_dpop_external_base_url,
     get_dpop_shared_secret,
 )
-from gen3workflow.routes.s3 import S3_PATH_PREFIX, get_access_key_id_from_auth_header
+from gen3workflow.routes.s3 import S3_PATH_PREFIX, get_s3_access_key_id_from_auth_header
 
 # The scopes and purpose a DPoP-bound access token must satisfy. These mirror what the
 # bearer token path requires (see `Auth.get_token_claims`), so the same token works either way.
@@ -107,7 +108,7 @@ async def dpop_middleware(
             dpop_header=dpop_proof,
             access_token=access_token,
             request_method=request.method,
-            request_url=_get_url(request.url.path, path_prefix),
+            request_url=_get_url(request.url.path, path_prefix, dpop_proof),
             issuers=get_dpop_allowed_issuers(),
             aud=config["VALID_AUTHZ_AUDIENCE"],
             scope=set(REQUIRED_SCOPES),
@@ -203,23 +204,43 @@ def _get_protected_path_prefix(path: str, auth_header: str) -> str | None:
     return None
 
 
-def _get_url(path: str, path_prefix: str) -> str:
+def _get_url(path: str, path_prefix: str, dpop_proof: str) -> str:
     """
     Rebuild the URL the client signed in the proof's `htu` claim.
 
-    The reverse proxy may serve this service under a path prefix that it strips before
-    forwarding, so the request path alone does not describe what the client called. The query
-    string is left out because `htu` never contains one.
+    The reverse proxy may serve this service under one or more path prefixes that it strips
+    before forwarding, so the request path alone does not describe what the client called. The
+    query string is left out because `htu` never contains one.
+
+    Some endpoints are reachable at more than one URL, e.g. TES at both `/ga4gh/tes/...` and
+    `/workflows/ga4gh/tes/...`. This returns whichever of those URLs the proof's `htu` names, or
+    the first one if it names none of them.
+
+    Choosing based on a proof that is not verified yet is safe: every candidate URL is built
+    from this service's base URL, a configured prefix and this request's path, so the proof can
+    only pick between URLs for this same request. `htu` is percent-decoded before matching
+    because `path` already is.
 
     Args:
-        path (str): the path of the incoming request, as this service sees it
+        path (str): the path of the incoming request, as this service sees it (decoded)
         path_prefix (str): the matching `DPOP_PROTECTED_PATHS` key
+        dpop_proof (str): the encoded DPoP proof presented with the request
 
     Returns:
         str: the URL to validate `htu` against
     """
-    external_prefix = config["DPOP_PROTECTED_PATHS"][path_prefix]
-    return f"{get_dpop_external_base_url()}{external_prefix}{path}"
+    base_url = get_dpop_external_base_url()
+    external_paths = [
+        f"{external_prefix}{path}"
+        for external_prefix in config["DPOP_PROTECTED_PATHS"][path_prefix]
+    ]
+    signed_htu = _unverified_claims(dpop_proof).get("htu")
+    if isinstance(signed_htu, str):
+        signed_path = unquote(urlsplit(signed_htu).path)
+        if signed_path in external_paths:
+            return f"{base_url}{signed_path}"
+    # no match: validate against the first form so the proof is rejected with an `htu` mismatch
+    return f"{base_url}{external_paths[0]}"
 
 
 def _get_access_token(auth_header: str) -> str | None:
@@ -243,7 +264,7 @@ def _get_access_token(auth_header: str) -> str | None:
         return parts[1].strip() if len(parts) == 2 else None
 
     try:
-        access_key_id = get_access_key_id_from_auth_header(auth_header)
+        access_key_id = get_s3_access_key_id_from_auth_header(auth_header)
     except ValueError:
         return None
     # A client acting on behalf of a user appends the user ID to its token
@@ -281,7 +302,7 @@ def _carries_an_s3_access_key_id(auth_header: str) -> bool:
     if not auth_header or _is_scheme_auth_header(auth_header):
         return False
     try:
-        return bool(get_access_key_id_from_auth_header(auth_header))
+        return bool(get_s3_access_key_id_from_auth_header(auth_header))
     except ValueError:
         return False
 
