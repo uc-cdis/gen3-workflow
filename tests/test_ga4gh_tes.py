@@ -506,13 +506,23 @@ def test_get_authz_string():
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 @pytest.mark.parametrize("get_all", [False, True])
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
-async def test_list_tasks(client, access_token_patcher, get_all, view, trailing_slash):
+async def test_list_tasks(
+    client, access_token_patcher, get_all, view, trailing_slash, mock_aws_services
+):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
     unsupported query params should be filtered out. Tasks the user does not have access
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
+    # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
+    # call is conditional
+    # if client.authorized:
+    #     res = await client.get(
+    #         "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    #     )
+    #     assert res.status_code == 200, res.text
+
     url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
     if view:
         url += f"&view={view}"
@@ -588,7 +598,7 @@ async def test_list_tasks(client, access_token_patcher, get_all, view, trailing_
 @pytest.mark.parametrize("get_all", [False, True])
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
 async def test_list_tasks_repeated_params(
-    client, access_token_patcher, get_all, view, trailing_slash
+    client, access_token_patcher, get_all, view, trailing_slash, mock_aws_services
 ):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server.
@@ -597,6 +607,14 @@ async def test_list_tasks_repeated_params(
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
+    # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
+    # call is conditional
+    if client.authorized:
+        res = await client.get(
+            "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
+        assert res.status_code == 200, res.text
+
     url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
     if view:
         url += f"&view={view}"
