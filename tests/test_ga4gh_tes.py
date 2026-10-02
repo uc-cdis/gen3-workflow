@@ -697,9 +697,9 @@ async def test_list_tasks_repeated_params(
 
             # check that the view was applied:
             if view == "BASIC":
-                assert res.json() == {"tasks": [{"id": "123", "state": "COMPLETE"}]}
+                assert tasks == {"tasks": [{"id": "123", "state": "COMPLETE"}]}
             elif view == "FULL":
-                assert res.json() == {
+                assert tasks == {
                     "tasks": [
                         {
                             "id": "123",
@@ -712,7 +712,7 @@ async def test_list_tasks_repeated_params(
                     ]
                 }
             else:  # view == None or "MINIMAL"
-                assert res.json() == {
+                assert tasks == {
                     "tasks": [
                         {
                             "id": "123",
