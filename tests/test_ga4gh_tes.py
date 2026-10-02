@@ -678,6 +678,13 @@ async def test_list_tasks_repeated_params(
         if not client.authorized:
             assert res.json() == {"tasks": []}
         else:
+            # skip the `with-logs-outputs` tasks, they are checked in
+            # `test_get_and_list_check_if_outputs_ready`
+            tasks = res.json()
+            tasks["tasks"] = [
+                t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]
+            ]
+
             # check that the view was applied:
             if view == "BASIC":
                 assert res.json() == {"tasks": [{"id": "123", "state": "COMPLETE"}]}
