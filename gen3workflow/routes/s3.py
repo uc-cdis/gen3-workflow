@@ -110,8 +110,9 @@ async def set_access_token_and_get_user_id(
     dpop_validated: bool = False,
 ) -> Tuple[str, str]:
     """
-    Extract the user's access token, which should have been provided as the access key ID, from
-    the Authorization header, and return the user's ID from the decoded token.
+    Extract the user's access token and (in some cases) the user's ID, which should have been
+    provided as the access key ID, from the Authorization header.
+    Return the user's ID extracted from the key ID or from the decoded token.
     Also set the provided `auth` instance's `bearer_token` to the extracted access token.
 
     The Authorization header should be in one of the two following expected formats:
@@ -119,9 +120,10 @@ async def set_access_token_and_get_user_id(
        <region>/<service>/aws4_request, SignedHeaders=<...>, Signature=<...>`
     2. Set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<...>`
 
-    The key ID should be the user's access token. A key ID in the
-    `<client's access token>;userId=<user ID>` format, in which a client acts on behalf of a user,
-    is rejected.
+    The key ID should be in one of the two following expected formats:
+    A. Request made by a user: `<user's access token>`
+    B. Request made by a client on behalf of a user:
+       `<client's `client_credentials` access token>;userId=<user ID>`
 
     Args:
         auth (Auth): Gen3Workflow auth instance
@@ -132,7 +134,7 @@ async def set_access_token_and_get_user_id(
             request. A DPoP-bound token is refused without one.
 
     Returns:
-        tuple(str, str): the user's ID and (if the token is linked to a client) the client's ID
+        tuple(str, str): the user's ID and (if relevant) the client's ID
     """
     auth_header = headers.get("authorization")
     if not auth_header:
@@ -152,7 +154,13 @@ async def set_access_token_and_get_user_id(
         logger.error(f"{err_msg}: {e}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    if ";userId=" in access_key_id:
+    # extract the access token from the key ID
+    is_user_token = ";userId=" not in access_key_id
+    if is_user_token:  # format A (see docstring)
+        access_token = access_key_id
+    else:  # format B (see docstring)
+        # TODO remove this path later, for now just reject the calls
+        # access_token, user_id = access_key_id.split(";userId=")
         err_msg = (
             f"'{method} {path}' from Funnel worker: rejected - this path is deprecated"
         )
@@ -161,7 +169,7 @@ async def set_access_token_and_get_user_id(
 
     # set the token so we can perform authn/authz checks on it
     auth.bearer_token = HTTPAuthorizationCredentials(
-        scheme="bearer", credentials=access_key_id
+        scheme="bearer", credentials=access_token
     )
 
     # ensure token validity
@@ -187,11 +195,32 @@ async def set_access_token_and_get_user_id(
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    user_id = token_claims.get("sub")
+    sub = token_claims.get("sub")
     client_id = token_claims.get("azp")
+    if is_user_token:
+        user_id = sub
+    else:
+        if not client_id:
+            # Format B (see docstring) should only be used by clients acting on behalf of a user.
+            # It is not a valid format if the token is not linked to a client.
+            err_msg = f"No client ID in token"
+            logger.error(f"{err_msg}. Debug: {token_claims=}")
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        if sub:
+            # OIDC tokens linked to both a user and a client are supported in the case of a user
+            # key ID (format A). In the case of a client key ID (format B), they are not:
+            # - Ambiguity: we would need to decide which of `sub` (from token_claims) and `user_id`
+            #   (from access_key_id) should be trusted as the user ID.
+            # - There is no use case for it: format B was specifically designed for use cases where
+            #   the token comes from a `client_credentials` flow and does not include a user ID
+            #   (`sub`). In this flow, the client must declare the user they are acting on behalf of
+            #   via the `;userId=` suffix in the key ID.
+            err_msg = f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     if not user_id:
-        err_msg = "No user ID in token"
-        logger.error(f"{err_msg}. Debug: {token_claims=}")
+        err_msg = f"No user ID in token or key ID"
+        logger.error(f"{err_msg}. Debug: {is_user_token=} {token_claims=}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     return user_id, client_id
@@ -226,7 +255,8 @@ async def authorize_s3_request(request: Request, path: str) -> str:
     """
     Authenticate an incoming S3 request and check the caller may make it.
 
-    The user must have access to their own files, and anything but a "list buckets" request must target the user's own bucket.
+    The caller (user, or client acting on behalf of the user) must have access to the user's
+    files, and anything but a "list buckets" request must target the user's own bucket.
     Note: sharing task inputs/output is not supported. Currently, users can only access their own
     S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
     the list of files for a specific task.

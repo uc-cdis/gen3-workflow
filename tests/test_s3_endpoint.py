@@ -51,7 +51,8 @@ def s3_client(client, request):
       Specifically, most tests should run on both `/s3` and `/` because the root endpoint should
       also point to the `/s3` endpoint logic.
     - Set request param "aws_access_key_id" (str, default `TEST_USER_TOKEN`) to change the key ID
-      used in boto3 calls.
+      used in boto3 calls. Specifically, some tests should use the key ID format
+      `<token>;userId=<user ID>` to test the client token flow.
     """
     endpoint = request.param.get("endpoint", "s3")
     aws_access_key_id = request.param.get("aws_access_key_id", TEST_USER_TOKEN)
@@ -96,6 +97,7 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
     Testing:
     - s3 path and root path
     - matching credentials: user aws_access_key_id and user token
+    - matching credentials: client aws_access_key_id and client token
     """
     res = s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
     res.get("ResponseMetadata", {}).get("HTTPHeaders", {}).pop("date", None)
@@ -113,14 +115,15 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
         ),
     ],
     ids=[
-        "user aws_access_key_id-client token",
+        "client aws_access_key_id-user token",
     ],
     indirect=True,
 )
 def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
     """
-    Hitting the `/s3` endpoint with a user aws_access_key_id and a client token (not linked to a
-    user) should result in a 401 Unauthorized error.
+    Hitting the `/s3` endpoint with mismatched credentials (user aws_access_key_id and client
+    token, or client aws_access_key_id and user token) should result in a 401 Unauthorized
+    error.
     """
     with pytest.raises(ClientError, match="Unauthorized"):
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
@@ -170,16 +173,19 @@ def test_s3_endpoint_no_token(s3_client):
         ),
     ],
     ids=[
-        "user+client token",
+        "supported user+client token",
     ],
     indirect=True,
 )
-def test_s3_endpoint_oidc_token(s3_client, access_token_patcher):
+def test_s3_endpoint_unsupported_oidc_token(s3_client, access_token_patcher, request):
     """
-    Hitting the `/s3` endpoint with a Gen3 access token issued from the OIDC flow (token linked
-    to a client AND to a user) as the aws_access_key_id is supported.
+    Hitting the `/s3` endpoint with a Gen3 access token issued from the OIDC flow (token linked to a client AND to a user) is supported in the case of a user key ID. In the case of a client key ID, it should result in a 401 Unauthorized error.
     """
-    s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    if "unsupported" in request.node.callspec.id:
+        with pytest.raises(ClientError, match="Unauthorized"):
+            s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    else:
+        s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
 
 
 @pytest.mark.parametrize(
@@ -272,11 +278,14 @@ async def test_set_access_token_and_get_user_id(
     auth_header_format, token_claims_sub, token_claims_azp
 ):
     """
-    Test `set_access_token_and_get_user_id` behavior with various access token claims.
+    Test `set_access_token_and_get_user_id` behavior with various combinations of access token and
+    key ID.
 
     Testing:
     - Authorization header ID format 1 and 2, as documented in the
       `set_access_token_and_get_user_id` docstring
+    - Key ID format A and B, as documented in the `set_access_token_and_get_user_id`
+      docstring
     - Access token claims with or without the `sub` field (user ID)
     - Access token claims with or without the `azp` field (client ID)
     """
@@ -296,9 +305,9 @@ async def test_set_access_token_and_get_user_id(
     else:
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
-    # no user ID in the token claims: error
+    # no user ID in the token claims or in the key ID: error
     if not token_claims_sub:
-        with pytest.raises(HTTPException, match="401: No user ID in token"):
+        with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
     else:

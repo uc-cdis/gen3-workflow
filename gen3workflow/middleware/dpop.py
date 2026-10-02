@@ -264,9 +264,11 @@ def _get_access_token(auth_header: str) -> str | None:
         return parts[1].strip() if len(parts) == 2 else None
 
     try:
-        return get_s3_access_key_id_from_auth_header(auth_header)
+        access_key_id = get_s3_access_key_id_from_auth_header(auth_header)
     except ValueError:
         return None
+    # A client acting on behalf of a user appends the user ID to its token
+    return access_key_id.split(";userId=")[0]
 
 
 def _is_scheme_auth_header(auth_header: str) -> bool:
