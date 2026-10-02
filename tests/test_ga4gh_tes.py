@@ -517,11 +517,11 @@ async def test_list_tasks(
     """
     # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
     # call is conditional
-    # if client.authorized:
-    #     res = await client.get(
-    #         "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    #     )
-    #     assert res.status_code == 200, res.text
+    if client.authorized:
+        res = await client.get(
+            "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
+        assert res.status_code == 200, res.text
 
     url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
     if view:
