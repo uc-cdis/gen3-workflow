@@ -12,12 +12,12 @@ label combinations that app itself has recorded. The first request to a combinat
 makes it appear at the total every other app already reached, not at one.
 """
 
-from prometheus_client.parser import text_string_to_metric_families
 import pytest
-
 from cdispyutils.observability.constants import UNMATCHED_PATH
+from prometheus_client.parser import text_string_to_metric_families
+
 from gen3workflow.config import config
-from tests.conftest import trailing_slash, TEST_USER_TOKEN
+from tests.conftest import TEST_USER_TOKEN, trailing_slash
 
 REQUEST_COUNTER = "gen3_workflow_api_requests_total"
 DURATION_COUNT = "gen3_workflow_api_request_duration_seconds_count"

@@ -9,16 +9,16 @@ that the tests do not need a live token issuer.
 import time
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from authutils.dpop import DPOP_PROOF_MAX_TTL, generate_dpop_proof
 from authutils.token.dpop_nonce import generate_stateless_nonce
 from joserfc import jwk, jwt
-import pytest
 
 from gen3workflow.config import config, get_dpop_allowed_issuers
 from tests.conftest import (
-    mock_arborist_request,
     MOCKED_S3_RESPONSE_XML,
     TEST_USER_ID,
+    mock_arborist_request,
 )
 from tests.test_metrics import scrape, total
 
@@ -748,7 +748,7 @@ async def test_exempt_client_token_without_proof_is_accepted_when_dpop_is_requir
     indirect=True,
 )
 @pytest.mark.parametrize("s3_path", S3_PATHS)
-async def test_exempt_client_token_without_proof_is_accepted_on_s3_endpoint_when_dpop_is_required(
+async def test_exempt_client_token_on_behalf_of_a_user_is_rejected_on_s3_endpoint(
     client,
     access_token_patcher,
     token_signing_key,
@@ -757,8 +757,8 @@ async def test_exempt_client_token_without_proof_is_accepted_on_s3_endpoint_when
     s3_path,
 ):
     """
-    The exemption also covers the S3 endpoint, where a client presents its token as the AWS
-    access key ID, with the ID of the user it acts on behalf of appended to it.
+    The exemption does not cover the S3 endpoint: a client token presented as the AWS access key
+    ID with the ID of the user it acts on behalf of appended to it is rejected.
     """
     config["DPOP_REQUIRED"] = True
     config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
@@ -770,8 +770,7 @@ async def test_exempt_client_token_without_proof_is_accepted_on_s3_endpoint_when
             "Authorization": aws_auth_header(f"{access_token};userId={TEST_USER_ID}")
         },
     )
-    assert res.status_code == 200, res.text
-    assert res.text == MOCKED_S3_RESPONSE_XML
+    assert res.status_code == 401, res.text
 
 
 @pytest.mark.asyncio

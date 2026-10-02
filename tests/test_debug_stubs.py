@@ -2,9 +2,9 @@
 Tests for the debug stub routers. See `DEBUG_STUB_EXTERNAL_SERVICES`.
 """
 
+import pytest
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
-import pytest
 
 from gen3workflow.routes.debug_stubs import (
     stubbed_ga4gh_tes_router,

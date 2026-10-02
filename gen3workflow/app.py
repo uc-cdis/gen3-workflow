@@ -1,15 +1,8 @@
-from fastapi import FastAPI
-from fastapi.routing import APIRoute
-import httpx
-from importlib.metadata import version
 import logging
 import os
+from importlib.metadata import version
 
-from gen3logging import get_logger
-from fastapi import Request
-from gen3authz.client.arborist.async_client import ArboristClient
-from starlette.responses import Response
-
+import httpx
 from authutils.dpop import DPOP_PROOF_MAX_TTL
 from cdispyutils.observability.continuous_profiling import configure_profiling
 from cdispyutils.observability.request_metrics import add_request_metrics_middleware
@@ -17,8 +10,13 @@ from cdispyutils.observability.tracing import (
     LoggingInstrumentorWithContext,
     configure_tracing,
 )
+from fastapi import FastAPI, Request
+from fastapi.routing import APIRoute
+from gen3authz.client.arborist.async_client import ArboristClient
+from gen3logging import get_logger
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from starlette.responses import Response
 
 from gen3workflow import logger
 from gen3workflow.config import config, get_dpop_allowed_issuers
@@ -34,7 +32,8 @@ from gen3workflow.routes.debug_stubs import (
 from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import s3_root_router, s3_router
 from gen3workflow.routes.storage import router as storage_router
-from gen3workflow.routes.system import router as system_router, status_router
+from gen3workflow.routes.system import router as system_router
+from gen3workflow.routes.system import status_router
 from gen3workflow.routes.ui import router as ui_router
 
 

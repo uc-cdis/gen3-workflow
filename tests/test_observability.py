@@ -9,8 +9,15 @@ for the module, and the fixtures below undo the rest so nothing leaks into the o
 
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
 import httpx
+import pytest
+from cdispyutils.observability import continuous_profiling
+from cdispyutils.observability.continuous_profiling import (
+    profiling_active,
+    stop_profiling,
+)
+from cdispyutils.observability.tracing import reset_tracing_state
+from fastapi import FastAPI
 from opentelemetry import trace
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -19,14 +26,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
-import pytest
 
-from cdispyutils.observability import continuous_profiling
-from cdispyutils.observability.continuous_profiling import (
-    profiling_active,
-    stop_profiling,
-)
-from cdispyutils.observability.tracing import reset_tracing_state
 from gen3workflow.app import get_app
 from gen3workflow.config import config
 
