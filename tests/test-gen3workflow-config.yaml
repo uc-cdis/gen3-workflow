@@ -1,4 +1,6 @@
 APP_DEBUG: true
+# keeps pytest output readable; tests/test_logging.py sets this explicitly either way
+ENABLE_JSON_LOGS: false
 ARBORIST_URL: http://test-arborist-server
 
 S3_ENDPOINTS_AWS_ACCESS_KEY_ID: test-aws-key-id
@@ -16,3 +18,9 @@ WORKER_PODS_NAMESPACE: test-namespace
 EKS_CLUSTER_NAME: test-cluster
 EKS_CLUSTER_REGION: us-east-1
 EKS_SECURITY_GROUP_NAMES: ["test-cluster_EKS_workers_sg"]
+
+DPOP_ENABLED: true
+DPOP_SHARED_SECRET: dpop-test-shared-secret-0123456789  # pragma: allowlist secret
+DPOP_ALLOWED_ISSUERS:
+  - http://test-fence-server/user
+DPOP_EXTERNAL_BASE_URL: http://test-gen3-wf

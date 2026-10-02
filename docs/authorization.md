@@ -6,6 +6,7 @@ Contents:
 - [Authorization resources overview](#authorization-resources-overview)
 - [Storage](#storage)
 - [GA4GH TES](#ga4gh-tes)
+- [Client credentials and DPoP](#client-credentials-and-dpop)
 - [Authorization configuration example](#authorization-configuration-example)
 
 ## Authorization resources overview
@@ -36,8 +37,19 @@ graph TD;
 
 ## Storage
 - To upload input files, download output files, and in general manage the files in their S3 bucket, users need `create`, `read` or `delete` access to resource `/services/workflow/gen3-workflow/storage/<user ID>` on service `gen3-workflow`.
-- The Funnel workers have access to `/services/workflow/gen3-workflow/storage` so they can manage files in all the user buckets.
+- The Funnel worker pods do not go through the S3 endpoint: they access the user's bucket directly, with a per-user IAM role scoped to that bucket and assumed through IRSA (see `WORKER_PODS_NAMESPACE`).
 - To empty or delete their own S3 bucket (`/storage/user-bucket` endpoints), users need `delete` access to the resource `/services/workflow/gen3-workflow/storage/<user ID>` on the `gen3-workflow` service.
+
+## Client credentials and DPoP
+
+Clients such as the Funnel workers authenticate through the `client_credentials` flow. The S3 endpoint rejects a client token presented on behalf of a user as the AWS access key ID (`<client token>;userId=<user ID>`), so such a token can only reach the GA4GH TES endpoints.
+
+Such a token is never DPoP-bound, and the clients listed in `DPOP_EXEMPT_CLIENT_IDS` may use one on the GA4GH TES endpoints with no proof. It is therefore an ordinary bearer credential: possession is sufficient, and it is worth more than any one user's token. Keep that list to the clients that need it, keep their policies as narrow as the workflows allow, and keep the token lifetime short. Every request that uses the exemption is logged and counted in the `gen3_workflow_dpop_exempt_requests` metric, labeled by client ID.
+
+Removing the exemption means binding the worker's credential instead. Two options, neither implemented, both needing work in the auth service:
+
+- **DPoP-bound `client_credentials` tokens.** RFC 9449 covers the grant: the client sends a proof to the token endpoint and gets a token carrying `cnf.jkt`. No exemption would be needed, since a bound token already requires a proof on every request.
+- **mTLS-bound tokens ([RFC 8705](https://datatracker.ietf.org/doc/html/rfc8705)).** The client authenticates to the token endpoint with a client certificate and the token carries a `cnf.x5t#S256` claim; this service then accepts it only on a connection presenting that certificate. Nothing is signed per request, which suits a confidential client running in-cluster. It needs the client certificate to survive the reverse proxy, for example forwarded as `X-Forwarded-Client-Cert`.
 
 ## Authorization configuration example
 

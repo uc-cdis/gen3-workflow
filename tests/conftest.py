@@ -326,6 +326,23 @@ async def reset_requests_mocks_and_caches():
     USER_BUCKET_CACHE.clear()
 
 
+def get_debug_stub_warnings(caplog) -> list:
+    """
+    Extract the warnings logged for stubbed requests from the captured logs.
+
+    Args:
+        caplog: pytest's log capturing fixture
+
+    Returns:
+        list: the logged messages, one per stubbed request
+    """
+    return [
+        record.message
+        for record in caplog.records
+        if record.levelname == "WARNING" and "DEBUG MODE" in record.message
+    ]
+
+
 class UvicornServer(uvicorn.Server):
     """
     Server that can be stopped when the unit test completes. Used for tests that need to hit
@@ -363,13 +380,48 @@ async def client(request):
       app URL directly (use case: configure a boto3 client with the app URL), otherwise an httpx
       client is used.
     """
-    tes_resp_code = 200
-    authorized = True
-    get_url = False
-    if hasattr(request, "param"):
-        tes_resp_code = request.param.get("tes_resp_code", 200)
-        authorized = request.param.get("authorized", True)
-        get_url = request.param.get("get_url", get_url)
+    params = getattr(request, "param", {})
+    async with make_test_client(
+        tes_resp_code=params.get("tes_resp_code", 200),
+        authorized=params.get("authorized", True),
+        get_url=params.get("get_url", False),
+    ) as test_client:
+        yield test_client
+
+
+@pytest_asyncio.fixture(scope="function")
+async def debug_stub_client(request):
+    """
+    Same as `client`, for an app started in debug stub mode. The stubbed routers are chosen when
+    the app is created, so this builds an app of its own. See `DEBUG_STUB_EXTERNAL_SERVICES`.
+
+    - Set request param "authorized" (bool, default True) to change the response returned by
+      Arborist for access requests.
+    """
+    params = getattr(request, "param", {})
+    original_val = config["DEBUG_STUB_EXTERNAL_SERVICES"]
+    config["DEBUG_STUB_EXTERNAL_SERVICES"] = True
+    try:
+        async with make_test_client(
+            authorized=params.get("authorized", True)
+        ) as test_client:
+            yield test_client
+    finally:
+        config["DEBUG_STUB_EXTERNAL_SERVICES"] = original_val
+
+
+@contextlib.asynccontextmanager
+async def make_test_client(
+    tes_resp_code: int = 200, authorized: bool = True, get_url: bool = False
+):
+    """
+    Create an app whose calls to external services are mocked, and a client to call it with.
+    See `client` for the parameters.
+
+    Yields:
+        httpx.AsyncClient | str: a client forwarding requests to the app, or the app URL if
+            `get_url` is True
+    """
 
     async def handle_request(request: Request):
         url = str(request.url)

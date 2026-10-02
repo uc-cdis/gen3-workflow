@@ -7,6 +7,7 @@ from gen3workflow.config import config
 from tests.conftest import (
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    get_debug_stub_warnings,
     mock_arborist_request,
     mock_tes_server_request,
     remove_bucket_policy_and_put_object,
@@ -630,6 +631,81 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
             body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )
+
+
+@pytest.mark.asyncio
+async def test_endpoints_in_debug_stub_mode(
+    debug_stub_client, access_token_patcher, caplog
+):
+    """
+    In debug stub mode, the TES endpoints return canned responses without contacting the TES
+    server, and log a warning for each stubbed request, so that a stubbed deployment cannot be
+    mistaken for a working one.
+    """
+    res = await debug_stub_client.post(
+        "/ga4gh/tes/v1/tasks",
+        json={"name": "test-task"},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["id"].startswith("stubbed-task-")
+
+    res = await debug_stub_client.get(
+        "/ga4gh/tes/v1/tasks", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {"tasks": []}
+
+    mock_tes_server_request.assert_not_called()
+    assert len(get_debug_stub_warnings(caplog)) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        pytest.param("get", "/ga4gh/tes/v1/service-info", id="service-info"),
+        pytest.param("post", "/ga4gh/tes/v1/tasks", id="create-task"),
+        pytest.param("get", "/ga4gh/tes/v1/tasks", id="list-tasks"),
+        pytest.param("get", "/ga4gh/tes/v1/tasks/123", id="get-task"),
+        pytest.param("post", "/ga4gh/tes/v1/tasks/123:cancel", id="cancel-task"),
+    ],
+)
+async def test_endpoints_in_debug_stub_mode_require_an_access_token(
+    debug_stub_client, caplog, method, path
+):
+    """
+    In debug stub mode, a TES request without an access token is rejected rather than stubbed.
+    """
+    res = await getattr(debug_stub_client, method)(path)
+    assert res.status_code == 401, res.text
+    assert get_debug_stub_warnings(caplog) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "debug_stub_client", [pytest.param({"authorized": False})], indirect=True
+)
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        pytest.param("post", "/ga4gh/tes/v1/tasks", id="create-task"),
+        pytest.param("get", "/ga4gh/tes/v1/tasks/123", id="get-task"),
+        pytest.param("post", "/ga4gh/tes/v1/tasks/123:cancel", id="cancel-task"),
+    ],
+)
+async def test_endpoints_in_debug_stub_mode_check_authorization(
+    debug_stub_client, access_token_patcher, caplog, method, path
+):
+    """
+    In debug stub mode, a TES request the caller is not authorized to make is rejected rather
+    than stubbed.
+    """
+    res = await getattr(debug_stub_client, method)(
+        path, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 403, res.text
+    assert get_debug_stub_warnings(caplog) == []
 
 
 @pytest.mark.asyncio

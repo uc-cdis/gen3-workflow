@@ -29,8 +29,13 @@ from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
 from gen3workflow.aws.clients import irsa_session
 from gen3workflow.config import config
 
+# Must stay in sync with the `DPOP_PROTECTED_PATHS` key covering the S3 endpoint: the DPoP
+# middleware protects the root mount below under this prefix, because a root-mounted path
+# matches no prefix of its own.
+S3_PATH_PREFIX = "/s3"
+
 s3_root_router = APIRouter(include_in_schema=False)
-s3_router = APIRouter(prefix="/s3")
+s3_router = APIRouter(prefix=S3_PATH_PREFIX)
 
 
 S3_MAX_TRIES = 3  # body-less requests (GET/HEAD/DELETE) can be retried safely
@@ -98,7 +103,11 @@ async def _dechunk_stream(stream):
 
 
 async def set_access_token_and_get_user_id(
-    auth: Auth, headers: Headers, method=None, path=None
+    auth: Auth,
+    headers: Headers,
+    method: str | None = None,
+    path: str | None = None,
+    dpop_validated: bool = False,
 ) -> Tuple[str, str]:
     """
     Extract the user's access token and (in some cases) the user's ID, which should have been
@@ -119,6 +128,10 @@ async def set_access_token_and_get_user_id(
     Args:
         auth (Auth): Gen3Workflow auth instance
         headers (Headers): request headers
+        method (str | None): HTTP method of the request, for logging
+        path (str | None): requested path, for logging
+        dpop_validated (bool): whether the DPoP middleware validated a proof for this
+            request. A DPoP-bound token is refused without one.
 
     Returns:
         tuple(str, str): the user's ID and (if relevant) the client's ID
@@ -135,11 +148,8 @@ async def set_access_token_and_get_user_id(
 
     # extract the key ID from the authorization header
     try:
-        if "Credential=" in auth_header:  # format 1 (see docstring)
-            access_key_id = auth_header.split("Credential=")[1].split("/")[0]
-        else:  # format 2 (see docstring)
-            access_key_id = auth_header.split("AWS ")[1].split(":")[0]
-    except Exception as e:
+        access_key_id = get_s3_access_key_id_from_auth_header(auth_header)
+    except ValueError as e:
         err_msg = "Unexpected format; unable to extract access token from authorization header"
         logger.error(f"{err_msg}: {e}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
@@ -164,6 +174,27 @@ async def set_access_token_and_get_user_id(
 
     # ensure token validity
     token_claims = await auth.get_token_claims()
+
+    # a bound token names the key its holder must prove possession of, so accepting one here
+    # without a validated proof would make it usable as an ordinary bearer credential (which
+    # we do not want - b/c if it's DPoP-Bound, it MUST be used with a proof).
+    #
+    # The DPoP middleware identifies an S3 request by its
+    # Authorization header, so it is checked again here: this endpoint accepts header formats
+    # the middleware may not recognize, and it is the one place that knows the token was used.
+    cnf = token_claims.get("cnf")
+    if (
+        config["DPOP_ENABLED"]
+        and not dpop_validated
+        and isinstance(cnf, dict)
+        and cnf.get("jkt")
+    ):
+        err_msg = (
+            "This access token is DPoP-bound and can only be used with a DPoP proof"
+        )
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
     sub = token_claims.get("sub")
     client_id = token_claims.get("azp")
     if is_user_token:
@@ -193,6 +224,118 @@ async def set_access_token_and_get_user_id(
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     return user_id, client_id
+
+
+def get_s3_access_key_id_from_auth_header(auth_header: str) -> str:
+    """
+    Extract the access key ID from the Authorization header of a signed S3 request.
+
+    The DPoP middleware relies on this too: the access token it validates the proof against
+    must be the exact same one this endpoint authorizes.
+
+    Args:
+        auth_header (str): value of the Authorization header. See
+            `set_access_token_and_get_user_id` for the 2 expected formats.
+
+    Returns:
+        str: the access key ID
+
+    Raises:
+        ValueError: if the header is in neither of the 2 expected formats
+    """
+    try:
+        if "Credential=" in auth_header:  # format 1
+            return auth_header.split("Credential=")[1].split("/")[0]
+        return auth_header.split("AWS ")[1].split(":")[0]  # format 2
+    except Exception as e:
+        raise ValueError(f"Unable to extract the access key ID: {e}")
+
+
+async def authorize_s3_request(request: Request, path: str) -> str:
+    """
+    Authenticate an incoming S3 request and check the caller may make it.
+
+    The caller (user, or client acting on behalf of the user) must have access to the user's
+    files, and anything but a "list buckets" request must target the user's own bucket.
+    Note: sharing task inputs/output is not supported. Currently, users can only access their own
+    S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
+    the list of files for a specific task.
+
+    Args:
+        request (Request): the incoming S3 request
+        path (str): the requested path, in the `<bucket>[/<key>]` format
+
+    Returns:
+        str: the name of the user's bucket
+
+    Raises:
+        HTTPException: 401 if the caller cannot be authenticated, 403 if they are not allowed to
+            make this request
+    """
+    auth = Auth(api_request=request)
+    user_id, client_id = await set_access_token_and_get_user_id(
+        auth,
+        request.headers,
+        method=request.method,
+        path=path,
+        dpop_validated=getattr(request.state, "dpop_validated", False),
+    )
+    auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
+        request.method, "create"
+    )
+    await auth.authorize(
+        auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
+    )
+
+    logger.info(
+        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
+    )
+    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
+
+    if not is_list_buckets_request(request.method, path):
+        request_bucket = path.split("?")[0].split("/")[0]
+        if request_bucket != user_bucket:
+            err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+
+    return user_bucket
+
+
+def is_list_buckets_request(method: str, path: str) -> bool:
+    """
+    Check whether an S3 request is a "list buckets" request.
+
+    Args:
+        method (str): the HTTP method of the request
+        path (str): the requested path
+
+    Returns:
+        bool: True for a "list buckets" request
+    """
+    return method == "GET" and path in ("", "s3")
+
+
+def list_buckets_response(user_bucket: str) -> Response:
+    """
+    Answer a "list buckets" request with the user's bucket only, since it is the only one they
+    can access.
+
+    Args:
+        user_bucket (str): the name of the user's bucket
+
+    Returns:
+        Response: the S3 "list buckets" response
+    """
+    xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult xmlns="http://amazonaws.com">
+    <Buckets>
+        <Bucket>
+            <Name>{user_bucket}</Name>
+        </Bucket>
+    </Buckets>
+</ListAllMyBucketsResult>"""
+    return Response(content=xml_data, media_type="application/xml")
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -230,47 +373,11 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    # Extract the caller's access token from the request headers, and ensure the caller (user, or
-    # client acting on behalf of the user) has access to the user's files.
-    # Note: sharing task inputs/output is not supported. Currently, users can only access their own
-    # S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
-    # the list of files for a specific task.
-    auth = Auth(api_request=request)
+    user_bucket = await authorize_s3_request(request, path)
+    if is_list_buckets_request(request.method, path):
+        return list_buckets_response(user_bucket)
+
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(
-        auth, in_headers, request.method, path
-    )
-    auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
-        request.method, "create"
-    )
-    await auth.authorize(
-        auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
-    )
-
-    # get the name of the user's bucket
-    logger.info(
-        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
-    )
-    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
-
-    # this is a "list buckets" request: only return the user's bucket
-    if request.method == "GET" and path in ("", "s3"):
-        xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
-<ListAllMyBucketsResult xmlns="http://amazonaws.com">
-    <Buckets>
-        <Bucket>
-            <Name>{user_bucket}</Name>
-        </Bucket>
-    </Buckets>
-</ListAllMyBucketsResult>"""
-        return Response(content=xml_data, media_type="application/xml")
-
-    # ensure the user is making a call to their own bucket
-    request_bucket = path.split("?")[0].split("/")[0]
-    if request_bucket != user_bucket:
-        err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)
