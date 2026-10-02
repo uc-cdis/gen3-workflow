@@ -145,7 +145,7 @@ metadata:
 spec:
   containers:
     - name: minio
-      image: quay.io/minio/minio:latest-cicd
+      image: quay.io/cdis/minio:chainguard-latest-2026-09-25
       args:
         - server
         - /data
@@ -173,7 +173,7 @@ EOF
 # external-secrets is required to install gen3 and is not installed out of the box in kind clusters
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
-helm install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace --set installCRDs=true --version 2.9.0
+helm upgrade --install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace --set installCRDs=true --version 2.9.0
 
 # Install aws-mountpoint-s3-csi-driver. The driver reads S3 credentials from `aws-secret`.
 # see https://github.com/awslabs/mountpoint-s3-csi-driver/blob/db678c1/docs/CONFIGURATION.md#driver-level-credentials-with-kubernetes-secrets

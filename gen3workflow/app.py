@@ -1,12 +1,11 @@
-from fastapi import FastAPI
-from fastapi.routing import APIRoute
-import httpx
-from importlib.metadata import version
 import os
 import time
+from importlib.metadata import version
 
+import httpx
 from cdislogging import get_logger
-from fastapi import Request
+from fastapi import FastAPI, Request
+from fastapi.routing import APIRoute
 from gen3authz.client.arborist.async_client import ArboristClient
 
 from gen3workflow import logger

@@ -41,9 +41,10 @@ NOTE: If using in production with wsgi.py, Gen3Workflow will still look for
 
 import argparse
 import os
+import sys
 from os.path import expanduser
 from shutil import copyfile
-import sys
+
 from gen3config import config
 
 ROOT_DIR = os.path.dirname(os.path.realpath(__file__))

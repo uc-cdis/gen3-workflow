@@ -1,8 +1,8 @@
 from typing import Any, Dict
 
 from cdispyutils.metrics import BaseMetrics
-from gen3workflow import logger
 
+from gen3workflow import logger
 from gen3workflow.config import config
 
 
