@@ -328,6 +328,12 @@ PF_PID=$!
 trap "kill $PF_PID" EXIT  # kill port-forward when script exits
 sleep 2  # wait for port-forward to be ready
 
+for i in $(seq 1 30); do
+  curl -sf http://localhost:9000/minio/health/ready && break
+  echo "waiting for minio... ($i)"
+  sleep 2
+done
+
 # upload the user.yaml file
 aws configure set endpoint_url http://localhost:9000
 aws configure set aws_access_key_id minioadmin
