@@ -338,5 +338,16 @@ done
 aws configure set endpoint_url http://localhost:9000
 aws configure set aws_access_key_id minioadmin
 aws configure set aws_secret_access_key minioadmin
-aws s3 mb s3://cdis-gen3-users
+for i in $(seq 1 10); do
+  aws s3 mb s3://cdis-gen3-users && break
+  sleep 3
+done
+
+
+kubectl get pods -o wide
+kubectl describe pod -l app=minio
+kubectl logs -l app=minio --tail=50
+
+
+
 aws s3 cp user.yaml s3://cdis-gen3-users/ci/
