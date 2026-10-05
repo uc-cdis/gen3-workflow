@@ -664,7 +664,6 @@ async def test_endpoints_in_debug_stub_mode(
 @pytest.mark.parametrize(
     "method,path",
     [
-        pytest.param("get", "/ga4gh/tes/v1/service-info", id="service-info"),
         pytest.param("post", "/ga4gh/tes/v1/tasks", id="create-task"),
         pytest.param("get", "/ga4gh/tes/v1/tasks", id="list-tasks"),
         pytest.param("get", "/ga4gh/tes/v1/tasks/123", id="get-task"),
@@ -680,6 +679,20 @@ async def test_endpoints_in_debug_stub_mode_require_an_access_token(
     res = await getattr(debug_stub_client, method)(path)
     assert res.status_code == 401, res.text
     assert get_debug_stub_warnings(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_service_info_in_debug_stub_mode_allows_anonymous_requests(
+    debug_stub_client, caplog
+):
+    """
+    In debug stub mode, `GET /service-info` accepts a request without an access token, like the
+    real endpoint does.
+    """
+    res = await debug_stub_client.get("/ga4gh/tes/v1/service-info")
+    assert res.status_code == 200, res.text
+    mock_tes_server_request.assert_not_called()
+    assert len(get_debug_stub_warnings(caplog)) == 1
 
 
 @pytest.mark.asyncio

@@ -670,20 +670,48 @@ async def test_token_from_an_unknown_issuer_is_rejected(
 
 
 @pytest.mark.asyncio
+async def test_unbound_token_without_proof_is_rejected(client, access_token_patcher):
+    """A request presenting a token that is not DPoP-bound, and no proof, is rejected."""
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": "Bearer unbound-token"},
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+async def test_anonymous_service_info_request_is_accepted(client, trailing_slash):
+    """A request with no credentials at all reaches `GET /service-info`, which is public."""
+    res = await client.get(f"/ga4gh/tes/v1/service-info{'/' if trailing_slash else ''}")
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client", [pytest.param({"authorized": True})], indirect=True)
 @pytest.mark.parametrize(
-    "headers",
+    "method,path,body",
     [
-        pytest.param({}, id="no-credentials"),
-        pytest.param({"Authorization": "Bearer unbound-token"}, id="unbound-token"),
+        pytest.param("POST", TES_PATH, {"name": "test-task"}, id="create-task"),
+        pytest.param("GET", TES_PATH, None, id="list-tasks"),
+        pytest.param("GET", f"{TES_PATH}/123", None, id="get-task"),
+        pytest.param("POST", f"{TES_PATH}/123:cancel", None, id="cancel-task"),
+        pytest.param(
+            "POST", "/ga4gh/tes/v1/service-info", None, id="service-info-wrong-method"
+        ),
+        pytest.param("GET", "/s3/bucket/key", None, id="s3"),
     ],
 )
-async def test_request_without_proof_is_rejected(client, access_token_patcher, headers):
+async def test_anonymous_request_to_a_non_public_endpoint_is_rejected(
+    client, method, path, body
+):
     """
-    A request without a proof is rejected even if it presents no token,
-    or a token that is not DPoP-bound.
+    A request with no credentials at all is rejected on every protected endpoint that is not
+    public, even when Arborist would allow it.
     """
-    res = await client.post(TES_PATH, json={"name": "test-task"}, headers=headers)
-    assert res.status_code == 401
+    res = await client.request(method, path, json=body)
+    assert res.status_code == 401, res.text
     assert res.json()["error"] == "dpop_required"
 
 

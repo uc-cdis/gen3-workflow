@@ -185,10 +185,12 @@ async def test_request_rejected_by_dpop_is_counted(client, reset_config_dpop_req
     """
     config["DPOP_REQUIRED"] = True
     labels = {"method": "POST", "path": UNMATCHED_PATH, "status_code": "401"}
-    await client.post(TASKS_PATH, json={"name": "test-task"})
+    # a token that is not DPoP-bound, presented without a proof, is rejected by the middleware
+    headers = {"Authorization": "Bearer unbound-token"}
+    await client.post(TASKS_PATH, json={"name": "test-task"}, headers=headers)
     before = total(await scrape(client), REQUEST_COUNTER, **labels)
 
-    res = await client.post(TASKS_PATH, json={"name": "test-task"})
+    res = await client.post(TASKS_PATH, json={"name": "test-task"}, headers=headers)
     assert res.status_code == 401
 
     assert total(await scrape(client), REQUEST_COUNTER, **labels) == before + 1

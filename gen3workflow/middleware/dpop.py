@@ -25,6 +25,7 @@ from gen3workflow.config import (
     get_dpop_external_base_url,
     get_dpop_shared_secret,
 )
+from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
 from gen3workflow.routes.s3 import S3_PATH_PREFIX, get_s3_access_key_id_from_auth_header
 
 # The scopes and purpose a DPoP-bound access token must satisfy. These mirror what the
@@ -36,6 +37,16 @@ REQUIRED_PURPOSE = "access"
 # an exempt client's token. Labeled by the `DPOP_PROTECTED_PATHS` prefix rather than the request
 # path: an S3 path carries the object key, which would make the label cardinality unbounded.
 EXEMPT_REQUESTS_COUNTER = "gen3_workflow_dpop_exempt_requests"
+
+# The only (method, path) pairs on a protected endpoint that accept a request with no credentials
+# at all. Every other anonymous request is rejected here, so that an Arborist anonymous policy
+# granting access to tasks by mistake does not expose them while DPoP is required.
+ANONYMOUS_ENDPOINTS = frozenset(
+    {
+        ("GET", f"{ga4gh_tes_router.prefix}/service-info"),
+        ("GET", f"{ga4gh_tes_router.prefix}/service-info/"),
+    }
+)
 
 
 async def dpop_middleware(
@@ -52,6 +63,9 @@ async def dpop_middleware(
 
     A DPoP-bound token presented without a proof is always rejected, including one issued to an
     exempt client. So is a proof presented with a token that is not DPoP-bound.
+
+    A request with neither an Authorization header nor a proof is anonymous. It is passed
+    through only to the endpoints listed in `ANONYMOUS_ENDPOINTS`, and rejected everywhere else.
 
     Args:
         request (Request): the incoming HTTP request
@@ -71,6 +85,13 @@ async def dpop_middleware(
 
     access_token = _get_access_token(auth_header)
     dpop_proof = request.headers.get("dpop")
+
+    if (
+        not auth_header
+        and not dpop_proof
+        and (request.method, request.url.path) in ANONYMOUS_ENDPOINTS
+    ):
+        return await call_next(request)
 
     if not dpop_proof:
         if access_token and _is_dpop_bound(access_token):
@@ -106,7 +127,7 @@ async def dpop_middleware(
             dpop_header=dpop_proof,
             access_token=access_token,
             request_method=request.method,
-            request_url=_get_url(request.url.path, path_prefix, dpop_proof),
+            request_url=_get_url_for_htu(request.url.path, path_prefix, dpop_proof),
             issuers=get_dpop_allowed_issuers(),
             aud=config["VALID_AUTHZ_AUDIENCE"],
             scope=set(REQUIRED_SCOPES),
@@ -202,7 +223,7 @@ def _get_protected_path_prefix(path: str, auth_header: str) -> str | None:
     return None
 
 
-def _get_url(path: str, path_prefix: str, dpop_proof: str) -> str:
+def _get_url_for_htu(path: str, path_prefix: str, dpop_proof: str) -> str:
     """
     Rebuild the URL the client signed in the proof's `htu` claim.
 

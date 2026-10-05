@@ -38,6 +38,9 @@ from gen3workflow.routes.s3 import (
     is_list_buckets_request,
     list_buckets_response,
 )
+from gen3workflow.routes.storage import (
+    authorize_own_storage_deletion,
+)
 from gen3workflow.routes.storage import router as storage_router
 
 stubbed_ga4gh_tes_router = APIRouter(prefix=ga4gh_tes_router.prefix)
@@ -71,9 +74,10 @@ STUBBED_LIST_BUCKET_XML = (
 )
 async def stubbed_service_info(auth=Depends(Auth)) -> dict:
     """
-    Stubbed `GET /ga4gh/tes/v1/service-info`: describes a TES server that does not exist.
+    Stubbed `GET /ga4gh/tes/v1/service-info`: describes a TES server that does not exist. Like
+    the real endpoint, it does not require an access token.
     """
-    await auth.get_token_claims()
+    await auth.get_user_id()
     _log_stubbed_request("GET /service-info")
     return STUBBED_TES_SERVICE_INFO
 
@@ -117,7 +121,7 @@ async def stubbed_get_task(task_id: str, auth=Depends(Auth)) -> dict:
     Stubbed `GET /ga4gh/tes/v1/tasks/{task_id}`: the requested task, always reported as complete.
     """
     await auth.authorize("read", [await _get_task_authz_path(auth, task_id)])
-    _log_stubbed_request("GET /tasks/{task_id}")
+    _log_stubbed_request(f"GET /tasks/{task_id}")
     return {"id": task_id, "state": "COMPLETE"}
 
 
@@ -130,7 +134,7 @@ async def stubbed_cancel_task(task_id: str, auth=Depends(Auth)) -> dict:
     Stubbed `POST /ga4gh/tes/v1/tasks/{task_id}:cancel`: reports the cancellation as successful.
     """
     await auth.authorize("delete", [await _get_task_authz_path(auth, task_id)])
-    _log_stubbed_request("POST /tasks/{task_id}:cancel")
+    _log_stubbed_request(f"POST /tasks/{task_id}:cancel")
     return {}
 
 
@@ -205,7 +209,7 @@ async def stubbed_delete_user_bucket(auth=Depends(Auth)) -> dict:
     """
     Stubbed `DELETE /storage/user-bucket`: reports the deletion as initiated.
     """
-    user_id = await _authorize_own_storage_deletion(auth)
+    user_id = await authorize_own_storage_deletion(auth)
     _log_stubbed_request("DELETE /storage/user-bucket")
     return {
         "message": "Bucket deletion initiated.",
@@ -221,7 +225,7 @@ async def stubbed_empty_user_bucket(auth=Depends(Auth)) -> None:
     """
     Stubbed `DELETE /storage/user-bucket/objects`: reports the bucket as emptied.
     """
-    await _authorize_own_storage_deletion(auth)
+    await authorize_own_storage_deletion(auth)
     _log_stubbed_request("DELETE /storage/user-bucket/objects")
 
 
@@ -234,23 +238,6 @@ async def stubbed_get_status() -> dict:
     each.
     """
     return dict(status="OK")
-
-
-async def _authorize_own_storage_deletion(auth: Auth) -> str:
-    """
-    Check the caller may delete from their own storage, as the real storage endpoints do.
-
-    Args:
-        auth (Auth): the request's auth instance
-
-    Returns:
-        str: the caller's user ID
-    """
-    user_id = (await auth.get_token_claims()).get("sub")
-    await auth.authorize(
-        "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
-    )
-    return user_id
 
 
 async def _get_task_authz_path(auth: Auth, task_id: str) -> str:
