@@ -42,17 +42,16 @@ async def dpop_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
     """
-    Validate the DPoP proof of requests to the DPoP-protected endpoints.
+    Validate the DPoP proof of requests to the DPoP-protected endpoints, when `DPOP_REQUIRED`
+    is set. Otherwise, every request is passed through untouched.
 
-    Requests that are not to a protected endpoint are passed through untouched. So are requests
-    that carry neither a DPoP proof nor a DPoP-bound token, unless `DPOP_REQUIRED` is set. The
-    `client_credentials` tokens of the clients listed in `DPOP_EXEMPT_CLIENT_IDS` are exempt from
-    `DPOP_REQUIRED`: that is how worker pods reach these endpoints, since such a token is never
-    DPoP-bound and its holder has no key to sign a proof with.
+    Requests that are not to a protected endpoint are passed through untouched. Every other
+    request must present a DPoP-bound access token along with a valid proof, except the
+    `client_credentials` tokens of the clients listed in `DPOP_EXEMPT_CLIENT_IDS`: such a token is
+    never DPoP-bound, and its holder has no key to sign a proof with.
 
-    A proof presented with a token that is not DPoP-bound is always rejected, whatever
-    `DPOP_REQUIRED` is set to. So is a DPoP-bound token presented without a proof, including one
-    issued to a client.
+    A DPoP-bound token presented without a proof is always rejected, including one issued to an
+    exempt client. So is a proof presented with a token that is not DPoP-bound.
 
     Args:
         request (Request): the incoming HTTP request
@@ -62,7 +61,7 @@ async def dpop_middleware(
         Response: the response from the rest of the app, or an error response if the request
             was rejected.
     """
-    if not config["DPOP_ENABLED"]:
+    if not config["DPOP_REQUIRED"]:
         return await call_next(request)
 
     auth_header = request.headers.get("authorization", "")
@@ -83,17 +82,16 @@ async def dpop_middleware(
                 "dpop_required",
                 "This access token is DPoP-bound and can only be used with a DPoP proof",
             )
-        if config["DPOP_REQUIRED"]:
-            if not (access_token and _is_exempt_client_token(access_token)):
-                logger.warning(
-                    f"Rejecting request to '{request.url.path}': DPoP is required and the request has no DPoP proof"
-                )
-                return _error_response(
-                    HTTP_401_UNAUTHORIZED,
-                    "dpop_required",
-                    "This endpoint only accepts DPoP-bound access tokens, presented with a DPoP proof",
-                )
-            _record_exempt_request(request, access_token, path_prefix)
+        if not (access_token and _is_exempt_client_token(access_token)):
+            logger.warning(
+                f"Rejecting request to '{request.url.path}': DPoP is required and the request has no DPoP proof"
+            )
+            return _error_response(
+                HTTP_401_UNAUTHORIZED,
+                "dpop_required",
+                "This endpoint only accepts DPoP-bound access tokens, presented with a DPoP proof",
+            )
+        _record_exempt_request(request, access_token, path_prefix)
         return await call_next(request)
 
     if not access_token:
@@ -264,11 +262,9 @@ def _get_access_token(auth_header: str) -> str | None:
         return parts[1].strip() if len(parts) == 2 else None
 
     try:
-        access_key_id = get_s3_access_key_id_from_auth_header(auth_header)
+        return get_s3_access_key_id_from_auth_header(auth_header)
     except ValueError:
         return None
-    # A client acting on behalf of a user appends the user ID to its token
-    return access_key_id.split(";userId=")[0]
 
 
 def _is_scheme_auth_header(auth_header: str) -> bool:

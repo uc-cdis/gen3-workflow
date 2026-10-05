@@ -278,14 +278,11 @@ async def test_set_access_token_and_get_user_id(
     auth_header_format, token_claims_sub, token_claims_azp
 ):
     """
-    Test `set_access_token_and_get_user_id` behavior with various combinations of access token and
-    key ID.
+    Test `set_access_token_and_get_user_id` behavior with various access token claims.
 
     Testing:
     - Authorization header ID format 1 and 2, as documented in the
       `set_access_token_and_get_user_id` docstring
-    - Key ID format A and B, as documented in the `set_access_token_and_get_user_id`
-      docstring
     - Access token claims with or without the `sub` field (user ID)
     - Access token claims with or without the `azp` field (client ID)
     """
@@ -305,9 +302,9 @@ async def test_set_access_token_and_get_user_id(
     else:
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
-    # no user ID in the token claims or in the key ID: error
+    # no user ID in the token claims: error
     if not token_claims_sub:
-        with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
+        with pytest.raises(HTTPException, match="401: No user ID in token"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
     else:

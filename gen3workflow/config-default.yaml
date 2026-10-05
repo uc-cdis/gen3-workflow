@@ -63,9 +63,12 @@ VALID_AUTHZ_AUDIENCE:
 # DPoP (RFC 9449) #
 ###################
 
-# When true, DPoP-bound access tokens presented to the GA4GH TES and S3 endpoints must come
-# with a valid DPoP proof. Tokens that are not DPoP-bound (no `cnf.jkt` claim) are unaffected,
-# so worker pods using the `client_credentials` flow keep working.
+# When true, the GA4GH TES and S3 endpoints reject any request that does not present a
+# DPoP-bound access token (`cnf.jkt` claim) along with a valid DPoP proof. The clients listed in
+# `DPOP_EXEMPT_CLIENT_IDS` are the only exception.
+# Requires `DPOP_SHARED_SECRET`: the service refuses to start without it. Set this to false
+# explicitly to run without DPoP, for example in a Dev/QA environment with no shared secret. No
+# proof is validated then, and a DPoP-bound token is accepted as an ordinary bearer token.
 #
 # /!\ KNOWN GAP: proofs are not single-use here. This service does not track proof `jti`
 # values, so RFC 9449 section 11.1 replay protection is NOT in force: a proof captured off
@@ -75,12 +78,7 @@ VALID_AUTHZ_AUDIENCE:
 # Fixing this needs a `jti` store shared across pod replicas and across services
 # in some ideally fast in-mem store or something (infrastructure we don't really have in Gen3
 # and requires broader architectural desig, TBD).
-DPOP_ENABLED: false
-
-# When true, the DPoP-protected endpoints reject any request that does not present a DPoP-bound
-# access token along with a valid proof. Requires `DPOP_ENABLED`.
-# The clients listed in `DPOP_EXEMPT_CLIENT_IDS` are the only exception.
-DPOP_REQUIRED: false
+DPOP_REQUIRED: true
 
 # Client IDs whose `client_credentials` tokens are accepted by the DPoP-protected endpoints
 # without a DPoP proof when `DPOP_REQUIRED` is true, such as the Funnel worker pods' client.

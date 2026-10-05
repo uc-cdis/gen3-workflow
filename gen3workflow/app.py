@@ -153,10 +153,10 @@ def get_app(httpx_client=None) -> FastAPI:
     app.include_router(system_router, tags=["System"])
     app.include_router(ui_router, tags=["UI"])
 
-    if config["DPOP_ENABLED"]:
+    if config["DPOP_REQUIRED"]:
         logger.info(
-            f"DPoP validation is enabled on {sorted(config['DPOP_PROTECTED_PATHS'])}, "
-            f"required={config['DPOP_REQUIRED']}, issuers={get_dpop_allowed_issuers()}"
+            f"DPoP is required on {sorted(config['DPOP_PROTECTED_PATHS'])}, "
+            f"issuers={get_dpop_allowed_issuers()}"
         )
         # Said at every startup on purpose: a reader who sees DPoP enabled might otherwise
         # reasonably assume proofs are single-use, and they are not yet
@@ -170,7 +170,7 @@ def get_app(httpx_client=None) -> FastAPI:
             "'jti' store shared across pod replicas and services which is TBD architecturally."
         )
     else:
-        logger.warning("DPoP validation is disabled")
+        logger.warning("DPoP is not required: no DPoP proof is validated")
 
     logger.info("Initializing Arborist client")
     if config["MOCK_AUTH"]:

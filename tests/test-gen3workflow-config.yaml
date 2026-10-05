@@ -19,7 +19,8 @@ EKS_CLUSTER_NAME: test-cluster
 EKS_CLUSTER_REGION: us-east-1
 EKS_SECURITY_GROUP_NAMES: ["test-cluster_EKS_workers_sg"]
 
-DPOP_ENABLED: true
+# DPoP is required in production; tests/test_dpop_middleware.py turns it on for its own tests
+DPOP_REQUIRED: false
 DPOP_SHARED_SECRET: dpop-test-shared-secret-0123456789  # pragma: allowlist secret
 DPOP_ALLOWED_ISSUERS:
   - http://test-fence-server/user

@@ -1,7 +1,7 @@
 import pytest
 
 from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
-from gen3workflow.config import config
+from gen3workflow.config import DEFAULT_CFG_PATH, Gen3WorkflowConfig, config
 
 
 @pytest.fixture(scope="function")
@@ -12,6 +12,39 @@ def reset_config_hostname():
     original_val = config["HOSTNAME"]
     yield
     config["HOSTNAME"] = original_val
+
+
+@pytest.fixture(scope="function")
+def dpop_required_without_shared_secret(monkeypatch):
+    """
+    Require DPoP, and remove the DPoP shared secret from the configuration and the environment,
+    for the duration of the test.
+    """
+    original_vals = {k: config[k] for k in ("DPOP_REQUIRED", "DPOP_SHARED_SECRET")}
+    monkeypatch.delenv("DPOP_SHARED_SECRET", raising=False)
+    config["DPOP_REQUIRED"] = True
+    config["DPOP_SHARED_SECRET"] = None
+    yield
+    for k, v in original_vals.items():
+        config[k] = v
+
+
+def test_dpop_is_required_by_default():
+    """The default configuration requires DPoP."""
+    default_config = Gen3WorkflowConfig(DEFAULT_CFG_PATH)
+    default_config.load(config_path=DEFAULT_CFG_PATH)
+    assert default_config["DPOP_REQUIRED"] is True
+
+
+def test_dpop_required_without_shared_secret_is_rejected(
+    dpop_required_without_shared_secret,
+):
+    """
+    With DPoP required and no shared secret, the configuration is refused at startup rather than
+    accepting proofs whose nonces cannot be verified.
+    """
+    with pytest.raises(AssertionError, match="DPOP_SHARED_SECRET"):
+        config.validate()
 
 
 def test_get_safe_name_from_hostname(reset_config_hostname):

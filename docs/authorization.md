@@ -42,11 +42,11 @@ graph TD;
 
 ## Client credentials and DPoP
 
-Clients such as the Funnel workers authenticate through the `client_credentials` flow. The S3 endpoint rejects a client token presented on behalf of a user as the AWS access key ID (`<client token>;userId=<user ID>`), so such a token can only reach the GA4GH TES endpoints.
+A client authenticating through the `client_credentials` flow can only reach the GA4GH TES endpoints. The S3 endpoint only accepts a user's access token as the AWS access key ID, and rejects a client token presented on behalf of a user (`<client token>;userId=<user ID>`).
 
 Such a token is never DPoP-bound, and the clients listed in `DPOP_EXEMPT_CLIENT_IDS` may use one on the GA4GH TES endpoints with no proof. It is therefore an ordinary bearer credential: possession is sufficient, and it is worth more than any one user's token. Keep that list to the clients that need it, keep their policies as narrow as the workflows allow, and keep the token lifetime short. Every request that uses the exemption is logged and counted in the `gen3_workflow_dpop_exempt_requests` metric, labeled by client ID.
 
-Removing the exemption means binding the worker's credential instead. Two options, neither implemented, both needing work in the auth service:
+Removing the exemption means binding the client's credential instead. Two options, neither implemented, both needing work in the auth service:
 
 - **DPoP-bound `client_credentials` tokens.** RFC 9449 covers the grant: the client sends a proof to the token endpoint and gets a token carrying `cnf.jkt`. No exemption would be needed, since a bound token already requires a proof on every request.
 - **mTLS-bound tokens ([RFC 8705](https://datatracker.ietf.org/doc/html/rfc8705)).** The client authenticates to the token endpoint with a client certificate and the token carries a `cnf.x5t#S256` claim; this service then accepts it only on a connection presenting that certificate. Nothing is signed per request, which suits a confidential client running in-cluster. It needs the client certificate to survive the reverse proxy, for example forwarded as `X-Forwarded-Client-Cert`.
@@ -60,11 +60,6 @@ users:
   some-username:
     policies:
     - gen3_workflow_user
-
-clients:
-  funnel-plugin-client:
-    policies:
-    - gen3_workflow_storage_admin
 
 authz:
   resources:
@@ -90,12 +85,6 @@ authz:
     - gen3_workflow_reader
     resource_paths:
     - /services/workflow/gen3-workflow/tasks
-  - id: gen3_workflow_storage_admin
-    description: Allows access to manage all the user buckets
-    role_ids:
-    - gen3_workflow_admin
-    resource_paths:
-    - /services/workflow/gen3-workflow/storage
 
   roles:
   - id: gen3_workflow_reader

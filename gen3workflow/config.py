@@ -50,7 +50,6 @@ class Gen3WorkflowConfig(Config):
                     "type": "array",
                     "items": {"type": "string"},
                 },
-                "DPOP_ENABLED": {"type": "boolean"},
                 "DPOP_REQUIRED": {"type": "boolean"},
                 "DPOP_SHARED_SECRET": {"type": ["string", "null"]},
                 "DPOP_ALLOWED_ISSUERS": {
@@ -111,14 +110,10 @@ class Gen3WorkflowConfig(Config):
                 len(self["EKS_SECURITY_GROUP_NAMES"]) > 0
             ), "EKS_SECURITY_GROUP_NAMES must be configured when ENABLE_S3_FILES is True"
 
-        assert (
-            not self["DPOP_REQUIRED"] or self["DPOP_ENABLED"]
-        ), "DPOP_ENABLED must be True when DPOP_REQUIRED is True, otherwise no DPoP proof is required at all"
-
-        if self["DPOP_ENABLED"]:
+        if self["DPOP_REQUIRED"]:
             assert (
                 get_dpop_shared_secret()
-            ), "A 'DPOP_SHARED_SECRET' must be configured, or provided through the environment, when DPOP_ENABLED is True"
+            ), "A 'DPOP_SHARED_SECRET' must be configured, or provided through the environment, when DPOP_REQUIRED is True (the default). Set DPOP_REQUIRED to False explicitly to run without DPoP"
 
         if self["DPOP_REQUIRED"] and not self["DPOP_EXEMPT_CLIENT_IDS"]:
             logger.warning(
