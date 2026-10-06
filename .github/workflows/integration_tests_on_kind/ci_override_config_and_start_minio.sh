@@ -151,7 +151,7 @@ metadata:
 spec:
   containers:
     - name: minio
-      image: cgr.dev/chainguard/minio
+      image: quay.io/cdis/minio:chainguard-latest-2026-09-25
       args:
         - server
         - /data
@@ -213,6 +213,12 @@ spec:
         matchLabels:
           app: minio
 EOF
+
+echo "================= MINIO pod status ============="
+kubectl get pods -n "${NAMESPACE}" -o wide
+kubectl describe pod -n "${NAMESPACE}" -l app=minio
+kubectl logs -n "${NAMESPACE}" -l app=minio --tail=50
+echo "================= MINIO pod status end ============="
 
 # external-secrets is required to install gen3 and is not installed out of the box in kind clusters
 helm repo add external-secrets https://charts.external-secrets.io
@@ -338,16 +344,7 @@ done
 aws configure set endpoint_url http://localhost:9000
 aws configure set aws_access_key_id minioadmin
 aws configure set aws_secret_access_key minioadmin
-for i in $(seq 1 10); do
-  aws s3 mb s3://cdis-gen3-users && break
-  sleep 3
-done
-
-
-kubectl get pods -n "${NAMESPACE}" -o wide
-kubectl describe pod -n "${NAMESPACE}" -l app=minio
-kubectl logs -n "${NAMESPACE}" -l app=minio --tail=50
-
+aws s3 mb s3://cdis-gen3-users
 
 
 aws s3 cp user.yaml s3://cdis-gen3-users/ci/
