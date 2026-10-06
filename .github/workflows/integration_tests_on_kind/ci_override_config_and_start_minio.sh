@@ -190,6 +190,9 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
+          kubernetes.io/metadata.name: mount-s3
+    - namespaceSelector:
+        matchLabels:
           kubernetes.io/metadata.name: ${NAMESPACE}
     - namespaceSelector:
         matchLabels:
