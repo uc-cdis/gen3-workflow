@@ -344,9 +344,9 @@ for i in $(seq 1 10); do
 done
 
 
-kubectl get pods -o wide
-kubectl describe pod -l app=minio
-kubectl logs -l app=minio --tail=50
+kubectl get pods -n "${NAMESPACE}" -o wide
+kubectl describe pod -n "${NAMESPACE}" -l app=minio
+kubectl logs -l -n "${NAMESPACE}" app=minio --tail=50
 
 
 
