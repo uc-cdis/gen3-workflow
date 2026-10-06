@@ -346,7 +346,7 @@ done
 
 kubectl get pods -n "${NAMESPACE}" -o wide
 kubectl describe pod -n "${NAMESPACE}" -l app=minio
-kubectl logs -l -n "${NAMESPACE}" app=minio --tail=50
+kubectl logs -n "${NAMESPACE}" -l app=minio --tail=50
 
 
 
