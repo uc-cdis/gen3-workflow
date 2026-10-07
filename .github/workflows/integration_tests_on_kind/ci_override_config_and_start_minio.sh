@@ -212,13 +212,6 @@ spec:
           app: minio
 EOF
 
-echo "================= MINIO pod status ============="
-kubectl get pods -n "${NAMESPACE}" -o wide
-kubectl describe pod -n "${NAMESPACE}" -l app=minio
-kubectl wait --for=condition=ready pod -n "${NAMESPACE}" -l app=minio --timeout=120s
-kubectl logs -n "${NAMESPACE}" -l app=minio --tail=50
-echo "================= MINIO pod status end ============="
-
 # external-secrets is required to install gen3 and is not installed out of the box in kind clusters
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
