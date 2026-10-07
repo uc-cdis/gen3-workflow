@@ -22,13 +22,9 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.kmsEncryptionEnabled = false' gen3
 # kind clusters do not have nodepools
 yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = false' gen3-workflow.yaml
 
-# Pin the image tag to a new value so that the workflow service pod is recreated and
-# picks up the new config values. Temporary. Remove this line once before PR merge
-yq eval -i '.gen3-workflow.image.tag = "update_netpol_kind"' gen3-workflow.yaml
 
 # overwrite gen3-workflow config `EKS_CLUSTER_NAME` to an empty string
 yq eval -i '.global.clusterName = ""' values.yaml
-yq eval -i '.global.netPolicy.enabled = true' values.yaml
 yq eval -i '.global.netPolicy.dbSubnets = []' values.yaml
 
 # update fence and indexd configs to generate secrets instead of looking for pre-existing secrets.
@@ -338,17 +334,9 @@ PF_PID=$!
 trap "kill $PF_PID" EXIT  # kill port-forward when script exits
 sleep 2  # wait for port-forward to be ready
 
-for i in $(seq 1 30); do
-  curl -sf http://localhost:9000/minio/health/ready && break
-  echo "waiting for minio... ($i)"
-  sleep 2
-done
-
 # upload the user.yaml file
 aws configure set endpoint_url http://localhost:9000
 aws configure set aws_access_key_id minioadmin
 aws configure set aws_secret_access_key minioadmin
 aws s3 mb s3://cdis-gen3-users
-
-
 aws s3 cp user.yaml s3://cdis-gen3-users/ci/

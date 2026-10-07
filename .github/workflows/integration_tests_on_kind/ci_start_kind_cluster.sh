@@ -22,22 +22,6 @@ EOF
 
 kubectl wait --for=condition=Ready nodes --all --timeout=180s
 
-echo "=== VERIFYING KUBE-SYSTEM NAMESPACE LABELS ==="
-# This prints all labels attached to kube-system.
-# Check if "kubernetes.io/metadata.name: kube-system" is missing.
-kubectl get ns kube-system --show-labels
-
-echo "=== VERIFYING COREDNS UPSTREAM FORWARDING ==="
-# This prints the active CoreDNS config.
-# Look for the line containing "forward . /etc/resolv.conf".
-kubectl get configmap coredns -n kube-system -o yaml
-
-echo "=== PATCHING COREDNS CONFIGMAP ==="
-# This replaces "forward . /etc/resolv.conf" with a direct public fallback
-kubectl get configmap coredns -n kube-system -o yaml | \
-    sed 's/forward . \/etc\/resolv.conf/forward . 8.8.8.8 1.1.1.1/g' | \
-    sed '/ready/i \        log' | \
-    kubectl apply -f -
 
 ###############################################
 
