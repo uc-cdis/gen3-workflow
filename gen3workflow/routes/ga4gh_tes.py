@@ -7,7 +7,9 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 
 import json
 import re
+from datetime import datetime, timedelta, timezone
 
+from dateutil import parser
 from fastapi import APIRouter, Depends, HTTPException, Request
 from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import (
@@ -19,10 +21,10 @@ from starlette.status import (
 
 from gen3workflow import logger
 from gen3workflow.auth import Auth
-from gen3workflow.config import config
-from gen3workflow.routes.utils import make_tes_server_request
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import create_iam_role_for_funnel_bucket_access
+from gen3workflow.config import config
+from gen3workflow.routes.utils import make_tes_server_request
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
@@ -52,10 +54,9 @@ async def get_request_body(request: Request) -> dict:
     try:
         return json.loads(body)
     except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON in request body: {e.msg}",
-        )
+        err_msg = f"Invalid JSON in request body: {e.msg}"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
 
 @router.get("/service-info", status_code=HTTP_200_OK)
@@ -152,7 +153,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     # Add internal tags
-    if "tags" not in body:
+    if not body.get("tags"):
         body["tags"] = {}
     if type(body["tags"]) != dict:
         err_msg = f"Tags should be a dictionary (tag name -> tag value mapping). Received type {type(body['tags'])}: {body["tags"]}"
@@ -221,6 +222,53 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     )
 
     return res.json()
+
+
+def process_task_outputs(user_id, body: dict) -> dict:
+    """
+    Call `are_outputs_ready` and process the result: update the task's `state` if needed, and add
+    any detailed logs to the `system_logs` returned to the user.
+    """
+    # NOTE: we use `body["logs"][-1]` here because the last set of logs represents the last
+    # retry (see GA4GH TES spec)
+    if not body.get("logs"):
+        body["logs"] = [{}]
+    task_logs = body["logs"][-1]
+
+    if body["state"] != "COMPLETE" or not task_logs.get("outputs"):
+        return body
+
+    task_len = (
+        datetime.now(timezone.utc) - parser.parse(task_logs["end_time"])
+        if task_logs.get("end_time")
+        else timedelta(0)
+    )
+    if task_len > timedelta(hours=config["SKIP_CHECK_TASK_OUTPUTS_HOURS"]):
+        logger.debug(
+            f"Task completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
+        )
+        return body
+
+    ready, logs = aws_utils.are_outputs_ready(
+        user_id, body.get("id"), task_logs["outputs"]
+    )
+    if not ready:
+        if task_len > timedelta(hours=config["GIVE_UP_CHECK_TASK_OUTPUTS_HOURS"]):
+            msg = f"{datetime.now(timezone.utc)}: task completed more than {config['GIVE_UP_CHECK_TASK_OUTPUTS_HOURS']} hours ago but outputs are still not ready: marking as failed"
+            body["state"] = "SYSTEM_ERROR"
+        else:
+            msg = (
+                f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
+            )
+            body["state"] = "RUNNING"
+    else:
+        msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
+
+    if not task_logs.get("system_logs"):
+        body["logs"][-1]["system_logs"] = []
+    body["logs"][-1]["system_logs"].extend(logs)
+    body["logs"][-1]["system_logs"].append(msg)
+    return body
 
 
 def apply_view_to_task(view: str, task: dict) -> dict:
@@ -316,7 +364,7 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
 
     # filter out tasks the current user does not have access to
     listed_tasks["tasks"] = [
-        apply_view_to_task(requested_view, task)
+        apply_view_to_task(requested_view, process_task_outputs(user_id, task))
         for task in listed_tasks.get("tasks", [])
         if user_access.get(task.get("tags", {}).get("_AUTHZ"))
     ]
@@ -357,7 +405,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     body["tags"]["_AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
 
-    return apply_view_to_task(requested_view, body)
+    return apply_view_to_task(requested_view, process_task_outputs(user_id, body))
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)

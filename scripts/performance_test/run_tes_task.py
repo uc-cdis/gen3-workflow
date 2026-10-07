@@ -1,11 +1,12 @@
 # pylint: disable=missing-function-docstring
 
-from dateutil import parser
 import json
 import os
-import requests
 import sys
 import time
+
+import requests
+from dateutil import parser
 
 VERBOSE = True
 

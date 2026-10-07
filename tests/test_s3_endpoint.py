@@ -1,58 +1,38 @@
+import io
 import re
 import tempfile
 from unittest.mock import AsyncMock, patch
 
 import boto3
+import pytest
+import pytest_asyncio
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-import pytest
-import pytest_asyncio
 
+from gen3workflow.config import config
+from gen3workflow.routes.s3 import (
+    _dechunk_stream,
+    set_access_token_and_get_user_id,
+)
 from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
     TEST_USER_ID,
     TEST_USER_TOKEN,
     mock_aws_s3_request,
 )
-from gen3workflow.config import config
-from gen3workflow.routes.s3 import (
-    set_access_token_and_get_user_id,
-    chunked_to_non_chunked_body,
-)
 
 TEST_CLIENT_ID = "client-azp"
 
 
 # reusable parametrization of the `s3_client` and `access_token_patcher` fixtures
-s3_client_and_token_test_ids = [
-    "s3 path-user creds",
-    "root path-user creds",
-    "s3 path-client creds",
-    "root path-client creds",
-]
+s3_client_and_token_test_ids = ["s3 path", "root path"]
 s3_client_and_token_test_cases = [
-    # first 2 test cases: user key ID and user token
     (
         {"endpoint": "s3", "aws_access_key_id": TEST_USER_TOKEN},
         {"user_id": TEST_USER_ID},
     ),
     ({"endpoint": "", "aws_access_key_id": TEST_USER_TOKEN}, {"user_id": TEST_USER_ID}),
-    # last 2 test cases: client key ID and client token
-    (
-        {
-            "endpoint": "s3",
-            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
-        },
-        {"user_id": None, "client_id": TEST_CLIENT_ID},
-    ),
-    (
-        {
-            "endpoint": "",
-            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
-        },
-        {"user_id": None, "client_id": TEST_CLIENT_ID},
-    ),
 ]
 
 
@@ -132,13 +112,10 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
             {"aws_access_key_id": TEST_USER_TOKEN},
             {"user_id": None, "client_id": TEST_CLIENT_ID},
         ),
-        # client key ID and user token
-        (
-            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {"user_id": TEST_USER_ID},
-        ),
     ],
-    ids=["client aws_access_key_id-user token", "user aws_access_key_id-client token"],
+    ids=[
+        "client aws_access_key_id-user token",
+    ],
     indirect=True,
 )
 def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
@@ -170,13 +147,10 @@ def test_s3_endpoint_no_token(s3_client):
             {"aws_access_key_id": TEST_USER_TOKEN},
             {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
         ),
-        # client key ID and user+client token
-        (
-            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
-        ),
     ],
-    ids=["supported user+client token", "unsupported user+client token"],
+    ids=[
+        "supported user+client token",
+    ],
     indirect=True,
 )
 def test_s3_endpoint_unsupported_oidc_token(s3_client, access_token_patcher, request):
@@ -274,13 +248,10 @@ async def test_s3_endpoint_with_bearer_token(client, path):
     ids=["with token sub", "without token sub"],
 )
 @pytest.mark.parametrize(
-    "key_includes_user_id", [True, False], ids=["key format A", "key format B"]
-)
-@pytest.mark.parametrize(
     "auth_header_format", [1, 2], ids=["auth format 1", "auth format 2"]
 )
 async def test_set_access_token_and_get_user_id(
-    auth_header_format, key_includes_user_id, token_claims_sub, token_claims_azp
+    auth_header_format, token_claims_sub, token_claims_azp
 ):
     """
     Test `set_access_token_and_get_user_id` behavior with various combinations of access token and
@@ -304,8 +275,6 @@ async def test_set_access_token_and_get_user_id(
     auth.get_token_claims.return_value = token_claims
 
     aws_access_key_id = TEST_USER_TOKEN
-    if key_includes_user_id:
-        aws_access_key_id += f";userId={TEST_USER_ID}"
 
     if auth_header_format == 1:
         auth_header = f"AWS4-HMAC-SHA256 Credential={aws_access_key_id}/<date>/<region>/<service>/aws4_request, SignedHeaders=some-text, Signature=some-text"
@@ -313,20 +282,8 @@ async def test_set_access_token_and_get_user_id(
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
     # no user ID in the token claims or in the key ID: error
-    if not key_includes_user_id and not token_claims_sub:
+    if not token_claims_sub:
         with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
-            await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
-    # user ID in the key ID, which implies a client flow, but no client ID in the token
-    # claims: error
-    elif key_includes_user_id and not token_claims_azp:
-        with pytest.raises(HTTPException, match="401: No client ID in token"):
-            await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
-    # user ID in the key ID, which implies a client flow, AND user ID in the token claims: error.
-    # similar test case as `test_s3_endpoint_unsupported_oidc_token`
-    elif key_includes_user_id and token_claims_sub:
-        with pytest.raises(
-            HTTPException, match="401: Expected a client token not linked to a user"
-        ):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
     else:
@@ -399,17 +356,71 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     )
 
 
-def test_chunked_to_non_chunked_body():
-    """
-    Test that `chunked_to_non_chunked_body` correctly parses request bodies from chunked data
-    """
-    body = b"f;chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6891\r\nBonjour world!\n\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
-    assert chunked_to_non_chunked_body(body) == b"Bonjour world!\n"
+async def _async_iter(segments):
+    for s in segments:
+        yield s
 
-    body = b"5;chunk-signature=9f5c0b7f5c1a1e0a6f2f7c5f7c0d3a8f1c9e3a3b8b1cbb4eaa27f0d5b3a0b0f2\r\nHello\r\n5;chunk-signature=3b92d0a84f7b91f3a9f4d1f8c1e90c0f5b6d1b42a2f82a8e0b91d78a0cb8e0f1\r\nWorld\r\n5;chunk-signature=7e2c5a8c8a3d1b0f9d3a3a5e1f3e6b1a9c9f1a3e5f9c0d8a2b4c3e8f0d9b1c2\r\nAgain\r\n0;chunk-signature=2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d\r\n\r\n"
-    assert chunked_to_non_chunked_body(body) == b"HelloWorldAgain"
 
-    txt = "this text includes '\r\n' which is also the chunk separator"
-    chunk_len = f"{len(txt):x}"
-    body = f"{chunk_len};chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6222\r\n{txt}\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
-    assert chunked_to_non_chunked_body(body.encode()) == txt.encode()
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "wire_segments, expected",
+    [
+        # single segment: one data chunk + terminal chunk
+        (
+            [b"b;chunk-signature=abc\r\nhello world\r\n0;chunk-signature=abc\r\n\r\n"],
+            b"hello world",
+        ),
+        # multiple data chunks in one segment
+        (
+            [
+                b"3;chunk-signature=abc\r\nfoo\r\n3;chunk-signature=abc\r\nbar\r\n0;chunk-signature=abc\r\n\r\n"
+            ],
+            b"foobar",
+        ),
+        # chunk header split across two TCP segments
+        (
+            [
+                b"b;chunk-sig",
+                b"nature=abc\r\nhello world\r\n0;chunk-signature=abc\r\n\r\n",
+            ],
+            b"hello world",
+        ),
+        # chunk data split across two TCP segments
+        (
+            [
+                b"b;chunk-signature=abc\r\nhello",
+                b" world\r\n0;chunk-signature=abc\r\n\r\n",
+            ],
+            b"hello world",
+        ),
+        # terminal chunk only: empty body
+        (
+            [b"0;chunk-signature=abc\r\n\r\n"],
+            b"",
+        ),
+        # text with chunk separators
+        (
+            [
+                b"39;chunk-signature=abc\r\nthis text includes '\r\n' which is also the chunk separator\r\n0;chunk-signature=abc\r\n\r\n"
+            ],
+            b"this text includes '\r\n' which is also the chunk separator",
+        ),
+    ],
+    ids=[
+        "single chunk",
+        "multiple chunks",
+        "header split across segments",
+        "data split across segments",
+        "empty body",
+        "text with chunk separators",
+    ],
+)
+async def test_dechunk_stream(wire_segments, expected):
+    """
+    Test that `_dechunk_stream` correctly reconstructs the original data
+    from a stream of chunked transfer encoding segments.
+    """
+    result = bytearray()
+    async for piece in _dechunk_stream(_async_iter(wire_segments)):
+        result += piece
+    assert bytes(result) == expected

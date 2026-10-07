@@ -1,6 +1,12 @@
 # pylint: disable=missing-function-docstring
 
 """
+-----------------------------
+
+NOTE: the latest version of this script lives in `gen3-code-vigil/gen3-load-tests`
+
+-----------------------------
+
 Usage:
 - Install the Gen3 SDK
 - Save your API key at`~/.gen3/credentials.json`
@@ -10,18 +16,18 @@ Usage:
 - Launch with `gen3 run python performance_test.py`
 """
 
-from dataclasses import dataclass
+import asyncio
 import json
 import os
 import random
-from statistics import stdev
 import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
+from statistics import stdev
 from typing import List
 
-import asyncio
 import boto3
 from botocore.config import Config
 from cdislogging import get_logger
