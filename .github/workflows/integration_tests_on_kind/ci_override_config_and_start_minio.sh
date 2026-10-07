@@ -24,6 +24,7 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = fa
 
 # overwrite gen3-workflow config `EKS_CLUSTER_NAME` to an empty string
 yq eval -i '.global.clusterName = ""' values.yaml
+yq eval -i '.global.netPolicy.dbSubnets = []' values.yaml
 
 # update fence and indexd configs to generate secrets instead of looking for pre-existing secrets.
 # update fields in the private fence config because it takes precedence over the public config.
@@ -168,6 +169,47 @@ spec:
   ports:
     - port: 9000
       targetPort: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-minio-ingress-netpolicy
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: mount-s3
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ${NAMESPACE}
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: workflow-pods-${NAMESPACE}
+      podSelector:
+        matchLabels:
+          app: funnel-worker
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-minio-egress-netpolicy
+  namespace: ${NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: minio
 EOF
 
 # external-secrets is required to install gen3 and is not installed out of the box in kind clusters
