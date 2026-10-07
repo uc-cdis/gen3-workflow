@@ -283,7 +283,7 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     Returns:
         dict: TES task with applied view
     """
-    if view == "BASIC":
+    if not view or view == "MINIMAL":
         return {"id": task.get("id"), "state": task.get("state")}
 
     # Eliminate fields not exposed to the end user
@@ -294,10 +294,10 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     if view == "FULL":
         return task
 
-    # otherwise, view == None or "MINIMAL", which is the default according to the TES spec
+    # otherwise, view == BASIC
     for i in range(len(task.get("executors", []))):
         task["executors"][i].pop("stderr", None)
-        task["executors"][i].pop("stdin", None)
+        task["executors"][i].pop("stdout", None)
     for i in range(len(task.get("inputs", []))):
         task["inputs"][i].pop("content", None)
     for i in range(len(task.get("logs", []))):

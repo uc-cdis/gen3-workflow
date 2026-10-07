@@ -75,7 +75,7 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
     else:
         assert res.status_code == 200, res.text
         # check that the view was applied:
-        if view == "BASIC":
+        if view == None or view == "MINIMAL":
             assert res.json() == {"id": "123", "state": "COMPLETE"}
         elif view == "FULL":
             assert res.json() == {
@@ -86,7 +86,7 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
                     "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
                 },
             }
-        else:  # view == None or "MINIMAL"
+        else:  # view == BASIC
             assert res.json() == {
                 "id": "123",
                 "state": "COMPLETE",
@@ -541,7 +541,7 @@ async def test_list_tasks(
             ]
 
             # check that the view was applied:
-            if view == "BASIC":
+            if view == None or view == "MINIMAL":
                 assert tasks == {"tasks": [{"id": "123", "state": "COMPLETE"}]}
             elif view == "FULL":
                 assert tasks == {
@@ -556,7 +556,7 @@ async def test_list_tasks(
                         }
                     ]
                 }
-            else:  # view == None or "MINIMAL"
+            else:  # view == BASIC
                 assert tasks == {
                     "tasks": [
                         {
