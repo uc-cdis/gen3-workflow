@@ -85,11 +85,7 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     Amazon S3 processes bucket deletion asynchronously. The bucket may
     remain visible for a short period until deletion fully propagates.
     """
-    token_claims = await auth.get_token_claims()
-    user_id = token_claims.get("sub")
-    await auth.authorize(
-        "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
-    )
+    user_id = await authorize_own_storage_deletion(auth)
     logger.info(f"User '{user_id}' deleting their storage bucket")
     deleted_bucket_name = cleanup_user_bucket(user_id, delete_bucket=True)
 
@@ -121,11 +117,7 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     """
     Deletes all the objects from current user's S3 bucket
     """
-    token_claims = await auth.get_token_claims()
-    user_id = token_claims.get("sub")
-    await auth.authorize(
-        "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
-    )
+    user_id = await authorize_own_storage_deletion(auth)
     logger.info(f"User '{user_id}' emptying their storage bucket")
     deleted_bucket_name = cleanup_user_bucket(user_id, delete_bucket=False)
 
@@ -137,3 +129,20 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     logger.info(
         f"All objects removed from bucket '{deleted_bucket_name}' for user '{user_id}'"
     )
+
+
+async def authorize_own_storage_deletion(auth: Auth) -> str:
+    """
+    Check the caller may delete from their own storage.
+
+    Args:
+        auth (Auth): the request's auth instance
+
+    Returns:
+        str: the caller's user ID
+    """
+    user_id = (await auth.get_token_claims()).get("sub")
+    await auth.authorize(
+        "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
+    )
+    return user_id

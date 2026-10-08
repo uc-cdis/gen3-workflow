@@ -221,6 +221,8 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         headers={"Authorization": f"bearer {auth.bearer_token.credentials}"},
     )
 
+    request.app.metrics.add_task_created(status_code=HTTP_200_OK)
+
     return res.json()
 
 

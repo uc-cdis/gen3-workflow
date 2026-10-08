@@ -58,6 +58,7 @@ You will need to run a TES server for Gen3Workflow to talk to. For example, you 
 Update your configuration file:
 - set `TES_SERVER_URL` to the TES server URL
 - set `MOCK_AUTH` to `true`, so that no attempts to interact with Arborist are made.
+- set `DPOP_SHARED_SECRET` (see [DPoP](#dpop)), or set `DPOP_REQUIRED` to `false`: DPoP is required by default and the service does not start without a shared secret.
 
 Start the Gen3Workflow app:
 
@@ -68,6 +69,20 @@ python run.py
 Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/docs>.
 
 > Note: Although the Gen3Workflow service can run as a standalone component, a complete end-to-end experience with Funnel and the Funnel plugin requires interaction with the Fence service. While support for this flow is planned for future releases, it is not currently supported out of the box.
+
+## DPoP
+
+The GA4GH TES and S3 endpoints require DPoP ([RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449)) by default for the tokens that are bound to a client's key - the auth service (e.g. Fence) marks them with a `cnf.jkt` claim - and for task tokens, which the auth service marks with a `context.task_token_type` claim. Such a token must be presented along with a DPoP proof signed by the matching private key (demonstrating proof of possession). A task token is long-lived, so one that is not bound is rejected. Any other access token, such as a user's regular access token or a `client_credentials` token, is accepted without a proof, as an ordinary bearer token. A request with no credentials at all is rejected, except `GET /ga4gh/tes/v1/service-info`, which is public.
+
+To configure it, in your configuration file:
+- set `DPOP_REQUIRED` to `false` to turn it off, for example in a Dev/QA environment with no shared secret. No proof is validated then, a DPoP-bound token is accepted as an ordinary bearer token, and every setting below is ignored.
+- set `DPOP_ALLOWED_ISSUERS` to the issuers allowed to sign the tokens, for example `["https://<commons hostname>/user"]`
+- set `DPOP_SHARED_SECRET` to the **exact same value** as the auth service's `DPOP_SHARED_SECRET`, or set the `DPOP_SHARED_SECRET` environment variable, which takes precedence. Clients reuse the nonce the auth service handed them for their first request here, and a nonce signed with a different secret does not verify.
+- if this service is not reached directly, set `DPOP_EXTERNAL_BASE_URL` to the URL clients use, and make sure `DPOP_PROTECTED_PATHS` maps each protected path prefix to every prefix the reverse proxy exposes it at. The Gen3 reverse proxy serves the S3 endpoint under `/workflows`, and the TES endpoints both as-is and under `/workflows`. It strips `/workflows` before forwarding, so the default configuration adds it back. Getting this wrong shows up as an `htu mismatch` error.
+
+Optionally, set the `DPOP_NONCE_TTL` environment variable to change how long a nonce stays valid (defaults to 300 seconds).
+
+Clients can generate the proofs with the [Gen3 Python SDK/CLI](https://github.com/uc-cdis/gen3sdk-python) (see its [DPoP proxy documentation](https://github.com/uc-cdis/gen3sdk-python/blob/master/docs/howto/dpop-proxy.md)), which exchanges an API key for a bound token and then proxies Nextflow's TES and S3 traffic through freshly signed proofs.
 
 ## Run Nextflow workflows with Gen3Workflow
 

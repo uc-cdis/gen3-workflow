@@ -1,3 +1,19 @@
+#########################
+# LOCAL DEBUGGING ONLY  #
+#########################
+
+# /!\ WARNING: NEVER enable this outside of local development.
+# When true, the GA4GH TES, S3 and storage endpoints return canned responses instead of
+# contacting the TES server, AWS or S3, and `/_status` reports OK without contacting the TES
+# server. Authentication and authorization still go through the real auth service and Arborist,
+# so `/storage/setup` must still be called first to grant users access to their own tasks and
+# storage. Every stubbed request is logged, and the app logs a warning at startup.
+# This exists to exercise the DPoP flow without a TES server, a Funnel deployment or AWS
+# credentials: a request that fails can then only have failed on authentication. It is not a
+# usable TES server - every task is reported as created and COMPLETE without ever running, and
+# nothing is read from or written to S3, so no workflow can actually complete.
+DEBUG_STUB_EXTERNAL_SERVICES: false
+
 ##########
 # SERVER #
 ##########
@@ -7,9 +23,8 @@ HOSTNAME: localhost
 APP_DEBUG: false
 # httpx debug mode is very verbose, so the setting is separate from the main app debug mode
 HTTPX_DEBUG: false
-
-# number of gunicorn workers
-N_WORKERS: 2
+# Emit one JSON object per log line instead of the human-readable text format.
+ENABLE_JSON_LOGS: true
 
 # For deployments that run the app behind a proxy. The value should start with a slash.
 PROXY_PREFIX:
@@ -43,6 +58,53 @@ VALID_AUTHZ_AUDIENCE:
   # the updated aud and that are not aud-validated
   - "user"
   - "gen3"
+
+###################
+# DPoP (RFC 9449) #
+###################
+
+# When true, the GA4GH TES and S3 endpoints require a valid DPoP proof with every DPoP-bound
+# access token (`cnf.jkt` claim) and every task token (`context.task_token_type` claim). A task
+# token is long-lived, so it is only accepted DPoP-bound, with a proof. Any other access token,
+# including `client_credentials` tokens, is accepted without a proof as an ordinary bearer token.
+# Requires `DPOP_SHARED_SECRET`: the service refuses to start without it. Set this to false
+# explicitly to run without DPoP, for example in a Dev/QA environment with no shared secret. No
+# proof is validated then, and a DPoP-bound token is accepted as an ordinary bearer token.
+#
+# /!\ KNOWN GAP: proofs are not single-use here. This service does not track proof `jti`
+# values, so RFC 9449 section 11.1 replay protection is NOT in force: a proof captured off
+# the wire can be replayed against the same method and URL until it ages out of
+# `authutils.dpop.DPOP_PROOF_MAX_TTL`. This is why that default TTL is short-lived.
+#
+# Fixing this needs a `jti` store shared across pod replicas and across services
+# in some ideally fast in-mem store or something (infrastructure we don't really have in Gen3
+# and requires broader architectural desig, TBD).
+DPOP_REQUIRED: true
+
+# Secret used to sign and verify the stateless DPoP nonces.
+# /!\ WARNING: this MUST be the exact same value as the `DPOP_SHARED_SECRET` of the auth
+# service (e.g. Fence) that issues the DPoP-bound tokens. Clients reuse the nonce Fence
+# handed them for their first request here, and a nonce signed with a different secret does
+# not verify. The `DPOP_SHARED_SECRET` environment variable takes precedence over this.
+DPOP_SHARED_SECRET:
+
+# Token issuers allowed to sign DPoP-bound access tokens. Defaults to
+# "https://<HOSTNAME>/user", which is where Gen3 serves the auth service, so this only needs
+# to be set when the tokens come from somewhere else.
+DPOP_ALLOWED_ISSUERS: []
+
+# Origin of this service as the client sees it, used to rebuild the URL the client signed in
+# the proof's `htu` claim. Defaults to "https://<HOSTNAME>".
+DPOP_EXTERNAL_BASE_URL:
+
+# Maps the path prefix of each DPoP-protected group of endpoints, as this service sees it, to
+# every path prefix the reverse proxy exposes it at. The Gen3 reverse proxy strips "/workflows"
+# before the request reaches this service, but the client signed the un-stripped URL, so the
+# prefix has to be added back before comparing against `htu`. The TES endpoints are served
+# both as-is and under "/workflows", so a proof signed for either is accepted.
+DPOP_PROTECTED_PATHS:
+  /ga4gh/tes: ["", /workflows]
+  /s3: [/workflows]
 
 ##########
 # AWS S3 #
@@ -87,6 +149,39 @@ TASK_IMAGE_WHITELIST: []
 
 ENABLE_PROMETHEUS_METRICS: false
 PROMETHEUS_MULTIPROC_DIR: /var/tmp/prometheus_metrics
+
+###################
+#  OBSERVABILITY  #
+###################
+
+# Emit OpenTelemetry spans for requests, outbound HTTP calls and AWS calls. Leave the endpoint
+# empty to print spans to the console, which is how to inspect them locally without running a
+# collector.
+ENABLE_TRACING: false
+OTEL_EXPORTER_OTLP_ENDPOINT: ""
+OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+
+# Push profiles to Pyroscope. The address is Pyroscope's own ingest API, not an OTLP
+# receiver, so an OTLP port such as 4317 or 4318 fails at push time rather than at startup.
+# Basic-auth credentials and the tenant id are read from PYROSCOPE_BASIC_AUTH_USERNAME,
+# PYROSCOPE_BASIC_AUTH_PASSWORD and PYROSCOPE_TENANT_ID, so they are never templated into a
+# configuration file.
+ENABLE_CONTINUOUS_PROFILING: false
+PYROSCOPE_SERVER_ADDRESS: ""
+
+# What the Pyroscope agent collects, how many samples per second it takes and how many seconds
+# it waits between pushes. All 5 are handed to the agent, so the PROFILE_CPU, PROFILE_MEMORY,
+# PROFILE_ON_CPU_ONLY, PYROSCOPE_SAMPLE_RATE and PYROSCOPE_UPLOAD_INTERVAL environment
+# variables the profiling library falls back to are not consulted.
+# Memory profiling is heavier than CPU profiling, so it is off until something needs it.
+# PROFILE_ON_CPU_ONLY measures CPU time rather than wall-clock time, which leaves time spent
+# awaiting I/O out of the flamegraph: turn it off to see a request that spends most of its time
+# waiting on the TES server or S3.
+PROFILE_CPU: true
+PROFILE_MEMORY: false
+PROFILE_ON_CPU_ONLY: true
+PYROSCOPE_SAMPLE_RATE: 100
+PYROSCOPE_UPLOAD_INTERVAL: 10
 
 #############
 #  CLUSTER  #

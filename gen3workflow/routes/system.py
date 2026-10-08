@@ -7,6 +7,9 @@ from gen3workflow.config import config
 from gen3workflow.routes.utils import make_tes_server_request
 
 router = APIRouter()
+# Separate from `router` so that debug stub mode can swap it out on its own, see
+# `DEBUG_STUB_EXTERNAL_SERVICES`
+status_router = APIRouter()
 
 
 @router.get("/_version")
@@ -18,8 +21,8 @@ def get_version(request: Request) -> dict:
     return dict(version=request.app.version)
 
 
-@router.get("/_status")
-@router.get("/_status/", include_in_schema=False)
+@status_router.get("/_status")
+@status_router.get("/_status/", include_in_schema=False)
 async def get_status(request: Request) -> dict:
     """
     Get app status

@@ -19,6 +19,7 @@ from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    get_debug_stub_warnings,
     mock_aws_s3_request,
 )
 
@@ -123,6 +124,29 @@ def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
     Hitting the `/s3` endpoint with mismatched credentials (user aws_access_key_id and client
     token, or client aws_access_key_id and user token) should result in a 401 Unauthorized
     error.
+    """
+    with pytest.raises(ClientError, match="Unauthorized"):
+        s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+
+
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize(
+    "s3_client, access_token_patcher",
+    [
+        (
+            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
+            {"user_id": None, "client_id": TEST_CLIENT_ID},
+        ),
+    ],
+    ids=["client aws_access_key_id-client token"],
+    indirect=True,
+)
+def test_s3_endpoint_rejects_client_acting_on_behalf_of_a_user(
+    s3_client, access_token_patcher
+):
+    """
+    Hitting the `/s3` endpoint with a client aws_access_key_id (`<token>;userId=<user ID>`)
+    should result in a 401 Unauthorized error.
     """
     with pytest.raises(ClientError, match="Unauthorized"):
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
@@ -254,14 +278,11 @@ async def test_set_access_token_and_get_user_id(
     auth_header_format, token_claims_sub, token_claims_azp
 ):
     """
-    Test `set_access_token_and_get_user_id` behavior with various combinations of access token and
-    key ID.
+    Test `set_access_token_and_get_user_id` behavior with various access token claims.
 
     Testing:
     - Authorization header ID format 1 and 2, as documented in the
       `set_access_token_and_get_user_id` docstring
-    - Key ID format A and B, as documented in the `set_access_token_and_get_user_id`
-      docstring
     - Access token claims with or without the `sub` field (user ID)
     - Access token claims with or without the `azp` field (client ID)
     """
@@ -281,9 +302,9 @@ async def test_set_access_token_and_get_user_id(
     else:
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
-    # no user ID in the token claims or in the key ID: error
+    # no user ID in the token claims: error
     if not token_claims_sub:
-        with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
+        with pytest.raises(HTTPException, match="401: No user ID in token"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
     else:
@@ -359,6 +380,62 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
 async def _async_iter(segments):
     for s in segments:
         yield s
+
+
+@pytest.mark.asyncio
+async def test_s3_endpoint_in_debug_stub_mode(
+    debug_stub_client, access_token_patcher, caplog
+):
+    """
+    In debug stub mode, an authorized S3 request to the user's bucket gets a canned response,
+    logged as a warning, without being forwarded to S3.
+    """
+    bucket = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+
+    res = await debug_stub_client.get(
+        f"/s3/{bucket}",
+        headers={"Authorization": f"AWS4-HMAC-SHA256 Credential={TEST_USER_TOKEN}/"},
+    )
+    assert res.status_code == 200, res.text
+    assert f"<Name>{bucket}</Name>" in res.text
+    assert len(get_debug_stub_warnings(caplog)) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/s3/{bucket}", id="s3-prefix"),
+        pytest.param("/{bucket}", id="root"),
+    ],
+)
+async def test_s3_endpoint_in_debug_stub_mode_requires_an_access_token(
+    debug_stub_client, caplog, path
+):
+    """
+    In debug stub mode, an S3 request without credentials is rejected rather than stubbed, so
+    the root mount does not answer every unrouted path with a canned 200.
+    """
+    bucket = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    res = await debug_stub_client.get(path.format(bucket=bucket))
+    assert res.status_code == 401, res.text
+    assert get_debug_stub_warnings(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_s3_endpoint_in_debug_stub_mode_rejects_another_users_bucket(
+    debug_stub_client, access_token_patcher, caplog
+):
+    """
+    In debug stub mode, an S3 request for a bucket other than the user's is rejected rather than
+    stubbed.
+    """
+    res = await debug_stub_client.get(
+        "/s3/someone-elses-bucket",
+        headers={"Authorization": f"AWS4-HMAC-SHA256 Credential={TEST_USER_TOKEN}/"},
+    )
+    assert res.status_code == 403, res.text
+    assert get_debug_stub_warnings(caplog) == []
 
 
 @pytest.mark.asyncio
