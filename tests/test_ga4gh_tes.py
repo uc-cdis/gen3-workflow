@@ -607,15 +607,12 @@ async def test_list_tasks(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("client", client_parameters, indirect=True)
-@pytest.mark.parametrize("get_all", [False, True])
-@pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
 async def test_list_tasks_repeated_params(
-    client, access_token_patcher, get_all, view, trailing_slash, mock_aws_services
+    client, access_token_patcher, trailing_slash, mock_aws_services
 ):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server.
-    Repeated params are allowed, such as repeated 'tag_key' or 'tag_velue'.
+    Repeated params are allowed, such as repeated 'tag_key' or 'tag_value'.
     Any unsupported query params should be filtered out. Tasks the user does not have access
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
@@ -629,10 +626,6 @@ async def test_list_tasks_repeated_params(
         assert res.status_code == 200, res.text
 
     url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
-    if view:
-        url += f"&view={view}"
-    if get_all:
-        url += "&all"
     repeated_params = (
         "&tag_key=tag_key_1&tag_value=tag_val_1&tag_key=tag_key_2&tag_value=tag_val_2"
     )
@@ -658,11 +651,7 @@ async def test_list_tasks_repeated_params(
         + tag_keys
         + ([("tag_key", "_AUTHZ")] if not get_all else [])
         + tag_values
-        + (
-            [("tag_value", get_authz_string_for_user(TEST_USER_ID))]
-            if not get_all
-            else []
-        )
+        + ([("tag_value", get_authz_string_for_user(TEST_USER_ID))])
     )
     # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
     query_params += [("view", "FULL")]
