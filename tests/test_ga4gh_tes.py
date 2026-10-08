@@ -649,9 +649,9 @@ async def test_list_tasks_repeated_params(
     query_params = (
         [("state", "COMPLETE")]
         + tag_keys
-        + ([("tag_key", "_AUTHZ")] if not get_all else [])
+        + [("tag_key", "_AUTHZ")]
         + tag_values
-        + ([("tag_value", get_authz_string_for_user(TEST_USER_ID))])
+        + [("tag_value", get_authz_string_for_user(TEST_USER_ID))]
     )
     # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
     query_params += [("view", "FULL")]
@@ -685,34 +685,18 @@ async def test_list_tasks_repeated_params(
             ]
 
             # check that the view was applied:
-            if view == "BASIC":
-                assert tasks == {"tasks": [{"id": "123", "state": "COMPLETE"}]}
-            elif view == "FULL":
-                assert tasks == {
-                    "tasks": [
-                        {
-                            "id": "123",
-                            "state": "COMPLETE",
-                            "logs": [{"system_logs": ["blah"]}],
-                            "tags": {
-                                "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
-                            },
-                        }
-                    ]
-                }
-            else:  # view == None or "MINIMAL"
-                assert tasks == {
-                    "tasks": [
-                        {
-                            "id": "123",
-                            "state": "COMPLETE",
-                            "logs": [{}],
-                            "tags": {
-                                "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
-                            },
-                        }
-                    ]
-                }
+            assert tasks == {
+                "tasks": [
+                    {
+                        "id": "123",
+                        "state": "COMPLETE",
+                        "logs": [{"system_logs": ["blah"]}],
+                        "tags": {
+                            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
+                        },
+                    }
+                ]
+            }
 
     # check that the appropriate authorization checks were made
     if client.tes_resp_code != 500:
