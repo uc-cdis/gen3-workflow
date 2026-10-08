@@ -63,9 +63,10 @@ VALID_AUTHZ_AUDIENCE:
 # DPoP (RFC 9449) #
 ###################
 
-# When true, the GA4GH TES and S3 endpoints reject any request that does not present a
-# DPoP-bound access token (`cnf.jkt` claim) along with a valid DPoP proof. The clients listed in
-# `DPOP_EXEMPT_CLIENT_IDS` are the only exception.
+# When true, the GA4GH TES and S3 endpoints require a valid DPoP proof with every DPoP-bound
+# access token (`cnf.jkt` claim) and every task token (`context.task_token_type` claim). A task
+# token is long-lived, so it is only accepted DPoP-bound, with a proof. Any other access token,
+# including `client_credentials` tokens, is accepted without a proof as an ordinary bearer token.
 # Requires `DPOP_SHARED_SECRET`: the service refuses to start without it. Set this to false
 # explicitly to run without DPoP, for example in a Dev/QA environment with no shared secret. No
 # proof is validated then, and a DPoP-bound token is accepted as an ordinary bearer token.
@@ -79,15 +80,6 @@ VALID_AUTHZ_AUDIENCE:
 # in some ideally fast in-mem store or something (infrastructure we don't really have in Gen3
 # and requires broader architectural desig, TBD).
 DPOP_REQUIRED: true
-
-# Client IDs whose `client_credentials` tokens are accepted by the DPoP-protected endpoints
-# without a DPoP proof when `DPOP_REQUIRED` is true, such as the Funnel worker pods' client.
-# Those tokens are never DPoP-bound, so their holders have no key to sign a proof with. A client
-# that is not listed here is held to the same requirement as a user.
-# /!\ WARNING: an exempt token is an ordinary bearer credential: whoever holds it can act as any
-# user the client is authorized for, and `DPOP_REQUIRED` does not change that. Keep this list to
-# the clients that need it, and their Arborist policies as narrow as the workflows allow.
-DPOP_EXEMPT_CLIENT_IDS: []
 
 # Secret used to sign and verify the stateless DPoP nonces.
 # /!\ WARNING: this MUST be the exact same value as the `DPOP_SHARED_SECRET` of the auth

@@ -129,7 +129,7 @@ async def set_access_token_and_get_user_id(
         method (str | None): HTTP method of the request, for logging
         path (str | None): requested path, for logging
         dpop_validated (bool): whether the DPoP middleware validated a proof for this
-            request. A DPoP-bound token is refused without one.
+            request. A DPoP-bound token or a task token is refused without one.
 
     Returns:
         tuple(str, str): the user's ID and (if the token is linked to a client) the client's ID
@@ -184,6 +184,18 @@ async def set_access_token_and_get_user_id(
         err_msg = (
             "This access token is DPoP-bound and can only be used with a DPoP proof"
         )
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    # a task token is long-lived, so it is only accepted with a proof of possession
+    context = token_claims.get("context")
+    if (
+        config["DPOP_REQUIRED"]
+        and not dpop_validated
+        and isinstance(context, dict)
+        and "task_token_type" in context
+    ):
+        err_msg = "Task tokens can only be used DPoP-bound, with a DPoP proof"
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 

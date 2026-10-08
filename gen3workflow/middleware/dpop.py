@@ -33,11 +33,6 @@ from gen3workflow.routes.s3 import S3_PATH_PREFIX, get_s3_access_key_id_from_aut
 REQUIRED_SCOPES = frozenset({"user", "openid"})
 REQUIRED_PURPOSE = "access"
 
-# Counter of the requests that reached a protected endpoint without a proof because they carried
-# an exempt client's token. Labeled by the `DPOP_PROTECTED_PATHS` prefix rather than the request
-# path: an S3 path carries the object key, which would make the label cardinality unbounded.
-EXEMPT_REQUESTS_COUNTER = "gen3_workflow_dpop_exempt_requests"
-
 # The only (method, path) pairs on a protected endpoint that accept a request with no credentials
 # at all. Every other anonymous request is rejected here, so that an Arborist anonymous policy
 # granting access to tasks by mistake does not expose them while DPoP is required.
@@ -56,13 +51,14 @@ async def dpop_middleware(
     Validate the DPoP proof of requests to the DPoP-protected endpoints, when `DPOP_REQUIRED`
     is set. Otherwise, every request is passed through untouched.
 
-    Requests that are not to a protected endpoint are passed through untouched. Every other
-    request must present a DPoP-bound access token along with a valid proof, except the
-    `client_credentials` tokens of the clients listed in `DPOP_EXEMPT_CLIENT_IDS`: such a token is
-    never DPoP-bound, and its holder has no key to sign a proof with.
+    Requests that are not to a protected endpoint are passed through untouched. On a protected
+    endpoint, a proof is required for every DPoP-bound token (`cnf.jkt` claim) and every task
+    token (`context.task_token_type` claim). A task token is long-lived, so it is only accepted
+    when its holder proves possession of the key it is bound to; a task token that is not bound
+    cannot present a valid proof and is always rejected. Any other access token is accepted
+    without a proof and validated by the endpoint as an ordinary bearer token.
 
-    A DPoP-bound token presented without a proof is always rejected, including one issued to an
-    exempt client. So is a proof presented with a token that is not DPoP-bound.
+    A proof presented with a token that is not DPoP-bound is rejected.
 
     A request with neither an Authorization header nor a proof is anonymous. It is passed
     through only to the endpoints listed in `ANONYMOUS_ENDPOINTS`, and rejected everywhere else.
@@ -103,16 +99,24 @@ async def dpop_middleware(
                 "dpop_required",
                 "This access token is DPoP-bound and can only be used with a DPoP proof",
             )
-        if not (access_token and _is_exempt_client_token(access_token)):
+        if access_token and _is_task_token(access_token):
             logger.warning(
-                f"Rejecting request to '{request.url.path}': DPoP is required and the request has no DPoP proof"
+                f"Rejecting request to '{request.url.path}': the access token is a task token but the request has no DPoP proof"
             )
             return _error_response(
                 HTTP_401_UNAUTHORIZED,
                 "dpop_required",
-                "This endpoint only accepts DPoP-bound access tokens, presented with a DPoP proof",
+                "Task tokens can only be used DPoP-bound, with a DPoP proof",
             )
-        _record_exempt_request(request, access_token, path_prefix)
+        if not access_token:
+            logger.warning(
+                f"Rejecting anonymous request to '{request.url.path}': DPoP is required"
+            )
+            return _error_response(
+                HTTP_401_UNAUTHORIZED,
+                "dpop_required",
+                "This endpoint requires an access token",
+            )
         return await call_next(request)
 
     if not access_token:
@@ -344,56 +348,23 @@ def _is_dpop_bound(access_token: str) -> bool:
     return bool(cnf.get("jkt")) and isinstance(cnf.get("jkt"), str)
 
 
-def _is_exempt_client_token(access_token: str) -> bool:
+def _is_task_token(access_token: str) -> bool:
     """
-    Check whether an access token belongs to a client allowed to skip the DPoP proof.
+    Check whether an access token is a task token.
 
-    Such a token comes from the `client_credentials` flow: it is linked to a client and to no
-    user, and is never DPoP-bound, so requiring a proof from it would lock out the worker pods
-    that use it. Only the clients listed in `DPOP_EXEMPT_CLIENT_IDS` get that treatment; any
-    other client is held to the same requirement as a user.
-
-    The token signature is not verified here: this only decides whether a proof is required. A
-    forged token gets no further than the endpoint's own validation, which does verify it.
+    The token signature is not verified here: this only decides whether a proof is required.
+    Removing the claim from a real task token invalidates its signature, so the endpoint's own
+    validation rejects it, and adding the claim only makes a proof required.
 
     Args:
         access_token (str): the encoded access token
 
     Returns:
-        bool: True if the token carries the `azp` claim (the client ID) of an exempt client and
-            no `sub` claim
+        bool: True if the token carries a `context.task_token_type` claim
     """
-    claims = _unverified_claims(access_token)
-    # presence, not truthiness: a token carrying any `sub` is a user's token, and a user is
-    # expected to hold a bound one
-    if "sub" in claims:
-        return False
-    return claims.get("azp") in config["DPOP_EXEMPT_CLIENT_IDS"]
-
-
-def _record_exempt_request(
-    request: Request, access_token: str, path_prefix: str
-) -> None:
-    """
-    Log and count a request that reached a protected endpoint without a DPoP proof.
-
-    An exempt token is an ordinary bearer credential, so this is the one place a deployment can
-    see the exemption being used, and by which client.
-
-    Args:
-        request (Request): the incoming HTTP request
-        access_token (str): the exempt client's access token
-        path_prefix (str): the matching `DPOP_PROTECTED_PATHS` key
-    """
-    client_id = _unverified_claims(access_token).get("azp")
-    logger.info(
-        f"Client '{client_id}' reached '{request.url.path}' with no DPoP proof: exempt by DPOP_EXEMPT_CLIENT_IDS"
-    )
-    request.app.metrics.increment_counter(
-        EXEMPT_REQUESTS_COUNTER,
-        {"client_id": client_id, "path_prefix": path_prefix},
-        description="Requests accepted on a DPoP-protected endpoint without a DPoP proof, because they carried an exempt client's access token.",
-    )
+    context = _unverified_claims(access_token).get("context")
+    # presence, not truthiness: a task token claim with an empty value still requires a proof
+    return isinstance(context, dict) and "task_token_type" in context
 
 
 def _unverified_claims(access_token: str) -> dict:

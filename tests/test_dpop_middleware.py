@@ -7,25 +7,24 @@ that the tests do not need a live token issuer.
 """
 
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from authutils.dpop import DPOP_PROOF_MAX_TTL, generate_dpop_proof
 from authutils.token.dpop_nonce import generate_stateless_nonce
+from fastapi import HTTPException
 from joserfc import jwk, jwt
 
 from gen3workflow.config import config, get_dpop_allowed_issuers
+from gen3workflow.routes.s3 import set_access_token_and_get_user_id
 from tests.conftest import (
     MOCKED_S3_RESPONSE_XML,
     TEST_USER_ID,
     mock_arborist_request,
 )
-from tests.test_metrics import scrape, total
 
 TES_PATH = "/ga4gh/tes/v1/tasks"
-TES_PATH_PREFIX = "/ga4gh/tes"
 TEST_CLIENT_ID = "test-client-id"
-EXEMPT_REQUESTS_COUNTER = "gen3_workflow_dpop_exempt_requests_total"
 S3_BUCKET = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 # The S3 endpoint answers on both of these. Every S3 case below runs against both, because the
 # root mount matches no `DPOP_PROTECTED_PATHS` prefix and so takes a different route through
@@ -159,6 +158,29 @@ def create_client_credentials_token(token_signing_key, dpop_key=None):
     )
 
 
+def create_task_token(token_signing_key, dpop_key=None, task_token_type="WORKFLOW"):
+    """
+    Create a task token as the auth service would issue it in exchange for an API key: a
+    long-lived access token marked with its `context.task_token_type`.
+
+    Args:
+        token_signing_key (jwk.Key): the issuer's signing key
+        dpop_key (jwk.Key | None): if provided, the token is bound to this key
+        task_token_type (str): the type of task token
+
+    Returns:
+        str: the encoded task token
+    """
+    return create_access_token(
+        token_signing_key,
+        dpop_key,
+        context={
+            "user": {"name": f"test-username-{TEST_USER_ID}"},
+            "task_token_type": task_token_type,
+        },
+    )
+
+
 def create_proof(
     dpop_key, method, path, access_token, external_prefix="", signed_overrides=None
 ):
@@ -255,6 +277,43 @@ async def test_bound_token_with_valid_proof_is_accepted_on_s3_endpoint(
 
 
 @pytest.mark.asyncio
+async def test_bound_task_token_with_valid_proof_is_accepted_on_tes_endpoint(
+    client, access_token_patcher, token_signing_key, dpop_key
+):
+    """A DPoP-bound task token with a valid proof is accepted on the TES endpoint."""
+    access_token = create_task_token(token_signing_key, dpop_key)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={
+            "Authorization": f"DPoP {access_token}",
+            "DPoP": create_proof(dpop_key, "POST", TES_PATH, access_token),
+        },
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_bound_task_token_with_valid_proof_is_accepted_on_s3_endpoint(
+    client, access_token_patcher, token_signing_key, dpop_key, s3_path
+):
+    """A DPoP-bound task token with a valid proof is accepted on the S3 endpoint."""
+    access_token = create_task_token(token_signing_key, dpop_key)
+    res = await client.get(
+        s3_path,
+        params={"list-type": "2"},
+        headers={
+            "Authorization": aws_auth_header(access_token),
+            "DPoP": create_proof(
+                dpop_key, "GET", s3_path, access_token, external_prefix="/workflows"
+            ),
+        },
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "external_prefix",
     [
@@ -337,14 +396,14 @@ async def test_bound_token_without_proof_is_rejected_on_s3_endpoint(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("s3_path", S3_PATHS)
-async def test_unbound_token_without_proof_is_rejected_on_s3_endpoint(
+async def test_unbound_task_token_without_proof_is_rejected_on_s3_endpoint(
     client, access_token_patcher, token_signing_key, s3_path
 ):
     """
-    An S3 request presenting a token that is not bound is rejected on
-    the root mount as well as under `/s3`.
+    A task token that is not DPoP-bound is rejected on the S3 endpoint, on the root mount as
+    well as under `/s3`.
     """
-    access_token = create_access_token(token_signing_key)
+    access_token = create_task_token(token_signing_key)
     res = await client.get(
         s3_path,
         params={"list-type": "2"},
@@ -352,6 +411,25 @@ async def test_unbound_token_without_proof_is_rejected_on_s3_endpoint(
     )
     assert res.status_code == 401
     assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_unbound_regular_token_without_proof_is_accepted_on_s3_endpoint(
+    client, access_token_patcher, token_signing_key, s3_path
+):
+    """
+    A regular access token, neither DPoP-bound nor a task token, is accepted on the S3 endpoint
+    without a proof.
+    """
+    access_token = create_access_token(token_signing_key)
+    res = await client.get(
+        s3_path,
+        params={"list-type": "2"},
+        headers={"Authorization": aws_auth_header(access_token)},
+    )
+    assert res.status_code == 200, res.text
+    assert res.text == MOCKED_S3_RESPONSE_XML
 
 
 @pytest.mark.asyncio
@@ -383,7 +461,7 @@ async def test_bound_token_without_proof_is_rejected_on_s3_endpoint_whatever_the
 @pytest.mark.asyncio
 @pytest.mark.parametrize("auth_header_format", NON_CANONICAL_S3_AUTH_HEADERS)
 @pytest.mark.parametrize("s3_path", S3_PATHS)
-async def test_unbound_token_without_proof_is_rejected_on_s3_endpoint_whatever_the_auth_header_format(
+async def test_unbound_task_token_without_proof_is_rejected_on_s3_endpoint_whatever_the_auth_header_format(
     client,
     access_token_patcher,
     token_signing_key,
@@ -391,10 +469,10 @@ async def test_unbound_token_without_proof_is_rejected_on_s3_endpoint_whatever_t
     auth_header_format,
 ):
     """
-    An unrecognized Authorization header format does not exempt an S3
-    request from presenting a proof.
+    A task token that is not DPoP-bound is rejected however its Authorization header is
+    formatted.
     """
-    access_token = create_access_token(token_signing_key)
+    access_token = create_task_token(token_signing_key)
     res = await client.get(
         s3_path,
         params={"list-type": "2"},
@@ -670,15 +748,70 @@ async def test_token_from_an_unknown_issuer_is_rejected(
 
 
 @pytest.mark.asyncio
-async def test_unbound_token_without_proof_is_rejected(client, access_token_patcher):
-    """A request presenting a token that is not DPoP-bound, and no proof, is rejected."""
+@pytest.mark.parametrize(
+    "task_token_type",
+    [pytest.param("WORKFLOW", id="workflow"), pytest.param("", id="empty")],
+)
+async def test_unbound_task_token_without_proof_is_rejected(
+    client, access_token_patcher, token_signing_key, task_token_type
+):
+    """
+    A task token that is not DPoP-bound is rejected whatever its type, so that a long-lived
+    token cannot be used as an ordinary bearer credential.
+    """
+    access_token = create_task_token(token_signing_key, task_token_type=task_token_type)
     res = await client.post(
         TES_PATH,
         json={"name": "test-task"},
-        headers={"Authorization": "Bearer unbound-token"},
+        headers={"Authorization": f"Bearer {access_token}"},
     )
     assert res.status_code == 401
     assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+async def test_unbound_task_token_with_proof_is_rejected(
+    client, access_token_patcher, token_signing_key, dpop_key
+):
+    """
+    A task token that is not DPoP-bound cannot get through by presenting a proof: there is no
+    binding to prove possession of.
+    """
+    access_token = create_task_token(token_signing_key)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={
+            "Authorization": f"DPoP {access_token}",
+            "DPoP": create_proof(dpop_key, "POST", TES_PATH, access_token),
+        },
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "invalid_dpop_proof"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token_factory",
+    [
+        pytest.param(create_access_token, id="user-token"),
+        pytest.param(create_client_credentials_token, id="client-credentials-token"),
+    ],
+)
+async def test_unbound_regular_token_without_proof_is_accepted(
+    client, access_token_patcher, token_signing_key, token_factory
+):
+    """
+    A regular access token, neither DPoP-bound nor a task token, is accepted without a proof
+    and left to the endpoint's own validation.
+    """
+    access_token = token_factory(token_signing_key)
+    res = await client.post(
+        TES_PATH,
+        json={"name": "test-task"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert res.status_code == 200, res.text
 
 
 @pytest.mark.asyncio
@@ -716,63 +849,22 @@ async def test_anonymous_request_to_a_non_public_endpoint_is_rejected(
 
 
 @pytest.mark.asyncio
-async def test_unbound_user_token_without_proof_is_rejected(
-    client, access_token_patcher, token_signing_key
-):
-    """
-    A token linked to a user, but not DPoP-bound, does not benefit from the exemption granted to
-    `client_credentials` tokens: a user is expected to get a bound token.
-    """
-    access_token = create_access_token(token_signing_key)
-    res = await client.post(
-        TES_PATH,
-        json={"name": "test-task"},
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    assert res.status_code == 401
-    assert res.json()["error"] == "dpop_required"
-
-
-@pytest.mark.asyncio
-async def test_exempt_client_token_without_proof_is_accepted(
-    client,
-    access_token_patcher,
-    token_signing_key,
-    reset_config_dpop_exempt_clients,
-):
-    """
-    Requiring DPoP does not lock out clients: a listed client's `client_credentials`
-    token, which is never DPoP-bound, is still accepted without a proof.
-    """
-    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
-    access_token = create_client_credentials_token(token_signing_key)
-    res = await client.post(
-        TES_PATH,
-        json={"name": "test-task"},
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    assert res.status_code == 200, res.text
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "access_token_patcher",
     [{"user_id": None, "client_id": TEST_CLIENT_ID}],
     indirect=True,
 )
 @pytest.mark.parametrize("s3_path", S3_PATHS)
-async def test_exempt_client_token_on_behalf_of_a_user_is_rejected_on_s3_endpoint(
+async def test_client_token_on_behalf_of_a_user_is_rejected_on_s3_endpoint(
     client,
     access_token_patcher,
     token_signing_key,
-    reset_config_dpop_exempt_clients,
     s3_path,
 ):
     """
-    The exemption does not cover the S3 endpoint: a client token presented as the AWS access key
-    ID with the ID of the user it acts on behalf of appended to it is rejected.
+    A client token presented as the AWS access key ID with the ID of the user it acts on behalf
+    of appended to it is rejected.
     """
-    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
     access_token = create_client_credentials_token(token_signing_key)
     res = await client.get(
         s3_path,
@@ -785,98 +877,11 @@ async def test_exempt_client_token_on_behalf_of_a_user_is_rejected_on_s3_endpoin
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "exempt_client_ids",
-    [
-        pytest.param([], id="no-client-exempt"),
-        pytest.param(["another-client-id"], id="another-client-exempt"),
-    ],
-)
-async def test_unlisted_client_token_without_proof_is_rejected(
-    client,
-    access_token_patcher,
-    token_signing_key,
-    reset_config_dpop_exempt_clients,
-    exempt_client_ids,
-):
-    """
-    A `client_credentials` token only skips the proof requirement if its client is listed in
-    `DPOP_EXEMPT_CLIENT_IDS`, so holding any client's token is not enough.
-    """
-    config["DPOP_EXEMPT_CLIENT_IDS"] = exempt_client_ids
-    access_token = create_client_credentials_token(token_signing_key)
-    res = await client.post(
-        TES_PATH,
-        json={"name": "test-task"},
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    assert res.status_code == 401
-    assert res.json()["error"] == "dpop_required"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "sub",
-    [
-        pytest.param(TEST_USER_ID, id="user-id"),
-        pytest.param(0, id="zero"),
-        pytest.param("", id="empty-string"),
-    ],
-)
-async def test_exempt_client_token_linked_to_a_user_is_rejected(
-    client,
-    access_token_patcher,
-    token_signing_key,
-    reset_config_dpop_exempt_clients,
-    sub,
-):
-    """
-    A token carrying a `sub` is a user's token whatever client obtained it, so it does not
-    benefit from the exemption even when the client is listed.
-    """
-    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
-    access_token = create_access_token(token_signing_key, sub=sub, azp=TEST_CLIENT_ID)
-    res = await client.post(
-        TES_PATH,
-        json={"name": "test-task"},
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    assert res.status_code == 401
-    assert res.json()["error"] == "dpop_required"
-
-
-@pytest.mark.asyncio
-async def test_exempt_request_is_counted(
-    client,
-    access_token_patcher,
-    token_signing_key,
-    reset_config_dpop_exempt_clients,
-):
-    """
-    Every request that skips the proof requirement is counted, per client, so that a deployment
-    can alert on the exemption being used.
-    """
-    config["DPOP_EXEMPT_CLIENT_IDS"] = [TEST_CLIENT_ID]
-    access_token = create_client_credentials_token(token_signing_key)
-    headers = {"Authorization": f"Bearer {access_token}"}
-    labels = {"client_id": TEST_CLIENT_ID, "path_prefix": TES_PATH_PREFIX}
-
-    await client.post(TES_PATH, json={"name": "test-task"}, headers=headers)
-    before = total(await scrape(client), EXEMPT_REQUESTS_COUNTER, **labels)
-
-    res = await client.post(TES_PATH, json={"name": "test-task"}, headers=headers)
-    assert res.status_code == 200, res.text
-
-    assert total(await scrape(client), EXEMPT_REQUESTS_COUNTER, **labels) == before + 1
-
-
-@pytest.mark.asyncio
 async def test_bound_client_credentials_token_without_proof_is_rejected(
     client, access_token_patcher, token_signing_key, dpop_key
 ):
     """
-    A token that is DPoP-bound always requires a proof, even when it is a client's: the
-    exemption is about tokens a client cannot prove possession of, not about clients.
+    A token that is DPoP-bound always requires a proof, even when it is a client's.
     """
     access_token = create_client_credentials_token(token_signing_key, dpop_key)
     res = await client.post(
@@ -950,16 +955,6 @@ def reset_config_dpop_issuers():
     config["DPOP_ALLOWED_ISSUERS"] = original_val
 
 
-@pytest.fixture(scope="function")
-def reset_config_dpop_exempt_clients():
-    """
-    Reset the `DPOP_EXEMPT_CLIENT_IDS` configuration at the end of tests that use this fixture.
-    """
-    original_val = config["DPOP_EXEMPT_CLIENT_IDS"]
-    yield
-    config["DPOP_EXEMPT_CLIENT_IDS"] = original_val
-
-
 @pytest.mark.asyncio
 async def test_bound_token_without_proof_is_accepted_when_dpop_is_not_required(
     client, access_token_patcher, token_signing_key, dpop_key
@@ -976,3 +971,49 @@ async def test_bound_token_without_proof_is_accepted_when_dpop_is_not_required(
         headers={"Authorization": f"Bearer {access_token}"},
     )
     assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "claims",
+    [
+        pytest.param({"cnf": {"jkt": "some-thumbprint"}}, id="bound-token"),
+        pytest.param({"context": {"task_token_type": "WORKFLOW"}}, id="task-token"),
+    ],
+)
+async def test_s3_endpoint_rejects_token_requiring_a_proof_without_a_validated_one(
+    claims,
+):
+    """
+    The S3 endpoint itself refuses a token that requires a proof when the middleware did not
+    validate one, in case a request reaches it without going through the middleware's checks.
+    """
+    auth = MagicMock()
+    auth.get_token_claims = AsyncMock(return_value={"sub": TEST_USER_ID, **claims})
+    with pytest.raises(HTTPException) as e:
+        await set_access_token_and_get_user_id(
+            auth,
+            {"authorization": aws_auth_header("some-token")},
+            dpop_validated=False,
+        )
+    assert e.value.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "claims",
+    [
+        pytest.param({"cnf": {"jkt": "some-thumbprint"}}, id="bound-token"),
+        pytest.param({"context": {"task_token_type": "WORKFLOW"}}, id="task-token"),
+    ],
+)
+async def test_s3_endpoint_accepts_token_requiring_a_proof_with_a_validated_one(claims):
+    """The S3 endpoint accepts a token that requires a proof once the middleware validated one."""
+    auth = MagicMock()
+    auth.get_token_claims = AsyncMock(return_value={"sub": TEST_USER_ID, **claims})
+    user_id, _ = await set_access_token_and_get_user_id(
+        auth,
+        {"authorization": aws_auth_header("some-token")},
+        dpop_validated=True,
+    )
+    assert user_id == TEST_USER_ID
