@@ -647,14 +647,14 @@ async def test_list_tasks_repeated_params(
     tag_values = [p for p in repeated_parsed if p[0] == "tag_value"]
 
     query_params = (
-        [("state", "COMPLETE")]
+        [("state", "COMPLETE"), ("view", "FULL")]
         + tag_keys
         + [("tag_key", "_AUTHZ")]
         + tag_values
         + [("tag_value", get_authz_string_for_user(TEST_USER_ID))]
     )
     # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params += [("view", "FULL")]
+    # query_params += [("view", "FULL")]
 
     mock_tes_server_request.assert_called_once_with(
         method="GET",
