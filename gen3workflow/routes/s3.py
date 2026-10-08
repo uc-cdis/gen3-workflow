@@ -267,7 +267,12 @@ async def s3_endpoint(path: str, request: Request):
 
     # ensure the user is making a call to their own bucket
     request_bucket = path.split("?")[0].split("/")[0]
-    if request_bucket != user_bucket:
+    copy_source_bucket = None
+    if "x-amz-copy-source" in in_headers:
+        copy_source_bucket = in_headers["x-amz-copy-source"].strip("/").split("/")[0]
+    if request_bucket != user_bucket or (
+        copy_source_bucket and copy_source_bucket != user_bucket
+    ):
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)

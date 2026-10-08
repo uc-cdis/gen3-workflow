@@ -1,5 +1,3 @@
-import io
-import re
 import tempfile
 from unittest.mock import AsyncMock, patch
 
@@ -10,6 +8,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
 
+from gen3workflow.aws import bucket
 from gen3workflow.config import config
 from gen3workflow.routes.s3 import (
     _dechunk_stream,
@@ -354,6 +353,35 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     mock_aws_s3_request.assert_called_with(
         f"https://{bucket_name}.s3.us-east-1.amazonaws.com/{object_key}{'?uploadId=test-upload-id' if multipart else ''}"
     )
+
+
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize("s3_client", [{"endpoint": "s3"}], indirect=True)
+def test_s3_copy_file(monkeypatch, s3_client, access_token_patcher, mock_aws_services):
+    """
+    Users should not be able to copy files from another user's bucket (or in
+    general, any bucket that isn't their own) into their own bucket.
+    """
+    # disable KMS encryption to simplify the test: when it's enabled, it's required to hit the
+    # `/storage/setup` endpoint before hitting the `s3` endpoint.
+    monkeypatch.setitem(bucket.config, "KMS_ENCRYPTION_ENABLED", False)
+
+    # users are allowed to copy a file within their bucket
+    bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    object_key = "test_s3_copy_file.txt"
+    s3_client.copy_object(
+        CopySource=f"/{bucket_name}/{object_key}",
+        Bucket=bucket_name,
+        Key=f"{object_key}_copy",
+    )
+
+    # users are NOT allowed to copy a file from another bucket into their bucket
+    with pytest.raises(ClientError, match="Forbidden"):
+        s3_client.copy_object(
+            CopySource=f"/gen3wf-{config['HOSTNAME']}-other_user/{object_key}",
+            Bucket=bucket_name,
+            Key=f"{object_key}_copy",
+        )
 
 
 async def _async_iter(segments):
