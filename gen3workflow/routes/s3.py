@@ -297,7 +297,7 @@ async def s3_endpoint(path: str, request: Request):
     if "x-amz-copy-source" in in_headers:
         copy_source_bucket = in_headers["x-amz-copy-source"].strip("/").split("/")[0]
         if copy_source_bucket != user_bucket:
-            err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can copy from your personal bucket, '{user_bucket}'"
+            err_msg = f"Copy source '{copy_source_bucket}' not allowed. You can copy from your personal bucket, '{user_bucket}'"
             logger.error(err_msg)
             return Response(**generate_xml_error(HTTP_403_FORBIDDEN, err_msg))
 

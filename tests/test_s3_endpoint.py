@@ -367,15 +367,16 @@ def test_s3_copy_file(monkeypatch, s3_client, access_token_patcher, mock_aws_ser
     )
 
     # users are NOT allowed to copy a file from another bucket into their bucket
+    other_bucket = f"gen3wf-{config['HOSTNAME']}-other_user"
     with pytest.raises(ClientError) as exc_info:
         s3_client.copy_object(
-            CopySource=f"/gen3wf-{config['HOSTNAME']}-other_user/{object_key}",
+            CopySource=f"{other_bucket}/{object_key}",
             Bucket=bucket_name,
             Key=f"{object_key}_copy",
         )
     assert exc_info.value.response.get("Error") == {
         "Code": "Forbidden",
-        "Message": "'gen3wf-localhost-user-64/test_s3_copy_file.txt_copy' (bucket 'gen3wf-localhost-user-64') not allowed. You can copy from your personal bucket, 'gen3wf-localhost-user-64'",
+        "Message": f"Copy source '{other_bucket}' not allowed. You can copy from your personal bucket, '{bucket_name}'",
     }
 
 
