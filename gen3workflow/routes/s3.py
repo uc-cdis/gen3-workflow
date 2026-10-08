@@ -41,6 +41,25 @@ _DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB
 CRLF_LEN = 2
 
 
+def generate_xml_error(status_code: int, er_msg: str):
+    code_name = {
+        HTTP_400_BAD_REQUEST: "BadRequest",
+        HTTP_401_UNAUTHORIZED: "Unauthorized",
+        HTTP_403_FORBIDDEN: "Forbidden",
+    }.get(status_code, "Error")
+    return {
+        "status_code": status_code,
+        "media_type": "application/xml",
+        "content": f"""<?xml version="1.0" encoding="UTF-8"?>
+        <Error>
+            <Code>{code_name}</Code>
+            <Message>{er_msg}</Message>
+            <RequestId>12345</RequestId>
+            <HostId>67890</HostId>
+        </Error>""",
+    }
+
+
 async def _dechunk_stream(stream):
     """Yield de-chunked bytes from an AWS SigV4 streaming chunked body.
     Turn a chunked body into a non-chunked body.
@@ -237,9 +256,12 @@ async def s3_endpoint(path: str, request: Request):
     # the list of files for a specific task.
     auth = Auth(api_request=request)
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(
-        auth, in_headers, request.method, path
-    )
+    try:
+        user_id, client_id = await set_access_token_and_get_user_id(
+            auth, in_headers, request.method, path
+        )
+    except HTTPException as e:
+        return Response(**generate_xml_error(e.status_code, e.detail))
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )
@@ -267,15 +289,17 @@ async def s3_endpoint(path: str, request: Request):
 
     # ensure the user is making a call to their own bucket
     request_bucket = path.split("?")[0].split("/")[0]
-    copy_source_bucket = None
-    if "x-amz-copy-source" in in_headers:
-        copy_source_bucket = in_headers["x-amz-copy-source"].strip("/").split("/")[0]
-    if request_bucket != user_bucket or (
-        copy_source_bucket and copy_source_bucket != user_bucket
-    ):
+    if request_bucket != user_bucket:
         err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
         logger.error(err_msg)
-        raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+        return Response(**generate_xml_error(HTTP_403_FORBIDDEN, err_msg))
+
+    if "x-amz-copy-source" in in_headers:
+        copy_source_bucket = in_headers["x-amz-copy-source"].strip("/").split("/")[0]
+        if copy_source_bucket != user_bucket:
+            err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can copy from your personal bucket, '{user_bucket}'"
+            logger.error(err_msg)
+            return Response(**generate_xml_error(HTTP_403_FORBIDDEN, err_msg))
 
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)
@@ -419,7 +443,7 @@ async def s3_endpoint(path: str, request: Request):
             logger.error(
                 f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
             )
-            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+            return Response(**generate_xml_error(HTTP_400_BAD_REQUEST, err_msg))
         out_headers["x-amz-server-side-encryption"] = "aws:kms"
         out_headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
@@ -576,7 +600,9 @@ async def s3_endpoint(path: str, request: Request):
     # function, so 403 errors are internal service errors.
     if response.status_code == HTTP_403_FORBIDDEN:
         await response.aclose()  # discard the body we're not returning
-        return Response(status_code=403, headers=filtered_headers)
+        return Response(
+            **generate_xml_error(403, "Forbidden"), headers=filtered_headers
+        )
 
     if response.headers.get("content-encoding", "").lower() == "gzip":
         # the backend compressed this response (e.g. Minio does this for small, compressible

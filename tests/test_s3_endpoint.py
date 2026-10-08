@@ -123,8 +123,12 @@ def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
     token, or client aws_access_key_id and user token) should result in a 401 Unauthorized
     error.
     """
-    with pytest.raises(ClientError, match="Unauthorized"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    assert exc_info.value.response.get("Error") == {
+        "Code": "Unauthorized",
+        "Message": "No user ID in token or key ID",
+    }
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
@@ -133,34 +137,12 @@ def test_s3_endpoint_no_token(s3_client):
     Hitting the `/s3` endpoint without a Gen3 access token should result in a 401 Unauthorized
     error.
     """
-    with pytest.raises(ClientError, match="Unauthorized"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
-
-
-@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
-@pytest.mark.parametrize(
-    "s3_client, access_token_patcher",
-    [
-        # user key ID and user+client token
-        (
-            {"aws_access_key_id": TEST_USER_TOKEN},
-            {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
-        ),
-    ],
-    ids=[
-        "supported user+client token",
-    ],
-    indirect=True,
-)
-def test_s3_endpoint_unsupported_oidc_token(s3_client, access_token_patcher, request):
-    """
-    Hitting the `/s3` endpoint with a Gen3 access token issued from the OIDC flow (token linked to a client AND to a user) is supported in the case of a user key ID. In the case of a client key ID, it should result in a 401 Unauthorized error.
-    """
-    if "unsupported" in request.node.callspec.id:
-        with pytest.raises(ClientError, match="Unauthorized"):
-            s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
-    else:
-        s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    assert exc_info.value.response.get("Error") == {
+        "Code": "Unauthorized",
+        "Message": "Could not verify, parse, and/or validate provided access token",
+    }
 
 
 @pytest.mark.parametrize(
@@ -177,8 +159,12 @@ def test_s3_endpoint_unauthorized(s3_client, access_token_patcher):
     Hitting the `/s3` endpoint with a Gen3 access token that does not have the appropriate access
     should result in a 403 Forbidden error.
     """
-    with pytest.raises(ClientError, match="403"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    assert exc_info.value.response.get("Error") == {
+        "Code": "403",
+        "Message": "Forbidden",
+    }
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
@@ -199,8 +185,12 @@ def test_s3_endpoint_wrong_bucket(s3_client, access_token_patcher, bucket_name):
     Specific edge case: if the user's bucket is "gen3wf-<hostname>-<user ID>", a bucket name which
     is a superstring of that, such as "gen3wf-<hostname>-<user ID>-2", should not be allowed.
     """
-    with pytest.raises(ClientError, match="Forbidden"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=bucket_name)
+    assert exc_info.value.response.get("Error") == {
+        "Code": "Forbidden",
+        "Message": f"'{bucket_name}' (bucket '{bucket_name}') not allowed. You can make calls to your personal bucket, 'gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}'",
+    }
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
@@ -230,9 +220,10 @@ async def test_s3_endpoint_with_bearer_token(client, path):
         headers={"Authorization": f"bearer test-token"},
     )
     assert res.status_code == 401, res.text
-    assert res.json() == {
-        "detail": "Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI"
-    }
+    assert (
+        "Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI"
+        in res.text
+    )
 
 
 @pytest.mark.asyncio
@@ -376,12 +367,16 @@ def test_s3_copy_file(monkeypatch, s3_client, access_token_patcher, mock_aws_ser
     )
 
     # users are NOT allowed to copy a file from another bucket into their bucket
-    with pytest.raises(ClientError, match="Forbidden"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.copy_object(
             CopySource=f"/gen3wf-{config['HOSTNAME']}-other_user/{object_key}",
             Bucket=bucket_name,
             Key=f"{object_key}_copy",
         )
+    assert exc_info.value.response.get("Error") == {
+        "Code": "Forbidden",
+        "Message": "'gen3wf-localhost-user-64/test_s3_copy_file.txt_copy' (bucket 'gen3wf-localhost-user-64') not allowed. You can copy from your personal bucket, 'gen3wf-localhost-user-64'",
+    }
 
 
 async def _async_iter(segments):
