@@ -341,14 +341,12 @@ async def list_tasks(
         "view",
     }
 
-    # preserve multiple tag_key/tag_value values from the request
-    query_params = []
-    for k, v in request.query_params.multi_items():
-        if k not in supported_params:
-            continue
-        query_params.append((k, v))
-    requested_view = next((v for k, v in query_params if k == "view"), None)
-    query_params = [(k, v) for k, v in query_params if k != "view"]
+    # keep only supported params, preserving repeated keys like tag_key/tag_value.
+    all_supported_params = [
+        (k, v) for k, v in request.query_params.multi_items() if k in supported_params
+    ]
+    requested_view = next((v for k, v in all_supported_params if k == "view"), None)
+    query_params = [(k, v) for k, v in all_supported_params if k != "view"]
     # force the use of "FULL" view so the response includes tags
     query_params.append(("view", "FULL"))
 
