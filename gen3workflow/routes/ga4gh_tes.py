@@ -343,14 +343,21 @@ async def list_tasks(
 
     # keep only supported params, preserving repeated keys like tag_key/tag_value.
     requested_view = None
+    requested_views = []
     query_params = []
     for k, v in request.query_params.multi_items():
         if k not in supported_params:
             continue
         if k == "view":
-            requested_view = v
+            requested_views.append(v)
         else:
             query_params.append((k, v))
+
+    if len(requested_views) > 1:
+        message = f"Only one 'view' parameter is allowed. Found {requested_views}"
+        raise HTTPException(status_code=400, detail=message)
+    if requested_views:
+        requested_view = requested_views[0]
     # force the use of "FULL" view so the response includes tags
     query_params.append(("view", "FULL"))
 

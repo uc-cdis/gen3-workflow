@@ -783,6 +783,25 @@ async def test_get_tasks_no_user(client, access_token_patcher, trailing_slash):
 
 
 @pytest.mark.asyncio
+async def test_tasks_error_multiple_view(client, access_token_patcher):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks` should return an error when
+    multiple `view` parameters are submitted.
+    TES server should not be called.
+    """
+    url = f"/ga4gh/tes/v1/tasks"
+    url += "?view=BASIC&view=MINIMAL"
+    expected_message = (
+        "Only one 'view' parameter is allowed. Found ['BASIC', 'MINIMAL']"
+    )
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
+
+    assert res.status_code == 400, res.text
+    assert res.json() == {"detail": expected_message}
+    mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 async def test_delete_task(client, access_token_patcher, trailing_slash):
     """
