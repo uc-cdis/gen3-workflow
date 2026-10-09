@@ -692,7 +692,7 @@ async def test_list_tasks_repeated_params(
                     {
                         "id": "123",
                         "state": "COMPLETE",
-                        "logs": [],
+                        "logs": [{}],
                         "tags": {
                             "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
                         },
