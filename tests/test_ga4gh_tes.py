@@ -630,6 +630,8 @@ async def test_list_tasks_repeated_params(
         "&tag_key=tag_key_1&tag_value=tag_val_1&tag_key=tag_key_2&tag_value=tag_val_2"
     )
     url += repeated_params
+    # Test with view != "FULL" to verify that request includes ("view", "FULL")
+    url += "&view=MINIMAL"
 
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
@@ -647,14 +649,14 @@ async def test_list_tasks_repeated_params(
     tag_values = [p for p in repeated_parsed if p[0] == "tag_value"]
 
     query_params = (
-        [("state", "COMPLETE"), ("view", "FULL")]
+        [("state", "COMPLETE")]
         + tag_keys
         + [("tag_key", "_AUTHZ")]
         + tag_values
         + [("tag_value", get_authz_string_for_user(TEST_USER_ID))]
     )
     # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    # query_params += [("view", "FULL")]
+    query_params += [("view", "FULL")]
 
     mock_tes_server_request.assert_called_once_with(
         method="GET",
@@ -684,13 +686,13 @@ async def test_list_tasks_repeated_params(
                 )
             ]
 
-            # check that the view was applied:
+            # check that the 'MINIMAL' view was applied:
             assert tasks == {
                 "tasks": [
                     {
                         "id": "123",
                         "state": "COMPLETE",
-                        "logs": [{"system_logs": ["blah"]}],
+                        "logs": [],
                         "tags": {
                             "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
                         },
