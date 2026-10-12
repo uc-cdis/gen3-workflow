@@ -558,12 +558,7 @@ async def test_list_tasks(
             # `test_get_and_list_check_if_outputs_ready`
             tasks = res.json()
             tasks["tasks"] = [
-                t
-                for t in tasks["tasks"]
-                if (
-                    "with-logs-outputs" not in t["id"]
-                    and "incomplete-with-logs-outputs" not in t["id"]
-                )
+                t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]
             ]
 
             # check that the view was applied:
@@ -619,11 +614,10 @@ async def test_list_tasks_repeated_params(
     """
     # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
     # call is conditional
-    if client.authorized:
-        res = await client.get(
-            "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-        )
-        assert res.status_code == 200, res.text
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
 
     url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
     repeated_params = (
@@ -670,14 +664,7 @@ async def test_list_tasks_repeated_params(
     # skip the `with-logs-outputs` tasks, they are checked in
     # `test_get_and_list_check_if_outputs_ready`
     tasks = res.json()
-    tasks["tasks"] = [
-        t
-        for t in tasks["tasks"]
-        if (
-            "with-logs-outputs" not in t["id"]
-            and "incomplete-with-logs-outputs" not in t["id"]
-        )
-    ]
+    tasks["tasks"] = [t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]]
 
     # check that the 'MINIMAL' view was applied:
     assert tasks == {
