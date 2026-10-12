@@ -7,6 +7,7 @@ that the tests do not need a live token issuer.
 """
 
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,7 +17,11 @@ from fastapi import HTTPException
 from joserfc import jwk, jwt
 
 from gen3workflow.config import config, get_dpop_allowed_issuers
-from gen3workflow.routes.s3 import set_access_token_and_get_user_id
+from gen3workflow.routes.s3 import (
+    authorize_s3_request,
+    s3_request_accepts_bearer_token,
+    set_access_token_and_get_user_id,
+)
 from tests.conftest import (
     MOCKED_S3_RESPONSE_XML,
     TEST_USER_ID,
@@ -32,6 +37,26 @@ S3_BUCKET = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
 S3_PATHS = [
     pytest.param(f"/s3/{S3_BUCKET}", id="s3-prefix"),
     pytest.param(f"/{S3_BUCKET}", id="root-mount"),
+]
+
+# S3 requests, as (method, path under the bucket, query parameters), that a regular access token
+# may make without a proof: they only expose keys and metadata.
+S3_REQUESTS_ACCEPTING_BEARER_TOKENS = [
+    pytest.param("GET", "", {"list-type": "2"}, id="list-objects"),
+    pytest.param(
+        "GET", "/", {"list-type": "2", "prefix": "outputs/"}, id="list-objects-prefix"
+    ),
+    pytest.param("HEAD", "/outputs/file.txt", {}, id="head-object"),
+]
+
+# S3 requests, as (method, path under the bucket, query parameters), that read or write object
+# content and so require a proof from every token.
+S3_REQUESTS_REQUIRING_A_PROOF = [
+    pytest.param("GET", "/outputs/file.txt", {}, id="get-object"),
+    pytest.param("PUT", "/inputs/file.txt", {}, id="put-object"),
+    pytest.param("POST", "/outputs/file.txt", {"select": ""}, id="select-object"),
+    pytest.param("POST", "", {"delete": ""}, id="delete-objects"),
+    pytest.param("DELETE", "/outputs/file.txt", {}, id="delete-object"),
 ]
 
 # Authorization header formats the S3 endpoint accepts that do not start with one of the
@@ -433,6 +458,83 @@ async def test_unbound_regular_token_without_proof_is_accepted_on_s3_endpoint(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("method,key_path,params", S3_REQUESTS_ACCEPTING_BEARER_TOKENS)
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_unbound_regular_token_without_proof_can_list_and_head_on_s3_endpoint(
+    client, access_token_patcher, token_signing_key, s3_path, method, key_path, params
+):
+    """A regular access token without a proof can list objects and read object metadata."""
+    access_token = create_access_token(token_signing_key)
+    res = await client.request(
+        method,
+        f"{s3_path}{key_path}",
+        params=params,
+        headers={"Authorization": aws_auth_header(access_token)},
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("s3_path", ["/s3", "/s3/"])
+async def test_unbound_regular_token_without_proof_can_list_buckets(
+    client, access_token_patcher, token_signing_key, s3_path
+):
+    """A regular access token without a proof can list buckets."""
+    access_token = create_access_token(token_signing_key)
+    res = await client.get(
+        s3_path, headers={"Authorization": aws_auth_header(access_token)}
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,key_path,params", S3_REQUESTS_REQUIRING_A_PROOF)
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_unbound_regular_token_without_proof_cannot_access_object_content_on_s3_endpoint(
+    client, access_token_patcher, token_signing_key, s3_path, method, key_path, params
+):
+    """
+    A regular access token without a proof is rejected on any S3 request that reads or writes
+    object content.
+    """
+    access_token = create_access_token(token_signing_key)
+    res = await client.request(
+        method,
+        f"{s3_path}{key_path}",
+        params=params,
+        headers={"Authorization": aws_auth_header(access_token)},
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["GET", "DELETE"])
+@pytest.mark.parametrize("s3_path", S3_PATHS)
+async def test_bound_token_with_valid_proof_can_access_object_content_on_s3_endpoint(
+    client, access_token_patcher, token_signing_key, dpop_key, s3_path, method
+):
+    """A DPoP-bound token with a valid proof can make S3 requests on object content."""
+    access_token = create_access_token(token_signing_key, dpop_key)
+    object_path = f"{s3_path}/outputs/file.txt"
+    res = await client.request(
+        method,
+        object_path,
+        headers={
+            "Authorization": aws_auth_header(access_token),
+            "DPoP": create_proof(
+                dpop_key,
+                method,
+                object_path,
+                access_token,
+                external_prefix="/workflows",
+            ),
+        },
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("auth_header_format", NON_CANONICAL_S3_AUTH_HEADERS)
 @pytest.mark.parametrize("s3_path", S3_PATHS)
 async def test_bound_token_without_proof_is_rejected_on_s3_endpoint_whatever_the_auth_header_format(
@@ -803,15 +905,36 @@ async def test_unbound_regular_token_without_proof_is_accepted(
 ):
     """
     A regular access token, neither DPoP-bound nor a task token, is accepted without a proof
-    and left to the endpoint's own validation.
+    on a TES endpoint that does not launch a task, and left to the endpoint's own validation.
     """
     access_token = token_factory(token_signing_key)
     res = await client.post(
-        TES_PATH,
-        json={"name": "test-task"},
+        f"{TES_PATH}/123:cancel",
         headers={"Authorization": f"Bearer {access_token}"},
     )
     assert res.status_code == 200, res.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token_factory",
+    [
+        pytest.param(create_access_token, id="user-token"),
+        pytest.param(create_client_credentials_token, id="client-credentials-token"),
+    ],
+)
+async def test_unbound_regular_token_without_proof_cannot_launch_a_task(
+    client, access_token_patcher, token_signing_key, token_factory, trailing_slash
+):
+    """A regular access token without a proof is rejected when launching a task."""
+    access_token = token_factory(token_signing_key)
+    res = await client.post(
+        f"{TES_PATH}{'/' if trailing_slash else ''}",
+        json={"name": "test-task"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert res.status_code == 401
+    assert res.json()["error"] == "dpop_required"
 
 
 @pytest.mark.asyncio
@@ -1017,3 +1140,56 @@ async def test_s3_endpoint_accepts_token_requiring_a_proof_with_a_validated_one(
         dpop_validated=True,
     )
     assert user_id == TEST_USER_ID
+
+
+@pytest.mark.asyncio
+async def test_s3_endpoint_rejects_get_object_without_a_validated_proof(
+    access_token_patcher,
+):
+    """
+    The S3 endpoint itself refuses a request for object content when the middleware did not
+    validate a proof, in case a request reaches it without going through the middleware's checks.
+    """
+    request = MagicMock()
+    request.method = "GET"
+    request.headers = {"authorization": aws_auth_header("some-token")}
+    request.url.path = f"/s3/{S3_BUCKET}/outputs/file.txt"
+    request.state = SimpleNamespace()
+    with pytest.raises(HTTPException) as e:
+        await authorize_s3_request(request, f"{S3_BUCKET}/outputs/file.txt")
+    assert e.value.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "mount", [pytest.param("/s3", id="s3-prefix"), pytest.param("", id="root-mount")]
+)
+@pytest.mark.parametrize(
+    "method,bucket_and_key,accepted",
+    [
+        pytest.param("GET", "/bucket", True, id="list-objects"),
+        pytest.param("GET", "/bucket/", True, id="list-objects-trailing-slash"),
+        pytest.param("HEAD", "/bucket/key", True, id="head-object"),
+        pytest.param("HEAD", "/bucket", True, id="head-bucket"),
+        pytest.param("GET", "/bucket/key", False, id="get-object"),
+        pytest.param("GET", "/bucket//", False, id="get-object-named-slash"),
+        pytest.param("PUT", "/bucket/key", False, id="put-object"),
+        pytest.param("POST", "/bucket/key", False, id="post-object"),
+        pytest.param("POST", "/bucket", False, id="post-bucket"),
+        pytest.param("DELETE", "/bucket/key", False, id="delete-object"),
+        pytest.param("PUT", "/bucket", False, id="put-bucket"),
+    ],
+)
+def test_s3_request_accepts_bearer_token(mount, method, bucket_and_key, accepted):
+    """
+    Only HEAD requests and GET requests with no object key accept a regular access token, on
+    both S3 mounts.
+    """
+    assert (
+        s3_request_accepts_bearer_token(method, f"{mount}{bucket_and_key}") is accepted
+    )
+
+
+@pytest.mark.parametrize("request_path", ["/s3", "/s3/"])
+def test_s3_list_buckets_request_accepts_bearer_token(request_path):
+    """A "list buckets" request accepts a regular access token."""
+    assert s3_request_accepts_bearer_token("GET", request_path)

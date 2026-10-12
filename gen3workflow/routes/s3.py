@@ -255,13 +255,26 @@ async def authorize_s3_request(request: Request, path: str) -> str:
             make this request
     """
     auth = Auth(api_request=request)
+    dpop_validated = getattr(request.state, "dpop_validated", False)
     user_id, client_id = await set_access_token_and_get_user_id(
         auth,
         request.headers,
         method=request.method,
         path=path,
-        dpop_validated=getattr(request.state, "dpop_validated", False),
+        dpop_validated=dpop_validated,
     )
+
+    # The DPoP middleware enforces this too, but it identifies a root-mounted S3 request by its
+    # Authorization header, so this endpoint checks again for header formats it may not recognize.
+    if (
+        config["DPOP_REQUIRED"]
+        and not dpop_validated
+        and not s3_request_accepts_bearer_token(request.method, request.url.path)
+    ):
+        err_msg = f"'{request.method} {path}' can only be made with a DPoP-bound access token, presented with a DPoP proof"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
     auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
         request.method, "create"
     )
@@ -296,6 +309,38 @@ def is_list_buckets_request(method: str, path: str) -> bool:
         bool: True for a "list buckets" request
     """
     return method == "GET" and path in ("", "s3")
+
+
+def s3_request_accepts_bearer_token(method: str, request_path: str) -> bool:
+    """
+    Check whether an S3 request may be made without a DPoP proof, when `DPOP_REQUIRED` is set.
+
+    Only requests that expose keys and metadata qualify: `HEAD` on any path, and `GET` on a
+    path with no object key (list buckets, list objects, including under a key prefix with the
+    `prefix` query parameter, and other bucket-level reads). Anything that reads or writes
+    object content, such as `GET` on a key, an upload or `POST ?select`, requires a proof.
+
+    Everything after the first `/` following the bucket name is the object key.
+
+    Args:
+        method (str): the HTTP method of the request
+        request_path (str): the path of the incoming request, as this service sees it, on
+            either the `S3_PATH_PREFIX` mount or the root mount
+
+    Returns:
+        bool: True if the request may be made with an access token that is not DPoP-bound
+    """
+    if method == "HEAD":
+        return True
+    if method != "GET":
+        return False
+
+    # `/s3/<bucket>` and the root-mounted `/<bucket>` name the same bucket, and `/s3` alone is
+    # a "list buckets" request
+    bucket_and_key = request_path
+    if request_path == S3_PATH_PREFIX or request_path.startswith(f"{S3_PATH_PREFIX}/"):
+        bucket_and_key = request_path[len(S3_PATH_PREFIX) :]
+    return not bucket_and_key[1:].partition("/")[2]
 
 
 def list_buckets_response(user_bucket: str) -> Response:

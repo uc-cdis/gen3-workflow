@@ -4,7 +4,8 @@ DPoP (RFC 9449) validation for the endpoints Gen3Workflow exposes to workflow cl
 A DPoP-bound access token carries a `cnf.jkt` claim: the thumbprint of the public key its
 holder proved possession of when the token was issued. Every request made with such a token
 must come with a fresh DPoP proof signed by the matching private key, so a stolen token is
-useless on its own.
+useless on its own. Launching a task and reading or writing S3 object content require such a
+token: other access tokens can only be used on the rest of the protected endpoints.
 """
 
 import base64
@@ -26,7 +27,11 @@ from gen3workflow.config import (
     get_dpop_shared_secret,
 )
 from gen3workflow.routes.ga4gh_tes import router as ga4gh_tes_router
-from gen3workflow.routes.s3 import S3_PATH_PREFIX, get_s3_access_key_id_from_auth_header
+from gen3workflow.routes.s3 import (
+    S3_PATH_PREFIX,
+    get_s3_access_key_id_from_auth_header,
+    s3_request_accepts_bearer_token,
+)
 
 # The scopes and purpose a DPoP-bound access token must satisfy. These mirror what the
 # bearer token path requires (see `Auth.get_token_claims`), so the same token works either way.
@@ -43,6 +48,18 @@ ANONYMOUS_ENDPOINTS = frozenset(
     }
 )
 
+# The (method, path) pairs on a protected TES endpoint that require a proof from every access
+# token, including one that is neither DPoP-bound nor a task token.
+#
+# NOTE: The S3 requests that require this can't be simply defined by only HTTP method and route
+#       so those are decided by `gen3workflow.routes.s3.s3_request_accepts_bearer_token`.
+DPOP_ONLY_ENDPOINTS = frozenset(
+    {
+        ("POST", f"{ga4gh_tes_router.prefix}/tasks"),
+        ("POST", f"{ga4gh_tes_router.prefix}/tasks/"),
+    }
+)
+
 
 async def dpop_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -56,7 +73,9 @@ async def dpop_middleware(
     token (`context.task_token_type` claim). A task token is long-lived, so it is only accepted
     when its holder proves possession of the key it is bound to; a task token that is not bound
     cannot present a valid proof and is always rejected. Any other access token is accepted
-    without a proof and validated by the endpoint as an ordinary bearer token.
+    without a proof and validated by the endpoint as an ordinary bearer token, except on the
+    requests that launch a task or read or write S3 object content (see `_requires_dpop_proof`),
+    which only accept a DPoP-bound token.
 
     A proof presented with a token that is not DPoP-bound is rejected.
 
@@ -116,6 +135,15 @@ async def dpop_middleware(
                 HTTP_401_UNAUTHORIZED,
                 "dpop_required",
                 "This endpoint requires an access token",
+            )
+        if _requires_dpop_proof(request.method, request.url.path, path_prefix):
+            logger.warning(
+                f"Rejecting request to '{request.method} {request.url.path}': the access token is not DPoP-bound and this request requires a DPoP proof"
+            )
+            return _error_response(
+                HTTP_401_UNAUTHORIZED,
+                "dpop_required",
+                "This request only accepts DPoP-bound access tokens, presented with a DPoP proof",
             )
         return await call_next(request)
 
@@ -225,6 +253,26 @@ def _get_protected_path_prefix(path: str, auth_header: str) -> str | None:
     ] and _carries_an_s3_access_key_id(auth_header):
         return S3_PATH_PREFIX
     return None
+
+
+def _requires_dpop_proof(method: str, path: str, path_prefix: str) -> bool:
+    """
+    Check whether a request requires a DPoP proof whatever access token it presents.
+
+    Args:
+        method (str): the HTTP method of the request
+        path (str): the path of the incoming request, as this service sees it
+        path_prefix (str): the matching `DPOP_PROTECTED_PATHS` key
+
+    Returns:
+        bool: True for the endpoints in `DPOP_ONLY_ENDPOINTS` and for the S3 requests
+            `s3_request_accepts_bearer_token` refuses
+    """
+    if (method, path) in DPOP_ONLY_ENDPOINTS:
+        return True
+    return path_prefix == S3_PATH_PREFIX and not s3_request_accepts_bearer_token(
+        method, path
+    )
 
 
 def _get_url_for_htu(path: str, path_prefix: str, dpop_proof: str) -> str:

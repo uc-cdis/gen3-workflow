@@ -66,7 +66,9 @@ VALID_AUTHZ_AUDIENCE:
 # When true, the GA4GH TES and S3 endpoints require a valid DPoP proof with every DPoP-bound
 # access token (`cnf.jkt` claim) and every task token (`context.task_token_type` claim). A task
 # token is long-lived, so it is only accepted DPoP-bound, with a proof. Any other access token,
-# including `client_credentials` tokens, is accepted without a proof as an ordinary bearer token.
+# including `client_credentials` tokens, is accepted without a proof as an ordinary bearer token,
+# except to launch a task (`POST /ga4gh/tes/v1/tasks`) and on S3 requests other than `HEAD` and
+# `GET` with no object key (listing buckets and objects): those only accept a DPoP-bound token.
 # Requires `DPOP_SHARED_SECRET`: the service refuses to start without it. Set this to false
 # explicitly to run without DPoP, for example in a Dev/QA environment with no shared secret. No
 # proof is validated then, and a DPoP-bound token is accepted as an ordinary bearer token.
