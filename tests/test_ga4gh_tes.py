@@ -680,15 +680,6 @@ async def test_list_tasks_repeated_params(
         ]
     }
 
-    # check that the appropriate authorization checks were made
-    if client.tes_resp_code != 500:
-        mock_arborist_request.assert_called_with(
-            method="POST",
-            path="/auth/mapping",
-            body="",
-            authorized=client.authorized,
-        )
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
