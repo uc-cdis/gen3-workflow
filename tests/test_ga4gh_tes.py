@@ -785,7 +785,7 @@ async def test_tasks_error_multiple_view(client, access_token_patcher):
     url = f"/ga4gh/tes/v1/tasks"
     url += "?view=BASIC&view=MINIMAL"
     expected_message = (
-        "Only one 'view' parameter is allowed. Found ['BASIC', 'MINIMAL']"
+        "Only one 'view' parameter is allowed. Found 'BASIC' and 'MINIMAL'"
     )
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
