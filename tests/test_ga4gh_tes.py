@@ -666,39 +666,32 @@ async def test_list_tasks_repeated_params(
         status_code=client.tes_resp_code,
     )
 
-    if client.tes_resp_code == 500:
-        assert res.status_code == 500, res.text
-        assert res.json() == {"detail": "TES server error"}
-    else:
-        assert res.status_code == 200, res.text
-        if not client.authorized:
-            assert res.json() == {"tasks": []}
-        else:
-            # skip the `with-logs-outputs` tasks, they are checked in
-            # `test_get_and_list_check_if_outputs_ready`
-            tasks = res.json()
-            tasks["tasks"] = [
-                t
-                for t in tasks["tasks"]
-                if (
-                    "with-logs-outputs" not in t["id"]
-                    and "incomplete-with-logs-outputs" not in t["id"]
-                )
-            ]
+    assert res.status_code == 200, res.text
+    # skip the `with-logs-outputs` tasks, they are checked in
+    # `test_get_and_list_check_if_outputs_ready`
+    tasks = res.json()
+    tasks["tasks"] = [
+        t
+        for t in tasks["tasks"]
+        if (
+            "with-logs-outputs" not in t["id"]
+            and "incomplete-with-logs-outputs" not in t["id"]
+        )
+    ]
 
-            # check that the 'MINIMAL' view was applied:
-            assert tasks == {
-                "tasks": [
-                    {
-                        "id": "123",
-                        "state": "COMPLETE",
-                        "logs": [{}],
-                        "tags": {
-                            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
-                        },
-                    }
-                ]
+    # check that the 'MINIMAL' view was applied:
+    assert tasks == {
+        "tasks": [
+            {
+                "id": "123",
+                "state": "COMPLETE",
+                "logs": [{}],
+                "tags": {
+                    "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
+                },
             }
+        ]
+    }
 
     # check that the appropriate authorization checks were made
     if client.tes_resp_code != 500:
