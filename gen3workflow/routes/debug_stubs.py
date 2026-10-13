@@ -72,12 +72,11 @@ STUBBED_LIST_BUCKET_XML = (
 @stubbed_ga4gh_tes_router.get(
     "/service-info/", status_code=HTTP_200_OK, include_in_schema=False
 )
-async def stubbed_service_info(auth=Depends(Auth)) -> dict:
+async def stubbed_service_info() -> dict:
     """
     Stubbed `GET /ga4gh/tes/v1/service-info`: describes a TES server that does not exist. Like
     the real endpoint, it does not require an access token.
     """
-    await auth.get_user_id()
     _log_stubbed_request("GET /service-info")
     return STUBBED_TES_SERVICE_INFO
 

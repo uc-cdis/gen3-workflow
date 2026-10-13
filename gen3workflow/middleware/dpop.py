@@ -38,16 +38,6 @@ from gen3workflow.routes.s3 import (
 REQUIRED_SCOPES = frozenset({"user", "openid"})
 REQUIRED_PURPOSE = "access"
 
-# The only (method, path) pairs on a protected endpoint that accept a request with no credentials
-# at all. Every other anonymous request is rejected here, so that an Arborist anonymous policy
-# granting access to tasks by mistake does not expose them while DPoP is required.
-ANONYMOUS_ENDPOINTS = frozenset(
-    {
-        ("GET", f"{ga4gh_tes_router.prefix}/service-info"),
-        ("GET", f"{ga4gh_tes_router.prefix}/service-info/"),
-    }
-)
-
 # The (method, path) pairs on a protected TES endpoint that require a proof from every access
 # token, including one that is neither DPoP-bound nor a task token.
 #
@@ -79,8 +69,9 @@ async def dpop_middleware(
 
     A proof presented with a token that is not DPoP-bound is rejected.
 
-    A request with neither an Authorization header nor a proof is anonymous. It is passed
-    through only to the endpoints listed in `ANONYMOUS_ENDPOINTS`, and rejected everywhere else.
+    A request with neither an Authorization header nor a proof is anonymous. It is rejected on
+    the requests `_requires_dpop_proof` covers, and passed through everywhere else, where the
+    endpoint handles it as it would with `DPOP_REQUIRED` off.
 
     Args:
         request (Request): the incoming HTTP request
@@ -101,13 +92,6 @@ async def dpop_middleware(
     access_token = _get_access_token(auth_header)
     dpop_proof = request.headers.get("dpop")
 
-    if (
-        not auth_header
-        and not dpop_proof
-        and (request.method, request.url.path) in ANONYMOUS_ENDPOINTS
-    ):
-        return await call_next(request)
-
     if not dpop_proof:
         if access_token and _is_dpop_bound(access_token):
             logger.warning(
@@ -127,18 +111,9 @@ async def dpop_middleware(
                 "dpop_required",
                 "Task tokens can only be used DPoP-bound, with a DPoP proof",
             )
-        if not access_token:
-            logger.warning(
-                f"Rejecting anonymous request to '{request.url.path}': DPoP is required"
-            )
-            return _error_response(
-                HTTP_401_UNAUTHORIZED,
-                "dpop_required",
-                "This endpoint requires an access token",
-            )
         if _requires_dpop_proof(request.method, request.url.path, path_prefix):
             logger.warning(
-                f"Rejecting request to '{request.method} {request.url.path}': the access token is not DPoP-bound and this request requires a DPoP proof"
+                f"Rejecting request to '{request.method} {request.url.path}': this request requires a DPoP-bound access token and a DPoP proof"
             )
             return _error_response(
                 HTTP_401_UNAUTHORIZED,

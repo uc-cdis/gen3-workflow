@@ -11,13 +11,13 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from cdispyutils.observability import continuous_profiling
-from cdispyutils.observability.continuous_profiling import (
+from fastapi import FastAPI
+from gen3pyutils.observability import continuous_profiling
+from gen3pyutils.observability.continuous_profiling import (
     profiling_active,
     stop_profiling,
 )
-from cdispyutils.observability.tracing import reset_tracing_state
-from fastapi import FastAPI
+from gen3pyutils.observability.tracing import reset_tracing_state
 from opentelemetry import trace
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor

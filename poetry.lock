@@ -244,47 +244,6 @@ files = [
 ]
 
 [[package]]
-name = "cdispyutils"
-version = "2.6.0"
-description = "This package includes several utility Python tools for the Gen3 stack."
-optional = false
-python-versions = ">=3.13,<4"
-groups = ["main"]
-files = []
-develop = false
-
-[package.dependencies]
-cdiserrors = "*"
-fastapi = {version = "*", optional = true}
-Flask = "*"
-gen3logging = {git = "https://github.com/uc-cdis/cdislogging.git", rev = "feat/json"}
-opentelemetry-api = {version = "*", optional = true}
-opentelemetry-exporter-otlp = {version = "*", optional = true}
-opentelemetry-instrumentation-asyncpg = {version = "*", optional = true}
-opentelemetry-instrumentation-fastapi = {version = "*", optional = true}
-opentelemetry-instrumentation-httpx = {version = "*", optional = true}
-opentelemetry-instrumentation-logging = {version = "*", optional = true}
-opentelemetry-instrumentation-requests = {version = "*", optional = true}
-opentelemetry-sdk = {version = "*", optional = true}
-prometheus-client = "*"
-PyJWT = "*"
-pyroscope-io = {version = "*", optional = true}
-pyroscope-otel = {version = "*", optional = true}
-requests = "*"
-starlette = {version = "*", optional = true}
-
-[package.extras]
-observability = ["fastapi", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-instrumentation-asyncpg", "opentelemetry-instrumentation-fastapi", "opentelemetry-instrumentation-httpx", "opentelemetry-instrumentation-logging", "opentelemetry-instrumentation-requests", "opentelemetry-sdk", "pyroscope-io", "pyroscope-otel", "starlette"]
-profiling = ["Werkzeug", "matplotlib", "numpy"]
-uwsgi = ["uwsgi"]
-
-[package.source]
-type = "git"
-url = "https://github.com/uc-cdis/cdis-python-utils.git"
-reference = "feat/observability"
-resolved_reference = "5f3141a835693605b3843bfe819484bd0e61608e"
-
-[[package]]
 name = "certifi"
 version = "2026.7.22"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -962,6 +921,43 @@ type = "git"
 url = "https://github.com/uc-cdis/cdislogging.git"
 reference = "feat/json"
 resolved_reference = "66e6d96eff1b8d73279ab1256fb4c811c9043722"
+
+[[package]]
+name = "gen3pyutils"
+version = "3.0.0"
+description = "This package includes several utility Python tools for the Gen3 stack."
+optional = false
+python-versions = "<4,>=3.13"
+groups = ["main"]
+files = [
+    {file = "gen3pyutils-3.0.0-py3-none-any.whl", hash = "sha256:7fbc2bb9094c9ebdd3044fa390be355b0cd6e27b11aaca3896cc375a1b80225c"},
+    {file = "gen3pyutils-3.0.0.tar.gz", hash = "sha256:1173c155a4cd7117e3c25c63d2c53d24081ab42d97906791885d7ce4312c7de8"},
+]
+
+[package.dependencies]
+cdiserrors = "*"
+fastapi = {version = "*", optional = true, markers = "extra == \"observability\""}
+Flask = "*"
+gen3logging = ">=2.0.0"
+opentelemetry-api = {version = "*", optional = true, markers = "extra == \"observability\""}
+opentelemetry-exporter-otlp = {version = "*", optional = true, markers = "extra == \"observability\""}
+opentelemetry-instrumentation-asyncpg = {version = "*", optional = true, markers = "extra == \"observability\""}
+opentelemetry-instrumentation-fastapi = {version = "*", optional = true, markers = "extra == \"observability\""}
+opentelemetry-instrumentation-httpx = {version = "*", optional = true, markers = "extra == \"observability\""}
+opentelemetry-instrumentation-logging = {version = "*", optional = true, markers = "extra == \"observability\""}
+opentelemetry-instrumentation-requests = {version = "*", optional = true, markers = "extra == \"observability\""}
+opentelemetry-sdk = {version = "*", optional = true, markers = "extra == \"observability\""}
+prometheus-client = "*"
+PyJWT = "*"
+pyroscope-io = {version = "*", optional = true, markers = "extra == \"observability\""}
+pyroscope-otel = {version = "*", optional = true, markers = "extra == \"observability\""}
+requests = "*"
+starlette = {version = "*", optional = true, markers = "extra == \"observability\""}
+
+[package.extras]
+observability = ["fastapi", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-instrumentation-asyncpg", "opentelemetry-instrumentation-fastapi", "opentelemetry-instrumentation-httpx", "opentelemetry-instrumentation-logging", "opentelemetry-instrumentation-requests", "opentelemetry-sdk", "pyroscope-io", "pyroscope-otel", "starlette"]
+profiling = ["Werkzeug", "matplotlib", "numpy"]
+uwsgi = ["uwsgi"]
 
 [[package]]
 name = "googleapis-common-protos"
@@ -2798,4 +2794,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "f0db4a631fb5b152cc2fe6427cbc26a528bfd0c11af485795a3c4a2ca2c5399a"
+content-hash = "376fe5f85e32d01ac4065189feb96eb4105d3f8fd51ab8fc0ccb5126ede8bab2"

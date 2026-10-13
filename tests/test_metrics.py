@@ -1,5 +1,5 @@
 """
-Tests for the Prometheus request metrics recorded by the cdispyutils observability middleware.
+Tests for the Prometheus request metrics recorded by the gen3pyutils observability middleware.
 
 The `client` fixture is session-scoped and the counters live on the app it built, so by the
 time any one test runs they already hold whatever every earlier test recorded. Each test
@@ -13,7 +13,7 @@ makes it appear at the total every other app already reached, not at one.
 """
 
 import pytest
-from cdispyutils.observability.constants import UNMATCHED_PATH
+from gen3pyutils.observability.constants import UNMATCHED_PATH
 from prometheus_client.parser import text_string_to_metric_families
 
 from gen3workflow.config import config
@@ -185,7 +185,7 @@ async def test_request_rejected_by_dpop_is_counted(client, reset_config_dpop_req
     """
     config["DPOP_REQUIRED"] = True
     labels = {"method": "POST", "path": UNMATCHED_PATH, "status_code": "401"}
-    # an anonymous request to a non-public protected endpoint is rejected by the middleware
+    # an anonymous request to launch a task is rejected by the middleware
     headers = {}
     await client.post(TASKS_PATH, json={"name": "test-task"}, headers=headers)
     before = total(await scrape(client), REQUEST_COUNTER, **labels)

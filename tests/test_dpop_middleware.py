@@ -950,25 +950,49 @@ async def test_anonymous_service_info_request_is_accepted(client, trailing_slash
     "method,path,body",
     [
         pytest.param("POST", TES_PATH, {"name": "test-task"}, id="create-task"),
-        pytest.param("GET", TES_PATH, None, id="list-tasks"),
-        pytest.param("GET", f"{TES_PATH}/123", None, id="get-task"),
-        pytest.param("POST", f"{TES_PATH}/123:cancel", None, id="cancel-task"),
-        pytest.param(
-            "POST", "/ga4gh/tes/v1/service-info", None, id="service-info-wrong-method"
-        ),
-        pytest.param("GET", "/s3/bucket/key", None, id="s3"),
+        pytest.param("GET", "/s3/bucket/key", None, id="s3-download"),
+        pytest.param("PUT", "/s3/bucket/key", None, id="s3-upload"),
     ],
 )
-async def test_anonymous_request_to_a_non_public_endpoint_is_rejected(
+async def test_anonymous_request_requiring_a_proof_is_rejected(
     client, method, path, body
 ):
     """
-    A request with no credentials at all is rejected on every protected endpoint that is not
-    public, even when Arborist would allow it.
+    A request with no credentials at all is rejected on the requests that require a DPoP proof,
+    even when Arborist would allow it.
     """
     res = await client.request(method, path, json=body)
     assert res.status_code == 401, res.text
     assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client", [pytest.param({"authorized": True})], indirect=True)
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        pytest.param("GET", TES_PATH, id="list-tasks"),
+        pytest.param("GET", f"{TES_PATH}/123", id="get-task"),
+        pytest.param("POST", f"{TES_PATH}/123:cancel", id="cancel-task"),
+        pytest.param(
+            "POST", "/ga4gh/tes/v1/service-info", id="service-info-wrong-method"
+        ),
+        pytest.param("GET", "/s3/bucket", id="s3-list-objects"),
+    ],
+)
+async def test_anonymous_request_not_requiring_a_proof_is_unaffected_by_dpop(
+    client, method, path
+):
+    """
+    A request with no credentials at all, on a request that does not require a DPoP proof, gets
+    the same response whether `DPOP_REQUIRED` is set or not.
+    """
+    res = await client.request(method, path)
+    config["DPOP_REQUIRED"] = False
+    res_without_dpop = await client.request(method, path)
+
+    assert res.status_code == res_without_dpop.status_code, res.text
+    assert res.json() == res_without_dpop.json()
 
 
 @pytest.mark.asyncio

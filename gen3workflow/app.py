@@ -4,16 +4,16 @@ from importlib.metadata import version
 
 import httpx
 from authutils.dpop import DPOP_PROOF_MAX_TTL
-from cdispyutils.observability.continuous_profiling import configure_profiling
-from cdispyutils.observability.request_metrics import add_request_metrics_middleware
-from cdispyutils.observability.tracing import (
-    LoggingInstrumentorWithContext,
-    configure_tracing,
-)
 from fastapi import FastAPI, Request
 from fastapi.routing import APIRoute
 from gen3authz.client.arborist.async_client import ArboristClient
 from gen3logging import get_logger
+from gen3pyutils.observability.continuous_profiling import configure_profiling
+from gen3pyutils.observability.request_metrics import add_request_metrics_middleware
+from gen3pyutils.observability.tracing import (
+    LoggingInstrumentorWithContext,
+    configure_tracing,
+)
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from starlette.responses import Response
