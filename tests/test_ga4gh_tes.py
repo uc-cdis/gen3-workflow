@@ -625,7 +625,7 @@ async def test_list_tasks_repeated_params(
     )
     url += repeated_params
     # Test with view != "FULL" to verify that request includes ("view", "FULL")
-    url += "&view=MINIMAL"
+    url += "&view=BASIC"
 
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
