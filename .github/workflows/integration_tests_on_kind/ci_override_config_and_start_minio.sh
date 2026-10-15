@@ -21,6 +21,10 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.s3SecretAccessKey = "minioadmin"' 
 yq eval -i '.gen3-workflow.gen3WorkflowConfig.kmsEncryptionEnabled = false' gen3-workflow.yaml
 # kind clusters do not have nodepools
 yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = false' gen3-workflow.yaml
+# DPoP is required by default and needs a secret shared with Fence, which this environment does not set
+# and existing tests aren't sending DPoP Proofs. TODO: for now disable DPOP, but once we implement support
+# in integration tests, we can remove this and let the default true take over
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.DPOP_REQUIRED = false' gen3-workflow.yaml
 
 # overwrite gen3-workflow config `EKS_CLUSTER_NAME` to an empty string
 yq eval -i '.global.clusterName = ""' values.yaml
