@@ -8,6 +8,8 @@ jobs:
     uses: uc-cdis/.github/.github/workflows/integration_tests.yaml@master
     with:
       SERVICE_TO_TEST: gen3_workflow
+      # TODO revert to master once https://github.com/uc-cdis/gen3-code-vigil/pull/635 is merged
+      TEST_REPO_BRANCH: test_task_token
     secrets:
       CI_TEST_ORCID_USERID: ${{ secrets.CI_TEST_ORCID_USERID }}
       CI_TEST_ORCID_PASSWORD: ${{ secrets.CI_TEST_ORCID_PASSWORD }}

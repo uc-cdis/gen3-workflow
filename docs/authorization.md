@@ -36,7 +36,7 @@ graph TD;
 
 ## Storage
 - To upload input files, download output files, and in general manage the files in their S3 bucket, users need `create`, `read` or `delete` access to resource `/services/workflow/gen3-workflow/storage/<user ID>` on service `gen3-workflow`.
-- The Funnel workers have access to `/services/workflow/gen3-workflow/storage` so they can manage files in all the user buckets.
+- The Funnel worker pods do not go through the S3 endpoint: they access the user's bucket directly, with a per-user IAM role scoped to that bucket and assumed through IRSA (see `WORKER_PODS_NAMESPACE`).
 - To empty or delete their own S3 bucket (`/storage/user-bucket` endpoints), users need `delete` access to the resource `/services/workflow/gen3-workflow/storage/<user ID>` on the `gen3-workflow` service.
 
 ## Authorization configuration example
@@ -48,11 +48,6 @@ users:
   some-username:
     policies:
     - gen3_workflow_user
-
-clients:
-  funnel-plugin-client:
-    policies:
-    - gen3_workflow_storage_admin
 
 authz:
   resources:
@@ -78,12 +73,6 @@ authz:
     - gen3_workflow_reader
     resource_paths:
     - /services/workflow/gen3-workflow/tasks
-  - id: gen3_workflow_storage_admin
-    description: Allows access to manage all the user buckets
-    role_ids:
-    - gen3_workflow_admin
-    resource_paths:
-    - /services/workflow/gen3-workflow/storage
 
   roles:
   - id: gen3_workflow_reader

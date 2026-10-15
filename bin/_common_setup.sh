@@ -2,13 +2,13 @@
 set -e
 
 # Common setup for both tests and running the service
-# Used in run.sh and test.sh
+# Used in dockerrun.bash and test.sh
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -f "/src/gen3-workflow-config.yaml" ]; then
-  # For multi-worker Gunicorn setups; requires PROMETHEUS_MULTIPROC_DIR to be set before startup,
-  # here we assume the config file is mounted at /src via cloud-automation.
+  # PROMETHEUS_MULTIPROC_DIR has to be set before the app starts; here we assume the config
+  # file is mounted at /src via cloud-automation.
   PROMETHEUS_MULTIPROC_DIR=$(grep 'PROMETHEUS_MULTIPROC_DIR:' /src/gen3-workflow-config.yaml | awk -F': ' '{print $2}' | tr -d '"')
 else
   PROMETHEUS_MULTIPROC_DIR=""

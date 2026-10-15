@@ -15,6 +15,8 @@ jobs:
     with:
       EXTERNAL_TO_CTDS: "true"
       SERVICE_TO_TEST: gen3_workflow
+      # TODO revert to master once https://github.com/uc-cdis/gen3-code-vigil/pull/635 is merged
+      TEST_REPO_BRANCH: test_task_token
       SETUP_SCRIPT_1: https://raw.githubusercontent.com/uc-cdis/gen3-workflow/refs/heads/${{ github.event.pull_request.head.ref }}/.github/workflows/integration_tests_on_kind/ci_start_kind_cluster.sh
       SETUP_SCRIPT_2: https://raw.githubusercontent.com/uc-cdis/gen3-workflow/refs/heads/${{ github.event.pull_request.head.ref }}/.github/workflows/integration_tests_on_kind/ci_override_config_and_start_minio.sh
       SETUP_SCRIPT_3: https://raw.githubusercontent.com/uc-cdis/gen3-workflow/refs/heads/${{ github.event.pull_request.head.ref }}/.github/workflows/integration_tests_on_kind/ci_expose_kind_cluster.sh
