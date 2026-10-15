@@ -938,6 +938,30 @@ async def test_unbound_regular_token_without_proof_cannot_launch_a_task(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token_factory",
+    [
+        pytest.param(create_access_token, id="user-token"),
+        pytest.param(create_client_credentials_token, id="client-credentials-token"),
+    ],
+)
+async def test_unbound_regular_token_with_dpop_scheme_without_proof_is_rejected(
+    client, access_token_patcher, token_signing_key, token_factory
+):
+    """
+    A regular access token presented with the `DPoP` scheme but without a proof is rejected,
+    on an endpoint that accepts the same token with the `Bearer` scheme.
+    """
+    access_token = token_factory(token_signing_key)
+    res = await client.post(
+        f"{TES_PATH}/123:cancel",
+        headers={"Authorization": f"DPoP {access_token}"},
+    )
+    assert res.status_code == 401, res.text
+    assert res.json()["error"] == "dpop_required"
+
+
+@pytest.mark.asyncio
 async def test_anonymous_service_info_request_is_accepted(client, trailing_slash):
     """A request with no credentials at all reaches `GET /service-info`, which is public."""
     res = await client.get(f"/ga4gh/tes/v1/service-info{'/' if trailing_slash else ''}")

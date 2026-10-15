@@ -67,7 +67,8 @@ async def dpop_middleware(
     requests that launch a task or read or write S3 object content (see `_requires_dpop_proof`),
     which only accept a DPoP-bound token.
 
-    A proof presented with a token that is not DPoP-bound is rejected.
+    A proof presented with a token that is not DPoP-bound is rejected, and so is a `DPoP` scheme
+    Authorization header presented without a proof.
 
     A request with neither an Authorization header nor a proof is anonymous. It is rejected on
     the requests `_requires_dpop_proof` covers, and passed through everywhere else, where the
@@ -110,6 +111,16 @@ async def dpop_middleware(
                 HTTP_401_UNAUTHORIZED,
                 "dpop_required",
                 "Task tokens can only be used DPoP-bound, with a DPoP proof",
+            )
+        if auth_header.lower().startswith("dpop "):
+            # downstream token validation only reads the `Bearer` scheme
+            logger.warning(
+                f"Rejecting request to '{request.url.path}': the Authorization header uses the DPoP scheme but the request has no DPoP proof"
+            )
+            return _error_response(
+                HTTP_401_UNAUTHORIZED,
+                "dpop_required",
+                "The DPoP authorization scheme can only be used with a DPoP proof",
             )
         if _requires_dpop_proof(request.method, request.url.path, path_prefix):
             logger.warning(

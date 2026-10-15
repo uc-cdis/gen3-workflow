@@ -911,16 +911,12 @@ name = "gen3logging"
 version = "2.0.0"
 description = "Standardized logging tool and format for Gen3"
 optional = false
-python-versions = ">=3.13,<4"
+python-versions = "<4,>=3.13"
 groups = ["main"]
-files = []
-develop = false
-
-[package.source]
-type = "git"
-url = "https://github.com/uc-cdis/cdislogging.git"
-reference = "feat/json"
-resolved_reference = "66e6d96eff1b8d73279ab1256fb4c811c9043722"
+files = [
+    {file = "gen3logging-2.0.0-py3-none-any.whl", hash = "sha256:43b8adae8698e72481b9ba6ffe5c1ecdebc25e772b79f5cd7a4b890a5e03d89b"},
+    {file = "gen3logging-2.0.0.tar.gz", hash = "sha256:0c337f47132c16152a69de93e58e83a9b97123e67008a530d32d6d88dd9693eb"},
+]
 
 [[package]]
 name = "gen3pyutils"
@@ -2794,4 +2790,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "376fe5f85e32d01ac4065189feb96eb4105d3f8fd51ab8fc0ccb5126ede8bab2"
+content-hash = "aea73cfa37cdc7dbf52814bb8de815c80eeee8c40a3be2567192f544d4af4c39"
