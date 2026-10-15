@@ -666,7 +666,7 @@ async def test_list_tasks_repeated_params(
     tasks = res.json()
     tasks["tasks"] = [t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]]
 
-    # check that the 'MINIMAL' view was applied:
+    # check that the requested view was applied:
     assert tasks == {
         "tasks": [
             {
