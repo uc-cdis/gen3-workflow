@@ -253,7 +253,7 @@ def get_s3_access_key_id_from_auth_header(auth_header: str) -> str:
         raise ValueError(f"Unable to extract the access key ID: {e}")
 
 
-async def authorize_s3_request(request: Request, path: str, headers: Headers) -> str:
+async def authorize_s3_request(request: Request, path: str) -> str:
     """
     Authenticate an incoming S3 request and check the caller may make it.
 
@@ -278,7 +278,7 @@ async def authorize_s3_request(request: Request, path: str, headers: Headers) ->
     dpop_validated = getattr(request.state, "dpop_validated", False)
     user_id, client_id = await set_access_token_and_get_user_id(
         auth,
-        headers,
+        request.headers,
         method=request.method,
         path=path,
         dpop_validated=dpop_validated,
@@ -312,14 +312,16 @@ async def authorize_s3_request(request: Request, path: str, headers: Headers) ->
         if request_bucket != user_bucket:
             err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
             logger.error(err_msg)
-            return Response(**generate_xml_error(HTTP_403_FORBIDDEN, err_msg))
+            raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
-    if "x-amz-copy-source" in headers:
-        copy_source_bucket = headers["x-amz-copy-source"].strip("/").split("/")[0]
+    if "x-amz-copy-source" in request.headers:
+        copy_source_bucket = (
+            request.headers["x-amz-copy-source"].strip("/").split("/")[0]
+        )
         if copy_source_bucket != user_bucket:
             err_msg = f"Copy source '{copy_source_bucket}' not allowed. You can copy from your personal bucket, '{user_bucket}'"
             logger.error(err_msg)
-            return Response(**generate_xml_error(HTTP_403_FORBIDDEN, err_msg))
+            raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     return user_bucket
 
@@ -427,10 +429,15 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    in_headers = request.headers
-    user_bucket = await authorize_s3_request(request, path, in_headers)
+    try:
+        user_bucket = await authorize_s3_request(request, path)
+    except HTTPException as e:
+        return Response(**generate_xml_error(e.status_code, e.detail))
+
     if is_list_buckets_request(request.method, path):
         return list_buckets_response(user_bucket)
+
+    in_headers = request.headers
 
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)

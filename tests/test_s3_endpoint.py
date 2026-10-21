@@ -128,7 +128,7 @@ def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
     assert exc_info.value.response.get("Error") == {
         "Code": "Unauthorized",
-        "Message": "No user ID in token or key ID",
+        "Message": "No user ID in token",
     }
 
 
@@ -186,8 +186,8 @@ def test_s3_endpoint_unauthorized(s3_client, access_token_patcher):
     with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
     assert exc_info.value.response.get("Error") == {
-        "Code": "403",
-        "Message": "Forbidden",
+        "Code": "Forbidden",
+        "Message": "Permission denied",
     }
 
 
