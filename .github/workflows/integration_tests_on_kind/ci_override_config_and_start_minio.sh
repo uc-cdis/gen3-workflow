@@ -80,7 +80,7 @@ yq eval -i '.funnel.postgresql.enabled = false' funnel.yaml
 yq eval -i '.funnel.Kubernetes.NodeSelector = {}' funnel.yaml
 yq eval -i '.funnel.Kubernetes.Tolerations = []' funnel.yaml
 yq eval -i '.funnel.Kubernetes.Worker.PriorityClassName = ""' funnel.yaml
-yq eval -i '.funnel.Kubernetes.Storage.type = mountpoint_s3' funnel.yaml
+yq eval -i '.funnel.Kubernetes.Storage.type = "mountpoint_s3"' funnel.yaml
 # Configure `endpoint_url`, `authenticationSource` and `stsRegion` so the PVs talk to Minio
 # instead of AWS S3.
 MINIO_SERVICE_URL=$MINIO_SERVICE_URL yq eval -i '.funnel.endpoint_url = strenv(MINIO_SERVICE_URL)' funnel.yaml
