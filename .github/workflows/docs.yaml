@@ -36,6 +36,10 @@ jobs:
         poetry show -vv
     - name: Build docs
       run: poetry run python run.py openapi
+      env:
+        # DPoP is required by default and the app refuses to start without a shared secret. No
+        # request is served here, so any value works.
+        DPOP_SHARED_SECRET: openapi-generation-only  # pragma: allowlist secret
 
     - uses: stefanzweifel/git-auto-commit-action@v7
       with:

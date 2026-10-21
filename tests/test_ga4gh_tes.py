@@ -1,12 +1,15 @@
 import json
 from unittest.mock import patch
+from urllib.parse import parse_qsl
 
 import pytest
 
 from gen3workflow.config import config
+from gen3workflow.routes.ga4gh_tes import get_authz_string_for_user
 from tests.conftest import (
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    get_debug_stub_warnings,
     mock_arborist_request,
     mock_tes_server_request,
     remove_bucket_policy_and_put_object,
@@ -61,7 +64,7 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks/123",
-        query_params={"view": "FULL"},
+        query_params=[("view", "FULL")],
         body="",
         status_code=client.tes_resp_code,
     )
@@ -151,7 +154,7 @@ async def test_create_task(
         mock_tes_server_request.assert_called_once_with(
             method="POST",
             path="/tasks",
-            query_params={},
+            query_params=[],
             body=json.dumps(expected_body, separators=(",", ":")),
             status_code=client.tes_resp_code,
         )
@@ -238,7 +241,7 @@ async def test_create_gpu_task(
     mock_tes_server_request.assert_called_once_with(
         method="POST",
         path="/tasks",
-        query_params={},
+        query_params=[],
         body=json.dumps(expected_body, separators=(",", ":")),
         status_code=200,
     )
@@ -417,7 +420,7 @@ async def test_create_task_with_whitelist_images(
         mock_tes_server_request.assert_called_once_with(
             method="POST",
             path="/tasks",
-            query_params={},
+            query_params=[],
             body=json.dumps(expected_body, separators=(",", ":")),
             status_code=200,
         )
@@ -467,7 +470,7 @@ async def test_create_task_optimized_node_scheduling(
     mock_tes_server_request.assert_called_once_with(
         method="POST",
         path="/tasks",
-        query_params={},
+        query_params=[],
         body=json.dumps(expected_body, separators=(",", ":")),
         status_code=client.tes_resp_code,
     )
@@ -491,11 +494,22 @@ async def test_create_task_with_bad_tags(
     assert res.status_code == 400, res.text
 
 
+def test_get_authz_string():
+    """
+    Test that the get_authz_string_for_user returns the correct format.
+    """
+    user_id = TEST_USER_ID
+    assert get_authz_string_for_user(user_id) == (
+        f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
+@pytest.mark.parametrize("get_all", [False, True])
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
 async def test_list_tasks(
-    client, access_token_patcher, view, trailing_slash, mock_aws_services
+    client, access_token_patcher, get_all, view, trailing_slash, mock_aws_services
 ):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
@@ -511,16 +525,24 @@ async def test_list_tasks(
         )
         assert res.status_code == 200, res.text
 
-    url = f"/ga4gh/tes/v1/tasks?state=COMPLETE&unsupported_param=value{'/' if trailing_slash else ''}"
+    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
     if view:
         url += f"&view={view}"
+    if get_all:
+        url += "&all"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
     # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    query_params = [("state", "COMPLETE"), ("view", "FULL")]
+    if not get_all:
+        query_params += [
+            ("tag_key", "_AUTHZ"),
+            ("tag_value", get_authz_string_for_user(TEST_USER_ID)),
+        ]
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
-        query_params={"state": "COMPLETE", "view": "FULL"},
+        query_params=query_params,
         body="",
         status_code=client.tes_resp_code,
     )
@@ -581,6 +603,177 @@ async def test_list_tasks(
 
 
 @pytest.mark.asyncio
+async def test_list_tasks_repeated_params(
+    client, access_token_patcher, trailing_slash, mock_aws_services
+):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server.
+    Repeated params are allowed, such as repeated 'tag_key' or 'tag_value'.
+    Any unsupported query params should be filtered out. Tasks the user does not have access
+    to should be filtered out.
+    When the TES server returns an error, gen3-workflow should return it as well.
+    """
+    # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
+    # call is conditional
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+
+    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?state=COMPLETE&unsupported_param=value"
+    repeated_params = (
+        "&tag_key=tag_key_1&tag_value=tag_val_1&tag_key=tag_key_2&tag_value=tag_val_2"
+    )
+    url += repeated_params
+    # Test with view != "FULL" to verify that request includes ("view", "FULL")
+    url += "&view=BASIC"
+
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
+
+    # the call to the TES server groups repeated params with same name
+    # eg,
+    # query_params = [
+    #     ("state", "COMPLETE"),
+    #     ("tag_key", "tag_key_1"),
+    #     ("tag_key", "tag_key_2"),
+    #     ("tag_value", "tag_val_1"),
+    #     ("tag_value", "tag_val_2"),
+    # ]
+    repeated_parsed = parse_qsl(repeated_params.lstrip("&"))
+    tag_keys = [p for p in repeated_parsed if p[0] == "tag_key"]
+    tag_values = [p for p in repeated_parsed if p[0] == "tag_value"]
+
+    query_params = (
+        [("state", "COMPLETE")]
+        + tag_keys
+        + [("tag_key", "_AUTHZ")]
+        + tag_values
+        + [("tag_value", get_authz_string_for_user(TEST_USER_ID))]
+    )
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    query_params += [("view", "FULL")]
+
+    mock_tes_server_request.assert_called_once_with(
+        method="GET",
+        path="/tasks",
+        query_params=query_params,
+        body="",
+        status_code=client.tes_resp_code,
+    )
+
+    assert res.status_code == 200, res.text
+    # skip the `with-logs-outputs` tasks, they are checked in
+    # `test_get_and_list_check_if_outputs_ready`
+    tasks = res.json()
+    tasks["tasks"] = [t for t in tasks["tasks"] if "with-logs-outputs" not in t["id"]]
+
+    # check that the requested view was applied:
+    assert tasks == {
+        "tasks": [
+            {
+                "id": "123",
+                "state": "COMPLETE",
+                "logs": [{}],
+                "tags": {
+                    "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123"
+                },
+            }
+        ]
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "client",
+    [
+        pytest.param({"tes_resp_code": 200}, id="no user"),
+    ],
+    indirect=True,
+)
+@pytest.mark.usefixtures("access_token_patcher")
+@pytest.mark.parametrize("access_token_patcher", [{"user_id": None}], indirect=True)
+@pytest.mark.parametrize(
+    ("method", "expected_error"),
+    [
+        ("get", "Login required when parameter 'all' is not used"),
+        ("post", "No user sub in token"),
+    ],
+)
+async def test_tasks_error_no_user(
+    client, access_token_patcher, method, expected_error, trailing_slash
+):
+    """
+    Calls to `GET|POST /ga4gh/tes/v1/tasks` should return an error when the user_id
+    from authz is None.
+    GET tasks should raise error if all=False (flag is not present).
+    TES server should not be called.
+    """
+    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}"
+    if method == "get":
+        res = await client.get(
+            url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
+    if method == "post":
+        res = await client.post(
+            url,
+            json={"name": "test-task"},
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        )
+    assert res.status_code == 401, res.text
+    assert res.json() == {"detail": expected_error}
+    mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "client",
+    [
+        pytest.param({"tes_resp_code": 200}, id="no user"),
+    ],
+    indirect=True,
+)
+@pytest.mark.usefixtures("access_token_patcher")
+@pytest.mark.parametrize("access_token_patcher", [{"user_id": None}], indirect=True)
+async def test_get_tasks_no_user(client, access_token_patcher, trailing_slash):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks?all` should not return an error when the user_id
+    from authz is None and the 'all' parameter is present.
+    """
+    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?all"
+
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
+
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    query_params = [("view", "FULL")]
+    mock_tes_server_request.assert_called_once_with(
+        method="GET",
+        path="/tasks",
+        query_params=query_params,
+        body="",
+        status_code=client.tes_resp_code,
+    )
+
+
+@pytest.mark.asyncio
+async def test_tasks_error_multiple_view(client, access_token_patcher):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks` should return an error when
+    multiple `view` parameters are submitted.
+    TES server should not be called.
+    """
+    url = f"/ga4gh/tes/v1/tasks"
+    url += "?view=BASIC&view=MINIMAL"
+    expected_message = (
+        "Only one 'view' parameter is allowed. Found 'BASIC' and 'MINIMAL'"
+    )
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
+
+    assert res.status_code == 400, res.text
+    assert res.json() == {"detail": expected_message}
+    mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("client", client_parameters, indirect=True)
 async def test_delete_task(client, access_token_patcher, trailing_slash):
     """
@@ -598,7 +791,7 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
     mock_tes_server_request.assert_any_call(
         method="GET",
         path="/tasks/123",
-        query_params={"view": "FULL"},
+        query_params=[("view", "FULL")],
         body="",
         status_code=client.tes_resp_code,
     )
@@ -617,7 +810,7 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
         mock_tes_server_request.assert_called_with(
             method="POST",
             path="/tasks/123:cancel",
-            query_params={},
+            query_params=[],
             body="",
             status_code=client.tes_resp_code,
         )
@@ -630,6 +823,94 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
             body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
             authorized=client.authorized,
         )
+
+
+@pytest.mark.asyncio
+async def test_endpoints_in_debug_stub_mode(
+    debug_stub_client, access_token_patcher, caplog
+):
+    """
+    In debug stub mode, the TES endpoints return canned responses without contacting the TES
+    server, and log a warning for each stubbed request, so that a stubbed deployment cannot be
+    mistaken for a working one.
+    """
+    res = await debug_stub_client.post(
+        "/ga4gh/tes/v1/tasks",
+        json={"name": "test-task"},
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["id"].startswith("stubbed-task-")
+
+    res = await debug_stub_client.get(
+        "/ga4gh/tes/v1/tasks", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {"tasks": []}
+
+    mock_tes_server_request.assert_not_called()
+    assert len(get_debug_stub_warnings(caplog)) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        pytest.param("post", "/ga4gh/tes/v1/tasks", id="create-task"),
+        pytest.param("get", "/ga4gh/tes/v1/tasks", id="list-tasks"),
+        pytest.param("get", "/ga4gh/tes/v1/tasks/123", id="get-task"),
+        pytest.param("post", "/ga4gh/tes/v1/tasks/123:cancel", id="cancel-task"),
+    ],
+)
+async def test_endpoints_in_debug_stub_mode_require_an_access_token(
+    debug_stub_client, caplog, method, path
+):
+    """
+    In debug stub mode, a TES request without an access token is rejected rather than stubbed.
+    """
+    res = await getattr(debug_stub_client, method)(path)
+    assert res.status_code == 401, res.text
+    assert get_debug_stub_warnings(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_service_info_in_debug_stub_mode_allows_anonymous_requests(
+    debug_stub_client, caplog
+):
+    """
+    In debug stub mode, `GET /service-info` accepts a request without an access token, like the
+    real endpoint does.
+    """
+    res = await debug_stub_client.get("/ga4gh/tes/v1/service-info")
+    assert res.status_code == 200, res.text
+    mock_tes_server_request.assert_not_called()
+    assert len(get_debug_stub_warnings(caplog)) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "debug_stub_client", [pytest.param({"authorized": False})], indirect=True
+)
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        pytest.param("post", "/ga4gh/tes/v1/tasks", id="create-task"),
+        pytest.param("get", "/ga4gh/tes/v1/tasks/123", id="get-task"),
+        pytest.param("post", "/ga4gh/tes/v1/tasks/123:cancel", id="cancel-task"),
+    ],
+)
+async def test_endpoints_in_debug_stub_mode_check_authorization(
+    debug_stub_client, access_token_patcher, caplog, method, path
+):
+    """
+    In debug stub mode, a TES request the caller is not authorized to make is rejected rather
+    than stubbed.
+    """
+    res = await getattr(debug_stub_client, method)(
+        path, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 403, res.text
+    assert get_debug_stub_warnings(caplog) == []
 
 
 @pytest.mark.asyncio
