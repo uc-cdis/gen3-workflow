@@ -47,6 +47,10 @@ CRLF_LEN = 2
 
 
 def generate_xml_error(status_code: int, er_msg: str):
+    """
+    Utility function that allows returning errors as XML so details can be parsed by S3 tools and
+    returned to users
+    """
     code_name = {
         HTTP_400_BAD_REQUEST: "BadRequest",
         HTTP_401_UNAUTHORIZED: "Unauthorized",
