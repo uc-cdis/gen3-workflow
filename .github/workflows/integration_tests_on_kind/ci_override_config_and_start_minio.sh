@@ -268,7 +268,15 @@ helm upgrade --install aws-mountpoint-s3-csi-driver --namespace kube-system aws-
 
 kubectl wait -n ${NAMESPACE} --for=condition=Ready pod/minio --timeout=120s
 kubectl wait -n external-secrets --for=condition=Ready pod --all --timeout=120s
-kubectl wait -n kube-system --for=condition=Ready pod --all --timeout=120s
+if ! kubectl wait -n kube-system --for=condition=Ready pod --all --timeout=180s; then
+  # Dump the state of the pods that did not become ready (e.g. image pull errors, crash loops)
+  echo "kube-system pods did not become Ready. Dumping debug info:"
+  kubectl get pods -A -o wide
+  kubectl describe pods -n kube-system
+  kubectl logs -n kube-system -l app=s3-csi-controller --all-containers --tail=50 || true
+  kubectl logs -n kube-system -l app=s3-csi-node --all-containers --tail=50 || true
+  exit 1
+fi
 
 # user.yaml file which will be used by the usersync job
 cat <<EOF > user.yaml
