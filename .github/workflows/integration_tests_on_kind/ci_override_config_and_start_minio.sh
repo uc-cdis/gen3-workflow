@@ -276,9 +276,24 @@ if ! kubectl wait -n kube-system --for=condition=Ready pod --all --timeout=180s;
   # Dump the state of the pods that did not become ready (e.g. image pull errors, crash loops)
   echo "kube-system pods did not become Ready. Dumping debug info:"
   kubectl get pods -A -o wide
-  kubectl describe pods -n kube-system
-  kubectl logs -n kube-system -l app=s3-csi-controller --all-containers --tail=50 || true
-  kubectl logs -n kube-system -l app=s3-csi-node --all-containers --tail=50 || true
+
+  # Container logs are useless for image pull failures (the containers never started). The actual
+  # error is in the waiting message of the container status, in the events, and in containerd.
+  echo "=== Waiting containers and their error messages ==="
+  kubectl get pods -n kube-system -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{range .status.containerStatuses[?(@.state.waiting)]}  {.name}: {.state.waiting.reason}: {.state.waiting.message}{"\n"}{end}{end}' || true
+  echo "=== Events in kube-system ==="
+  kubectl get events -n kube-system --sort-by=.lastTimestamp -o custom-columns=TIME:.lastTimestamp,TYPE:.type,REASON:.reason,OBJECT:.involvedObject.name,MESSAGE:.message || true
+  echo "=== Retry the failing pulls directly from the Kind nodes (containerd) ==="
+  for image in $(kubectl get pods -n kube-system -o jsonpath='{range .items[*]}{range .status.containerStatuses[?(@.state.waiting)]}{.image}{"\n"}{end}{end}' | sort -u); do
+    for node in $(kind get nodes --name kind-cluster); do
+      echo "--- $node: crictl pull $image"
+      docker exec "$node" crictl pull "$image" || true
+    done
+  done
+  echo "=== Connectivity and DNS from a Kind node ==="
+  docker exec kind-cluster-worker sh -c 'cat /etc/resolv.conf; getent hosts public.ecr.aws; curl -sS -o /dev/null -w "public.ecr.aws/v2/ -> HTTP %{http_code}\n" --max-time 15 https://public.ecr.aws/v2/' || true
+  echo "=== containerd logs on the worker node ==="
+  docker exec kind-cluster-worker journalctl -u containerd --no-pager --since "15 minutes ago" | tail -n 50 || true
   exit 1
 fi
 
