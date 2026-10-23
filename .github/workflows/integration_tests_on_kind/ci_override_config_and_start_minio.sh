@@ -14,13 +14,14 @@ mv arborist.yaml fence.yaml funnel.yaml gen3-workflow.yaml indexd.yaml revproxy.
 rm ./* && mv ../to-keep/* .
 
 yq eval -i '.gen3-workflow.enabled = true' gen3-workflow.yaml
-MINIO_SERVICE_URL=$MINIO_SERVICE_URL yq eval -i '.gen3-workflow.gen3WorkflowConfig.s3UpstreamEndpoint = strenv(MINIO_SERVICE_URL)' gen3-workflow.yaml
-yq eval -i '.gen3-workflow.gen3WorkflowConfig.s3AccessKeyId = "minioadmin"' gen3-workflow.yaml
-yq eval -i '.gen3-workflow.gen3WorkflowConfig.s3SecretAccessKey = "minioadmin"' gen3-workflow.yaml
+MINIO_SERVICE_URL=$MINIO_SERVICE_URL yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.S3_UPSTREAM_ENDPOINT = strenv(MINIO_SERVICE_URL)' gen3-workflow.yaml
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.S3_ENDPOINTS_AWS_ACCESS_KEY_ID = "minioadmin"' gen3-workflow.yaml
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY = "minioadmin"' gen3-workflow.yaml
 # disable KMS encryption - it might be doable with Minio KMS if we want to enable it in the future
-yq eval -i '.gen3-workflow.gen3WorkflowConfig.kmsEncryptionEnabled = false' gen3-workflow.yaml
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.KMS_ENCRYPTION_ENABLED = false' gen3-workflow.yaml
 # kind clusters do not have nodepools
-yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = false' gen3-workflow.yaml
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.ENABLE_OPTIMIZED_NODE_SCHEDULING = false' gen3-workflow.yaml
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.ENABLE_S3_FILES = false' gen3-workflow.yaml
 # DPoP is required by default and needs a secret shared with Fence, which this environment does not set
 # and existing tests aren't sending DPoP Proofs. TODO: for now disable DPOP, but once we implement support
 # in integration tests, we can remove this and let the default true take over
