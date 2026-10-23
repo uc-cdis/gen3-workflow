@@ -8,7 +8,6 @@ from gen3workflow.aws.aws_utils import OUTPUTS_ARE_READY_CACHE, are_outputs_read
 from gen3workflow.config import config
 from tests.conftest import (
     TEST_USER_ID,
-    TEST_USER_TOKEN,
     remove_bucket_policy_and_put_object,
 )
 
