@@ -995,7 +995,7 @@ async def test_anonymous_request_requiring_a_proof_is_rejected(
 @pytest.mark.parametrize(
     "method,path",
     [
-        pytest.param("GET", TES_PATH, id="list-tasks"),
+        pytest.param("GET", f"{TES_PATH}?all", id="list-tasks"),
         pytest.param("GET", f"{TES_PATH}/123", id="get-task"),
         pytest.param("POST", f"{TES_PATH}/123:cancel", id="cancel-task"),
         pytest.param(
@@ -1016,7 +1016,7 @@ async def test_anonymous_request_not_requiring_a_proof_is_unaffected_by_dpop(
     res_without_dpop = await client.request(method, path)
 
     assert res.status_code == res_without_dpop.status_code, res.text
-    assert res.json() == res_without_dpop.json()
+    assert res.text == res_without_dpop.text
 
 
 @pytest.mark.asyncio
