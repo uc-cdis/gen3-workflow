@@ -24,7 +24,7 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = fa
 # # DPoP is required by default and needs a secret shared with Fence, which this environment does not set
 # # and existing tests aren't sending DPoP Proofs. TODO: for now disable DPOP, but once we implement support
 # # in integration tests, we can remove this and let the default true take over
-# yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.DPOP_REQUIRED = false' gen3-workflow.yaml
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.DPOP_REQUIRED = false' gen3-workflow.yaml
 
 # S3Files is disbaled in CI on Kind
 yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.ENABLE_S3_FILES = false' gen3-workflow.yaml
