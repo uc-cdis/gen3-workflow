@@ -12,6 +12,12 @@ CLUSTER_NAME=kind-cluster
 K8S_VERSION=v1.35.0
 NODE_IMAGE=kindest/node:${K8S_VERSION}
 
+# Kind nodes share the runner's kernel, so the default inotify limits are quickly exhausted
+# (kubelet log readers, Mountpoint pods...), causing "failed to create fsnotify watcher: too
+# many open files" errors. See https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files
+sudo sysctl -w fs.inotify.max_user_instances=8192
+sudo sysctl -w fs.inotify.max_user_watches=524288
+
 cat <<EOF | kind create cluster --name "$CLUSTER_NAME" --image "$NODE_IMAGE" --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
