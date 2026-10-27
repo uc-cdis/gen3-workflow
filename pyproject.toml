@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gen3workflow"
-version = "1.0.0"
+version = "1.0.2"
 description = "Gen3 Workflow Execution Service"
 authors = ["CTDS UChicago <cdis@uchicago.edu>"]
 license = "Apache-2.0"
@@ -17,7 +17,8 @@ boto3 = ">=1"
 botocore = "*"
 cachelib = "*"
 fastapi = "<1"
-gen3authz = ">=3"
+#gen3authz = ">=3"
+gen3authz = { git = "https://github.com/uc-cdis/gen3authz", rev = "feat/val-aud" }
 gen3config = ">=2"
 gen3logging = ">=2.0.0"
 gen3pyutils = { version = ">=3.0.0", extras = ["observability"] }
