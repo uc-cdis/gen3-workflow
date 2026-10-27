@@ -218,26 +218,6 @@ spec:
     - podSelector:
         matchLabels:
           app: minio
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: dev-fence-ingress-from-funnel-executor-netpolicy
-  namespace: ${NAMESPACE}
-spec:
-  podSelector:
-    matchLabels:
-      app: fence
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: workflow-pods-${NAMESPACE}
-      podSelector:
-        matchLabels:
-          app: funnel-executor
 EOF
 
 # external-secrets is required to install gen3 and is not installed out of the box in kind clusters
