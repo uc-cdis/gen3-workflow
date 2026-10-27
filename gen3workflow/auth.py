@@ -124,7 +124,11 @@ class Auth:
         else:
             try:
                 authorized = await self.arborist_client.auth_request(
-                    token, "gen3-workflow", method, resources
+                    token,
+                    "gen3-workflow",
+                    method,
+                    resources,
+                    aud=config["VALID_AUTHZ_AUDIENCE"],
                 )
             except ArboristError as e:
                 logger.error(f"Error while talking to arborist: {e}")
