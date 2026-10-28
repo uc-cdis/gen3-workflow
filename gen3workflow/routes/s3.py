@@ -307,7 +307,7 @@ async def authorize_s3_request(request: Request, path: str) -> str:
     )
 
     logger.info(
-        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
+        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {request.url}'"
     )
     user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
 
