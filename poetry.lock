@@ -884,23 +884,19 @@ name = "gen3authz"
 version = "3.1.3"
 description = "Gen3 authz client"
 optional = false
-python-versions = ">=3.13,<4.0"
+python-versions = "<4.0,>=3.13"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "gen3authz-3.1.3-py3-none-any.whl", hash = "sha256:ffc500ab6a56a40a41b7b208a00c15bce21df6680c05133ae0248b3873900994"},
+    {file = "gen3authz-3.1.3.tar.gz", hash = "sha256:98240a2a5132323847b74a592b10a95b661d8fd4a6031b90d2ecfe6e269de9fa"},
+]
 
 [package.dependencies]
 backoff = ">=2.2.1,<3.0.0"
 cdiserrors = "<3.0.0"
 httpx = ">=0.20.0,<1.0.0"
-six = "^1.16.0"
+six = ">=1.16.0,<2.0.0"
 sniffio = ">=1.3.1"
-
-[package.source]
-type = "git"
-url = "https://github.com/uc-cdis/gen3authz"
-reference = "fix-auth_mapping"
-resolved_reference = "77aa3ff998e7803876b69d10a903517345c2bfb4"
 
 [[package]]
 name = "gen3config"
@@ -2962,4 +2958,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "336879a3f3a5440c466da4370a9b34fa7a6fa14ba385d177f5d433618604ae97"
+content-hash = "fdc73827c8ad0b842eccedd52f2681d5504107acbd1a15fb832a7fb653b14c59"
