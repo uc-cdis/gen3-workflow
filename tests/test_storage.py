@@ -10,6 +10,7 @@ from tests.conftest import (
     NEW_TEST_USER_ID,
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    VALID_AUD_STR,
     mock_arborist_request,
     remove_bucket_policy_and_put_object,
 )
@@ -261,7 +262,7 @@ async def test_delete_user_bucket(
     mock_arborist_request.assert_called_with(
         method="POST",
         path=f"/auth/request",
-        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/storage/{TEST_USER_ID}","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/storage/{TEST_USER_ID}","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}},"aud":{VALID_AUD_STR}}}',
         authorized=client.authorized,
     )
 

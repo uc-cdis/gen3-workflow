@@ -18,7 +18,7 @@ botocore = "*"
 cachelib = "*"
 fastapi = "<1"
 #gen3authz = ">=3"
-gen3authz = { git = "https://github.com/uc-cdis/gen3authz", rev = "feat/val-aud" }
+gen3authz = { git = "https://github.com/uc-cdis/gen3authz", rev = "fix-auth_mapping" }
 gen3config = ">=2"
 gen3logging = ">=2.0.0"
 gen3pyutils = { version = ">=3.0.0", extras = ["observability"] }

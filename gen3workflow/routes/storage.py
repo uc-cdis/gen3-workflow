@@ -29,7 +29,7 @@ async def storage_setup(
     """
     token_claims = await auth.get_token_claims()
     user_id = token_claims.get("sub")
-    logger.info(f"User '{user_id}' getting their own storage info")
+    logger.info(f"User '{user_id}' setting up their own storage")
 
     username = token_claims.get("context", {}).get("user", {}).get("name")
     if not username:

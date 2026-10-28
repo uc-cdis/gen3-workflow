@@ -69,6 +69,8 @@ MOCKED_S3_RESPONSE_DICT = {
     "EncodingType": "url",
 }
 
+VALID_AUD_STR = json.dumps(config["VALID_AUTHZ_AUDIENCE"], separators=(",", ":"))
+
 
 @pytest.fixture(scope="function")
 def access_token_patcher(request):
