@@ -675,18 +675,20 @@ async def s3_endpoint(path: str, request: Request):
                         and response.status_code < HTTP_500_INTERNAL_SERVER_ERROR
                         and response.status_code
                         not in [HTTP_408_REQUEST_TIMEOUT, HTTP_429_TOO_MANY_REQUESTS]
-                        # no need for additional logs in the case of missing permissions
-                        and "is not authorized to perform" not in resp_contents
                     ):
                         should_retry = False
-                        logger.debug(f"Incoming headers:\n{in_headers}")
-                        logger.debug(f"Outgoing headers:\n{out_headers}")
-                        logger.debug(f"Canonical request:\n{canonical_request}")
-                        logger.debug(f"String to sign:\n{string_to_sign}")
-                        logger.debug(f"Incoming query params:\n{request.query_params}")
-                        logger.debug(f"Outgoing query params:\n{query_params}")
-                        if has_body:
-                            logger.debug(f"Outgoing body:\n{request_content}")
+                        # if the problem is a missing permission, no need for additional logs
+                        if b"is not authorized to perform" not in resp_contents:
+                            logger.debug(f"Incoming headers:\n{in_headers}")
+                            logger.debug(f"Outgoing headers:\n{out_headers}")
+                            logger.debug(f"Canonical request:\n{canonical_request}")
+                            logger.debug(f"String to sign:\n{string_to_sign}")
+                            logger.debug(
+                                f"Incoming query params:\n{request.query_params}"
+                            )
+                            logger.debug(f"Outgoing query params:\n{query_params}")
+                            if has_body:
+                                logger.debug(f"Outgoing body:\n{request_content}")
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:

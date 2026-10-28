@@ -525,3 +525,23 @@ async def test_dechunk_stream(wire_segments, expected):
     async for piece in _dechunk_stream(_async_iter(wire_segments)):
         result += piece
     assert bytes(result) == expected
+
+
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize("s3_client", [{"endpoint": "s3"}], indirect=True)
+def test_s3_endpoint_error_from_s3(
+    request, s3_client, s3_addressing_style, access_token_patcher
+):
+    """
+    The `mock_aws_s3_request_function` fixture returns an error for this test. Check that the error
+    is correctly handled and forwarded to the user.
+    """
+    with pytest.raises(ClientError) as exc_info:
+        s3_client.get_object(
+            Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
+            Key="test_s3_endpoint_error_from_s3",
+        )
+    assert exc_info.value.response.get("Error") == {
+        "Code": "400",
+        "Message": "Bad Request",
+    }

@@ -289,6 +289,9 @@ def mock_aws_s3_request_function(url: str):
     resp_xml = MOCKED_S3_RESPONSE_XML
     headers = {"content-type": "application/xml"}
 
+    if "test_s3_endpoint_error_from_s3" in url:
+        return httpx.Response(status_code=400)
+
     # multipart upload special case:
     if "test_s3_upload_file_multipart.txt" in url:
         upload_id = "test-upload-id"
