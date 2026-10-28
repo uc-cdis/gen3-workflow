@@ -598,7 +598,7 @@ async def test_list_tasks(
         mock_arborist_request.assert_called_with(
             method="POST",
             path="/auth/mapping",
-            body="{}",
+            body=f'{{"aud":{VALID_AUD_STR}}}',
             authorized=client.authorized,
         )
 

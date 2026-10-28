@@ -394,6 +394,7 @@ async def list_tasks(
                 r: {"service": "gen3-workflow", "method": "read"}
                 for r in all_resource_paths
             },
+            aud=config["VALID_AUTHZ_AUDIENCE"],
         )
     except ArboristError as e:
         logger.error(e.message)

@@ -65,11 +65,10 @@ class Auth:
             )
 
         try:
-            configured_audience = config["VALID_AUTHZ_AUDIENCE"]
             token_claims = await access_token(
                 "user",
                 "openid",
-                audience=configured_audience,
+                audience=config["VALID_AUTHZ_AUDIENCE"],
                 purpose="access",
             )(self.bearer_token)
         except Exception as e:
