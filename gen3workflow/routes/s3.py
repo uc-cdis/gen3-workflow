@@ -675,6 +675,8 @@ async def s3_endpoint(path: str, request: Request):
                         and response.status_code < HTTP_500_INTERNAL_SERVER_ERROR
                         and response.status_code
                         not in [HTTP_408_REQUEST_TIMEOUT, HTTP_429_TOO_MANY_REQUESTS]
+                        # no need for additional logs in the case of missing permissions
+                        and "is not authorized to perform" not in resp_contents
                     ):
                         should_retry = False
                         logger.debug(f"Incoming headers:\n{in_headers}")
