@@ -583,6 +583,12 @@ paths:
               schema:
                 type: string
           description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
       security:
       - HTTPBearer: []
       summary: Tasks Ui
