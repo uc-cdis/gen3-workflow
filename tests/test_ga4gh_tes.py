@@ -9,6 +9,7 @@ from gen3workflow.routes.ga4gh_tes import get_authz_string_for_user
 from tests.conftest import (
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    VALID_AUD_STR,
     get_debug_stub_warnings,
     mock_arborist_request,
     mock_tes_server_request,
@@ -104,7 +105,7 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
         mock_arborist_request.assert_called_with(
             method="POST",
             path=f"/auth/request",
-            body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+            body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}},"aud":{VALID_AUD_STR}}}',
             authorized=client.authorized,
         )
 
@@ -163,7 +164,7 @@ async def test_create_task(
     mock_arborist_request.assert_any_call(
         method="POST",
         path=f"/auth/request",
-        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks","action":{{"service":"gen3-workflow","method":"create"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks","action":{{"service":"gen3-workflow","method":"create"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}},"aud":{VALID_AUD_STR}}}',
         authorized=client.authorized,
     )
 
@@ -592,12 +593,12 @@ async def test_list_tasks(
                     ]
                 }
 
-    # check that the appropriate authorization checks were made
     if client.tes_resp_code != 500:
+        # check that the appropriate authorization call was made by `can_user_access_resources`
         mock_arborist_request.assert_called_with(
             method="POST",
             path="/auth/mapping",
-            body="",
+            body=f'{{"aud":{VALID_AUD_STR}}}',
             authorized=client.authorized,
         )
 
@@ -820,7 +821,7 @@ async def test_delete_task(client, access_token_patcher, trailing_slash):
         mock_arborist_request.assert_called_with(
             method="POST",
             path=f"/auth/request",
-            body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+            body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}},"aud":{VALID_AUD_STR}}}',
             authorized=client.authorized,
         )
 

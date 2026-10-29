@@ -14,6 +14,10 @@ TASK_IMAGE_WHITELIST:
   - "*.dkr.ecr.us-east-1.amazonaws.com/approved/{username}:test"
   - quay.io/nextflow/bash
 
+VALID_AUTHZ_AUDIENCE:
+  - "gen3"
+  - "WORKFLOW"
+
 WORKER_PODS_NAMESPACE: test-namespace
 EKS_CLUSTER_NAME: test-cluster
 EKS_CLUSTER_REGION: us-east-1
