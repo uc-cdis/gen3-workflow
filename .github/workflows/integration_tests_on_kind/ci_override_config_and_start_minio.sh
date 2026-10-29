@@ -26,6 +26,9 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = fa
 # in integration tests, we can remove this and let the default true take over
 yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.DPOP_REQUIRED = false' gen3-workflow.yaml
 
+# S3Files is disabled in CI on Kind
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.ENABLE_S3_FILES = false' gen3-workflow.yaml
+
 # overwrite gen3-workflow config `EKS_CLUSTER_NAME` to an empty string
 yq eval -i '.global.clusterName = ""' values.yaml
 yq eval -i '.global.netPolicy.dbSubnets = []' values.yaml
@@ -77,6 +80,7 @@ yq eval -i '.funnel.postgresql.enabled = false' funnel.yaml
 yq eval -i '.funnel.Kubernetes.NodeSelector = {}' funnel.yaml
 yq eval -i '.funnel.Kubernetes.Tolerations = []' funnel.yaml
 yq eval -i '.funnel.Kubernetes.Worker.PriorityClassName = ""' funnel.yaml
+yq eval -i '.funnel.Kubernetes.Storage.type = "mountpoint_s3"' funnel.yaml
 # Configure `endpoint_url`, `authenticationSource` and `stsRegion` so the PVs talk to Minio
 # instead of AWS S3.
 MINIO_SERVICE_URL=$MINIO_SERVICE_URL yq eval -i '.funnel.endpoint_url = strenv(MINIO_SERVICE_URL)' funnel.yaml
@@ -224,8 +228,21 @@ helm upgrade --install external-secrets external-secrets/external-secrets -n ext
 # Install aws-mountpoint-s3-csi-driver. The driver reads S3 credentials from `aws-secret`.
 # see https://github.com/awslabs/mountpoint-s3-csi-driver/blob/db678c1/docs/CONFIGURATION.md#driver-level-credentials-with-kubernetes-secrets
 kubectl create secret generic aws-secret --namespace kube-system --from-literal "key_id=minioadmin" --from-literal "access_key=minioadmin" --from-literal "session_token="
+# Pull the driver images from our quay.io mirror instead of public.ecr.aws,to avoid ecr rate limits.
 # The mount-s3 pods also need access to Minio.
 cat <<EOF > values-kind.yaml
+image:
+  repository: quay.io/cdis/aws-mountpoint-s3-csi-driver
+  tag: driver-v2.8.0
+sidecars:
+  nodeDriverRegistrar:
+    image:
+      repository: quay.io/cdis/aws-mountpoint-s3-csi-driver
+      tag: node-driver-registrar-v2.17.0-eksbuild.5
+  livenessProbe:
+    image:
+      repository: quay.io/cdis/aws-mountpoint-s3-csi-driver
+      tag: livenessprobe-v2.19.0-eksbuild.5
 mountpointPod:
   namespace: mount-s3
   env:
