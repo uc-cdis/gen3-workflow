@@ -46,7 +46,7 @@
         <p>You are not logged in. Login at <a href={{ hostname }}>{{ hostname }}</a>.</p>
     {% endif %}
     {% if is_more %}
-        <p>Note: older tasks exist but are not displayed. Use the API directly to see them.</p>
+        <p><a href="{{ proxy_prefix }}/ui?page_token={{ is_more | urlencode }}">Next page</a></p>
     {% endif %}
 </body>
 </html>
