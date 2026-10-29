@@ -369,6 +369,12 @@ async def list_tasks(
     List the user's GA4GH TES tasks
     """
     user_id = await auth.get_user_id()
+
+    if not user_id:
+        err_msg = "Login required"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
     logger.info(f"User '{user_id}' listing TES tasks")
 
     supported_params = {
@@ -400,13 +406,15 @@ async def list_tasks(
     query_params.append(("view", "FULL"))
 
     if all is None:
+        # only list the user's own tasks
         query_params.append(("tag_key", "_AUTHZ"))
-        if not user_id:
-            err_msg = "Login required when parameter 'all' is not used"
-            logger.error(err_msg)
-            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-        authz_resource = get_authz_string_for_user(user_id)
-        query_params.append(("tag_value", authz_resource))
+        query_params.append(("tag_value", get_authz_string_for_user(user_id)))
+    else:
+        # listing all the tasks is restricted to admins
+        if not await auth.is_current_user_admin():
+            err_msg = "Parameter 'all' is only available to gen3-workflow admins"
+            logger.error(f"User '{user_id}': {err_msg}")
+            raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     url = f"{config['TES_SERVER_URL']}/tasks"
     listed_tasks = await list_tes_server_tasks(

@@ -22,18 +22,24 @@ async def tasks_ui(
     request: Request,
     auth=Depends(Auth),
     page_token: str = Query(None, include_in_schema=False),
+    all: str = Query(None, include_in_schema=False),
 ):
     """
     A UI which allows for basic TES task management
     """
     user_id = await auth.get_user_id()
     username = None
+    is_admin = False
     tasks = []
     is_more = ""
 
     if user_id:  # only get the tasks if the user is logged in
         token_claims = await auth.get_token_claims()
         username = token_claims.get("context", {}).get("user", {}).get("name")
+        is_admin = await auth.is_current_user_admin()
+        # only admins can list all the tasks
+        if not is_admin:
+            all = None
         query_params = {"view": "FULL", "page_size": UI_PAGE_SIZE}
         if page_token:
             query_params["page_token"] = page_token
@@ -48,7 +54,7 @@ async def tasks_ui(
                 }
             ),
             auth,
-            all="",  # list all the tasks the user has access to, not just their own
+            all=all,
         )
         tasks = resp.pop("tasks")
         is_more = resp.get("next_page_token")
@@ -80,6 +86,8 @@ async def tasks_ui(
             "username": username,
             "tasks": tasks,
             "is_more": is_more,
+            "is_admin": is_admin,
+            "show_all": all is not None,
         },
     )
 

@@ -4,6 +4,7 @@ from urllib.parse import parse_qsl
 
 import pytest
 
+from gen3workflow.auth import Auth
 from gen3workflow.config import config
 from gen3workflow.routes.ga4gh_tes import get_authz_string_for_user
 from tests.conftest import (
@@ -13,6 +14,7 @@ from tests.conftest import (
     get_debug_stub_warnings,
     mock_arborist_request,
     mock_tes_server_request,
+    mock_tes_server_with_max_page_size,
     remove_bucket_policy_and_put_object,
 )
 
@@ -510,14 +512,24 @@ def test_get_authz_string():
 @pytest.mark.parametrize("get_all", [False, True])
 @pytest.mark.parametrize("view", ["BASIC", "MINIMAL", "FULL", None])
 async def test_list_tasks(
-    client, access_token_patcher, get_all, view, trailing_slash, mock_aws_services
+    request,
+    client,
+    access_token_patcher,
+    get_all,
+    view,
+    trailing_slash,
+    mock_aws_services,
 ):
     """
     Calls to `GET /ga4gh/tes/v1/tasks` should be forwarded to the TES server, and any
     unsupported query params should be filtered out. Tasks the user does not have access
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
+    The `all` parameter is only available to admins.
     """
+    if get_all:
+        request.getfixturevalue("admin_user")
+
     # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
     # call is conditional
     if client.authorized:
@@ -684,6 +696,115 @@ async def test_list_tasks_repeated_params(
 
 
 @pytest.mark.asyncio
+async def test_list_all_tasks_requires_admin(
+    client, access_token_patcher, trailing_slash
+):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks?all` by a user who is not a gen3-workflow admin should
+    return a 403 error, and the TES server should not be called.
+    """
+    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?all"
+    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
+    assert res.status_code == 403, res.text
+    assert res.json() == {
+        "detail": "Parameter 'all' is only available to gen3-workflow admins"
+    }
+    mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_list_all_tasks_admin_check_is_cached(
+    client, access_token_patcher, admin_user, mock_aws_services
+):
+    """
+    The result of the gen3-workflow admin check should be cached, so that listing all the
+    tasks several times in a row only queries the user's policies in Arborist once.
+    """
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    mock_arborist_request.reset_mock()
+
+    # the mocked tokens have no expiration, so they are always considered close to expiry,
+    # which bypasses the cache
+    with patch.object(Auth, "is_token_close_to_expiry", return_value=False):
+        for _ in range(2):
+            res = await client.get(
+                "/ga4gh/tes/v1/tasks?all",
+                headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+            )
+            assert res.status_code == 200, res.text
+
+    user_policies_calls = [
+        c
+        for c in mock_arborist_request.call_args_list
+        if c.kwargs["path"] == f"/user/test-username-{TEST_USER_ID}"
+    ]
+    assert len(user_policies_calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("requested_page_size", "max_page_size", "expected_page_sizes", "expected_status"),
+    [
+        pytest.param(None, 64, [None, "128", "64"], 200, id="default page size"),
+        pytest.param("100", 30, ["100", "50", "25"], 200, id="requested page size"),
+        pytest.param("2", 0, ["2", "1"], 500, id="even 1 task is too large"),
+    ],
+)
+async def test_list_tasks_response_too_large(
+    client,
+    access_token_patcher,
+    mock_aws_services,
+    requested_page_size,
+    max_page_size,
+    expected_page_sizes,
+    expected_status,
+):
+    """
+    When the TES server's response is too large for its gRPC message size limit, the request
+    should be retried with a smaller page size, until the response fits or the page size is 1.
+    """
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+
+    url = "/ga4gh/tes/v1/tasks"
+    if requested_page_size:
+        url += f"?page_size={requested_page_size}"
+    original_side_effect = mock_tes_server_request.side_effect
+    mock_tes_server_request.side_effect = mock_tes_server_with_max_page_size(
+        max_page_size
+    )
+    try:
+        res = await client.get(
+            url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
+    finally:
+        mock_tes_server_request.side_effect = original_side_effect
+
+    assert res.status_code == expected_status, res.text
+    if expected_status == 200:
+        assert "123" in [t["id"] for t in res.json()["tasks"]]
+    else:
+        assert "received message larger than max" in res.json()["detail"]
+
+    # the other query params should be the same in all the calls
+    page_sizes = []
+    for c in mock_tes_server_request.call_args_list:
+        params = c.kwargs["query_params"]
+        page_sizes.append(dict(params).get("page_size"))
+        assert [p for p in params if p[0] != "page_size"] == [
+            ("view", "FULL"),
+            ("tag_key", "_AUTHZ"),
+            ("tag_value", get_authz_string_for_user(TEST_USER_ID)),
+        ]
+    assert page_sizes == expected_page_sizes
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "client",
     [
@@ -696,7 +817,8 @@ async def test_list_tasks_repeated_params(
 @pytest.mark.parametrize(
     ("method", "expected_error"),
     [
-        ("get", "Login required when parameter 'all' is not used"),
+        ("get", "Login required"),
+        ("get_all", "Login required"),
         ("post", "No user sub in token"),
     ],
 )
@@ -705,11 +827,14 @@ async def test_tasks_error_no_user(
 ):
     """
     Calls to `GET|POST /ga4gh/tes/v1/tasks` should return an error when the user_id
-    from authz is None.
-    GET tasks should raise error if all=False (flag is not present).
+    from authz is None, whether the `all` parameter is used or not.
     TES server should not be called.
     """
     url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}"
+    if method == "get_all":
+        res = await client.get(
+            f"{url}?all", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
     if method == "get":
         res = await client.get(
             url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
@@ -723,36 +848,6 @@ async def test_tasks_error_no_user(
     assert res.status_code == 401, res.text
     assert res.json() == {"detail": expected_error}
     mock_tes_server_request.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "client",
-    [
-        pytest.param({"tes_resp_code": 200}, id="no user"),
-    ],
-    indirect=True,
-)
-@pytest.mark.usefixtures("access_token_patcher")
-@pytest.mark.parametrize("access_token_patcher", [{"user_id": None}], indirect=True)
-async def test_get_tasks_no_user(client, access_token_patcher, trailing_slash):
-    """
-    Calls to `GET /ga4gh/tes/v1/tasks?all` should not return an error when the user_id
-    from authz is None and the 'all' parameter is present.
-    """
-    url = f"/ga4gh/tes/v1/tasks{'/' if trailing_slash else ''}?all"
-
-    res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
-
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params = [("view", "FULL")]
-    mock_tes_server_request.assert_called_once_with(
-        method="GET",
-        path="/tasks",
-        query_params=query_params,
-        body="",
-        status_code=client.tes_resp_code,
-    )
 
 
 @pytest.mark.asyncio
