@@ -11,6 +11,7 @@ import pytest_asyncio
 
 from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
+    TEST_CLIENT_ID,
     TEST_USER_ID,
     TEST_USER_TOKEN,
     mock_aws_s3_request,
@@ -20,9 +21,6 @@ from gen3workflow.routes.s3 import (
     set_access_token_and_get_user_id,
     chunked_to_non_chunked_body,
 )
-
-TEST_CLIENT_ID = "client-azp"
-
 
 # reusable parametrization of the `s3_client` and `access_token_patcher` fixtures
 s3_client_and_token_test_ids = [
@@ -157,15 +155,18 @@ def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
     ids=["user aws_access_key_id format-client token"],
     indirect=True,
 )
-def test_s3_endpoint_client_token_other_bucket(s3_client, access_token_patcher):
+def test_s3_endpoint_client_token_own_bucket(s3_client, access_token_patcher):
     """
     A client token (obtained through a `client_credentials` flow, not linked to a user) used
-    as the aws_access_key_id is valid: the client itself is the principal. But it can only
-    access its own bucket, so hitting the `/s3` endpoint with another principal's bucket
-    should result in a 403 Forbidden error.
+    as the aws_access_key_id is valid: the client itself is the principal, and hitting the
+    `/s3` endpoint with the client's own bucket should succeed.
+    Note that the bucket name is lowercased, unlike the client ID.
     """
-    with pytest.raises(ClientError, match="Forbidden"):
-        s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    res = s3_client.list_objects(
+        Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_CLIENT_ID.lower()}"
+    )
+    res.get("ResponseMetadata", {}).get("HTTPHeaders", {}).pop("date", None)
+    assert res == MOCKED_S3_RESPONSE_DICT
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)

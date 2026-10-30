@@ -87,11 +87,11 @@ async def set_access_token_and_get_user_id(
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     # extract the access token from the key ID
-    is_user_token = ";userId=" not in access_key_id
-    if is_user_token:  # format A (see docstring)
-        access_token = access_key_id
-    else:  # format B (see docstring)
+    is_client_on_behalf_of_user_token = ";userId=" in access_key_id
+    if is_client_on_behalf_of_user_token:  # format B (see docstring)
         access_token, user_id = access_key_id.split(";userId=")
+    else:  # format A (see docstring)
+        access_token = access_key_id
 
     # set the token so we can perform authn/authz checks on it
     auth.bearer_token = HTTPAuthorizationCredentials(
@@ -102,7 +102,7 @@ async def set_access_token_and_get_user_id(
     token_claims = await auth.get_token_claims()
     sub = token_claims.get("sub")
     client_id = token_claims.get("azp")
-    if is_user_token:
+    if not is_client_on_behalf_of_user_token:
         # tokens obtained through a `client_credentials` flow are not linked to a user and have
         # no `sub`: the client itself is the principal, identified by `azp` (client ID)
         user_id = sub or client_id
@@ -127,7 +127,9 @@ async def set_access_token_and_get_user_id(
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
     if not user_id:
         err_msg = f"No user ID in token or key ID"
-        logger.error(f"{err_msg}. Debug: {is_user_token=} {token_claims=}")
+        logger.error(
+            f"{err_msg}. Debug: {is_client_on_behalf_of_user_token=} {token_claims=}"
+        )
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     return user_id, client_id

@@ -124,11 +124,9 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     logger.debug(f"Incoming task creation request body: {json.dumps(body)}")
 
     # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
-    principal = await auth.get_principal()
-    principal_id = principal["id"]
-    username = principal["name"]
+    principal_id, username, is_client = await auth.get_principal()
     logger.info(
-        f"{'Client' if principal['is_client'] else 'User'} '{principal_id}' creating TES task"
+        f"{'Client' if is_client else 'User'} '{principal_id}' creating TES task"
     )
 
     # Fetch the list of images from request body as a set

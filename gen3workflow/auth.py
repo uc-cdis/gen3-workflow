@@ -2,7 +2,6 @@ import hashlib
 import json
 import time
 from typing import Union
-from urllib.parse import quote
 
 from authutils.token.fastapi import access_token
 from cachelib import SimpleCache
@@ -94,7 +93,7 @@ class Auth:
             return None
         return token_claims.get("sub") or token_claims.get("azp")
 
-    async def get_principal(self) -> dict:
+    async def get_principal(self) -> tuple:
         """
         Resolve the identity making the request. Two kinds of tokens are supported:
         - User tokens (OIDC authorization code flow): identified by the `sub` claim (user ID)
@@ -103,7 +102,8 @@ class Auth:
           itself is the principal, identified by the `azp` claim (client ID).
 
         Returns:
-            dict: {"id": str, "name": str, "is_client": bool}
+            tuple(str, str, bool): (principal ID, username, whether the principal is a client).
+            For clients, the principal ID and the username are both the client ID.
 
         Raises:
             HTTPException: 401 if the token contains neither a user nor a client identity
@@ -117,11 +117,11 @@ class Auth:
                 err_msg = "No context.user.name in token"
                 logger.error(err_msg)
                 raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-            return {"id": user_id, "name": username, "is_client": False}
+            return user_id, username, False
 
         client_id = token_claims.get("azp")
         if client_id:
-            return {"id": client_id, "name": client_id, "is_client": True}
+            return client_id, client_id, True
 
         err_msg = "No user or client identity in token"
         logger.error(err_msg)
@@ -246,7 +246,16 @@ class Auth:
                 create_or_update_policy = False
 
         grant_policy = True
-        if not is_client:
+        if is_client:
+            client = await self.arborist_client.get_client(user_id)
+            if client is None:
+                # the client doesn't exist: create it
+                logger.debug(f"Attempting to create client '{user_id}' in Arborist")
+                await self.arborist_client.create_client(user_id, [])
+            elif policy_id in client["policies"]:
+                # the client already has this policy
+                grant_policy = False
+        else:
             try:
                 user = await self.arborist_client.get_user(username)
             except ArboristError as e:
@@ -290,22 +299,11 @@ class Auth:
 
         if grant_policy:
             if is_client:
-                # grant the policy to the client. Note: we cannot use gen3authz's
-                # `update_client` here because it replaces the client's existing policies
-                # (such as the ones granted through the user.yaml) instead of adding to them.
-                # gen3authz does not expose an additive grant for clients, so mirror its
-                # `grant_user_policy` implementation against Arborist's client policy endpoint.
                 logger.debug(
                     f"Attempting to grant client '{user_id}' access to '{policy_id}'"
                 )
-                url = "/".join(
-                    # pylint: disable-next=protected-access
-                    (self.arborist_client._client_url, quote(user_id), "policy")
-                )
-                response = await self.arborist_client.post(
-                    url, json={"policy": policy_id}, expect_json=False
-                )
-                status_code = response.code
+                # raises `ArboristError` if the policy could not be granted
+                await self.arborist_client.grant_client_policy(user_id, policy_id)
             else:
                 logger.debug(
                     f"Attempting to grant '{username}' access to '{policy_id}'"
@@ -313,9 +311,7 @@ class Auth:
                 status_code = await self.arborist_client.grant_user_policy(
                     username, policy_id
                 )
-            if status_code != 204:
-                err_msg = (
-                    f"Unable to grant access to {'client' if is_client else 'user'}"
-                )
-                logger.error(f"{err_msg}. Status code: {status_code}")
-                raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, err_msg)
+                if status_code != 204:
+                    err_msg = f"Unable to grant access to user '{username}'"
+                    logger.error(f"{err_msg}. Status code: {status_code}")
+                    raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, err_msg)

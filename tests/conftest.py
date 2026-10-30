@@ -148,6 +148,9 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
         "/user": {"POST": (200, {})},
         # grant user access to a policy:
         f"/user/test-username-{NEW_TEST_USER_ID}/policy": {"POST": (204, {})},
+        # client lookup (the test client does not already exist in arborist) and creation:
+        f"/client/{TEST_CLIENT_ID}": {"GET": (404, {})},
+        "/client": {"POST": (200, {})},
         # grant client access to a policy:
         f"/client/{TEST_CLIENT_ID}/policy": {"POST": (204, {})},
     }
@@ -358,9 +361,15 @@ async def client(request):
                 body=request.content.decode(),
                 authorized=authorized,
             )
-        elif url.startswith(
-            f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
-        ) or url.startswith("http://minio:9000"):
+        elif (
+            url.startswith(
+                f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
+            )
+            or url.startswith(
+                f"https://gen3wf-{config['HOSTNAME']}-{TEST_CLIENT_ID.lower()}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
+            )
+            or url.startswith("http://minio:9000")
+        ):
             # mock calls to AWS S3 (or minio if using path-style addressing)
             mocked_response = mock_aws_s3_request(url)
 

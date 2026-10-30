@@ -224,6 +224,122 @@ async def test_create_task_with_client_token(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_get_task_with_client_token(client, access_token_patcher):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks/<task ID>` with a token obtained through a
+    `client_credentials` flow (not linked to a user) should be forwarded to the TES server,
+    with the usual authorization check against the task's `_AUTHZ` tag.
+    """
+    res = await client.get(
+        "/ga4gh/tes/v1/tasks/123",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 200, res.text
+
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    mock_tes_server_request.assert_called_once_with(
+        method="GET",
+        path="/tasks/123",
+        query_params={"view": "FULL"},
+        body="",
+        status_code=200,
+    )
+
+    # check that the appropriate authorization checks were made
+    mock_arborist_request.assert_called_with(
+        method="POST",
+        path=f"/auth/request",
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+        authorized=True,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_list_tasks_with_client_token(client, access_token_patcher):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks` with a token obtained through a `client_credentials`
+    flow (not linked to a user) should be forwarded to the TES server, with the usual
+    task filtering based on the tasks' `_AUTHZ` tags.
+    """
+    res = await client.get(
+        "/ga4gh/tes/v1/tasks", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    assert len(res.json().get("tasks", [])) == 1
+
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    mock_tes_server_request.assert_called_once_with(
+        method="GET",
+        path="/tasks",
+        query_params={"view": "FULL"},
+        body="",
+        status_code=200,
+    )
+
+    # check that the appropriate authorization checks were made
+    mock_arborist_request.assert_called_with(
+        method="POST",
+        path="/auth/mapping",
+        body="",
+        authorized=True,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_delete_task_with_client_token(client, access_token_patcher):
+    """
+    Calls to `POST /ga4gh/tes/v1/tasks/<task ID>:cancel` with a token obtained through a
+    `client_credentials` flow (not linked to a user) should be forwarded to the TES server,
+    with the usual authorization check against the task's `_AUTHZ` tag.
+    """
+    res = await client.post(
+        "/ga4gh/tes/v1/tasks/123:cancel",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {}
+
+    # there is always a 1st call with view=FULL to get the _AUTHZ tag, then the cancel call
+    mock_tes_server_request.assert_any_call(
+        method="GET",
+        path="/tasks/123",
+        query_params={"view": "FULL"},
+        body="",
+        status_code=200,
+    )
+    mock_tes_server_request.assert_called_with(
+        method="POST",
+        path="/tasks/123:cancel",
+        query_params={},
+        body="",
+        status_code=200,
+    )
+
+    # check that the appropriate authorization checks were made
+    mock_arborist_request.assert_called_with(
+        method="POST",
+        path=f"/auth/request",
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+        authorized=True,
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_task_with_reserved_tags(client, access_token_patcher):
     """
     Users cannot specify the value of certain reserved tags ("_authz" "_worker_sa" etc.,) themselves

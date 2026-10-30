@@ -26,11 +26,9 @@ async def storage_setup(
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
     and authz.
     """
-    principal = await auth.get_principal()
-    principal_id = principal["id"]
-    username = principal["name"]
+    principal_id, username, is_client = await auth.get_principal()
     logger.info(
-        f"{'Client' if principal['is_client'] else 'User'} '{principal_id}' getting their own storage info"
+        f"{'Client' if is_client else 'User'} '{principal_id}' getting their own storage info"
     )
 
     # only users with access to create tasks should be able to setup their storage
@@ -62,7 +60,7 @@ async def storage_setup(
 
     try:
         await auth.grant_user_access_to_their_own_data(
-            username=username, user_id=principal_id, is_client=principal["is_client"]
+            username=username, user_id=principal_id, is_client=is_client
         )
     except ArboristError as e:
         logger.error(e.message)
