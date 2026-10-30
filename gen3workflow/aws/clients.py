@@ -1,4 +1,5 @@
 import boto3
+
 from gen3workflow.config import config
 
 
@@ -21,6 +22,9 @@ def get_boto3_client(service_name: str, type: str = "client", **kwargs):
     else:
         return boto3.resource(service_name, **kwargs)
 
+
+# Shared session for credential access
+irsa_session = boto3.Session()
 
 iam_client = get_boto3_client("iam")
 s3_client = get_boto3_client("s3", region_name=config["USER_BUCKETS_REGION"])

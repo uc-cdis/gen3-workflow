@@ -1,5 +1,4 @@
 from dateutil import parser
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -7,7 +6,7 @@ from starlette.status import HTTP_200_OK
 
 from gen3workflow.auth import Auth
 from gen3workflow.config import config
-from gen3workflow.routes.ga4gh_tes import list_tasks, cancel_task
+from gen3workflow.routes.ga4gh_tes import cancel_task, list_tasks
 
 router = APIRouter(prefix="/ui")
 

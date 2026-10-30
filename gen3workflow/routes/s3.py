@@ -1,18 +1,16 @@
 import asyncio
-from datetime import datetime, timezone
 import hashlib
+import hmac
 import random
-from typing import Tuple
 import urllib.parse
+from datetime import datetime, timezone
+from typing import Tuple
 
-import boto3
+from botocore.credentials import Credentials
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from botocore.credentials import Credentials
-import hmac
 from starlette.background import BackgroundTask
 from starlette.datastructures import Headers
-from starlette.requests import ClientDisconnect
 from starlette.responses import Response, StreamingResponse
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
@@ -28,24 +26,115 @@ from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import get_existing_kms_key_for_bucket
+from gen3workflow.aws.clients import irsa_session
 from gen3workflow.config import config
 
+# Must stay in sync with the `DPOP_PROTECTED_PATHS` key covering the S3 endpoint: the DPoP
+# middleware protects the root mount below under this prefix, because a root-mounted path
+# matches no prefix of its own.
+S3_PATH_PREFIX = "/s3"
+
 s3_root_router = APIRouter(include_in_schema=False)
-s3_router = APIRouter(prefix="/s3")
+s3_router = APIRouter(prefix=S3_PATH_PREFIX)
 
 
-S3_MAX_TRIES = 3
+S3_MAX_TRIES = 3  # body-less requests (GET/HEAD/DELETE) can be retried safely
 S3_RETRY_BASE_DELAY = 0.5
 S3_RETRY_BACKOFF_FACTOR = 2
 
+_DECHUNK_YIELD_SIZE = 1024 * 1024  # 1 MB
+CRLF_LEN = 2
+
+
+def generate_xml_error(status_code: int, er_msg: str):
+    """
+    Utility function that allows returning errors as XML so details can be parsed by S3 tools and
+    returned to users
+    """
+    code_name = {
+        HTTP_400_BAD_REQUEST: "BadRequest",
+        HTTP_401_UNAUTHORIZED: "Unauthorized",
+        HTTP_403_FORBIDDEN: "Forbidden",
+    }.get(status_code, "Error")
+    return {
+        "status_code": status_code,
+        "media_type": "application/xml",
+        "content": f"""<?xml version="1.0" encoding="UTF-8"?>
+        <Error>
+            <Code>{code_name}</Code>
+            <Message>{er_msg}</Message>
+            <RequestId>12345</RequestId>
+            <HostId>67890</HostId>
+        </Error>""",
+    }
+
+
+async def _dechunk_stream(stream):
+    """Yield de-chunked bytes from an AWS SigV4 streaming chunked body.
+    Turn a chunked body into a non-chunked body.
+
+    Each chunk has:
+        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
+        <chunk-data>\r\n
+    Final chunk:
+        0;chunk-signature=<sig>\r\n\r\n
+
+    Parse the streaming chunks and remove the chunk headers.
+
+    Accumulates de-chunked data into an output buffer and yields only when it reaches
+    _DECHUNK_YIELD_SIZE. This limits peak memory to _DECHUNK_YIELD_SIZE x concurrent_uploads
+    while reducing h11/anyio/TLS Python-stack traversals from ~160 to ~20 for a 10 MB upload,
+    vs. per-TCP-segment (64 KB) yielding.
+    """
+    buf = bytearray()
+    output_buffer = bytearray()
+    chunk_bytes_left = 0  # proceed to the next chunk when this reaches 0
+    async for raw in stream:
+        buf.extend(raw)
+        while buf:
+            if chunk_bytes_left == 0:
+                header_end = buf.find(b"\r\n")
+                if header_end == -1:
+                    break  # header split across segments; wait for more data
+                chunk_bytes_left = int(buf[:header_end].split(b";")[0], 16)
+                if chunk_bytes_left == 0:
+                    if output_buffer:
+                        yield output_buffer
+                    return
+                del buf[: header_end + CRLF_LEN]
+
+            consumable_bytes_in_buf = min(chunk_bytes_left, len(buf))
+            if consumable_bytes_in_buf == 0:
+                break
+            chunk_complete = consumable_bytes_in_buf == chunk_bytes_left
+            if chunk_complete and len(buf) < consumable_bytes_in_buf + CRLF_LEN:
+                break  # trailing \r\n hasn't arrived yet; wait
+            output_buffer += buf[:consumable_bytes_in_buf]
+            del buf[: consumable_bytes_in_buf + (CRLF_LEN if chunk_complete else 0)]
+            chunk_bytes_left -= consumable_bytes_in_buf
+
+            if len(output_buffer) >= _DECHUNK_YIELD_SIZE:
+                yield output_buffer
+                output_buffer = bytearray()
+                # On fast networks the httpx socket write completes without an epoll wait,
+                # so the event loop never naturally yields between chunks. This forces a
+                # scheduling gap so other coroutines (health probe, task creation) can run.
+                await asyncio.sleep(0)
+
+    if output_buffer:
+        yield output_buffer
+
 
 async def set_access_token_and_get_user_id(
-    auth: Auth, headers: Headers
+    auth: Auth,
+    headers: Headers,
+    method: str | None = None,
+    path: str | None = None,
+    dpop_validated: bool = False,
 ) -> Tuple[str, str]:
     """
-    Extract the user's access token and (in some cases) the user's ID, which should have been
-    provided as the access key ID, from the Authorization header.
-    Return the user's ID extracted from the key ID or from the decoded token.
+    Extract the user's access token, which should have been provided as the access key ID, from
+    the Authorization header, and return the user's ID from the decoded token.
     Also set the provided `auth` instance's `bearer_token` to the extracted access token.
 
     The Authorization header should be in one of the two following expected formats:
@@ -53,17 +142,21 @@ async def set_access_token_and_get_user_id(
        <region>/<service>/aws4_request, SignedHeaders=<...>, Signature=<...>`
     2. Set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<...>`
 
-    The key ID should be in one of the two following expected formats:
-    A. Request made by a user, or by a client acting as itself: `<access token>`
-    B. Request made by a client on behalf of a user:
-       `<client's `client_credentials` access token>;userId=<user ID>`
+    The key ID should be an access token: a user's token, or a client's token obtained through
+    a `client_credentials` flow, in which case the client itself is the principal. A key ID in
+    the `<client's access token>;userId=<user ID>` format, in which a client acts on behalf of
+    a user, is rejected.
 
     Args:
         auth (Auth): Gen3Workflow auth instance
         headers (Headers): request headers
+        method (str | None): HTTP method of the request, for logging
+        path (str | None): requested path, for logging
+        dpop_validated (bool): whether the DPoP middleware validated a proof for this
+            request. A DPoP-bound token or a task token is refused without one.
 
     Returns:
-        tuple(str, str): the user's ID and (if relevant) the client's ID
+        tuple(str, str): the user's ID and (if the token is linked to a client) the client's ID
     """
     auth_header = headers.get("authorization")
     if not auth_header:
@@ -77,62 +170,235 @@ async def set_access_token_and_get_user_id(
 
     # extract the key ID from the authorization header
     try:
-        if "Credential=" in auth_header:  # format 1 (see docstring)
-            access_key_id = auth_header.split("Credential=")[1].split("/")[0]
-        else:  # format 2 (see docstring)
-            access_key_id = auth_header.split("AWS ")[1].split(":")[0]
-    except Exception as e:
+        access_key_id = get_s3_access_key_id_from_auth_header(auth_header)
+    except ValueError as e:
         err_msg = "Unexpected format; unable to extract access token from authorization header"
         logger.error(f"{err_msg}: {e}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    # extract the access token from the key ID
-    is_client_on_behalf_of_user_token = ";userId=" in access_key_id
-    if is_client_on_behalf_of_user_token:  # format B (see docstring)
-        access_token, user_id = access_key_id.split(";userId=")
-    else:  # format A (see docstring)
-        access_token = access_key_id
+    if ";userId=" in access_key_id:
+        err_msg = (
+            f"'{method} {path}' from Funnel worker: rejected - this path is deprecated"
+        )
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     # set the token so we can perform authn/authz checks on it
     auth.bearer_token = HTTPAuthorizationCredentials(
-        scheme="bearer", credentials=access_token
+        scheme="bearer", credentials=access_key_id
     )
 
     # ensure token validity
     token_claims = await auth.get_token_claims()
-    sub = token_claims.get("sub")
-    client_id = token_claims.get("azp")
-    if not is_client_on_behalf_of_user_token:
-        # tokens obtained through a `client_credentials` flow are not linked to a user and have
-        # no `sub`: the client itself is the principal, identified by `azp` (client ID)
-        user_id = sub or client_id
-    else:
-        if not client_id:
-            # Format B (see docstring) should only be used by clients acting on behalf of a user.
-            # It is not a valid format if the token is not linked to a client.
-            err_msg = f"No client ID in token"
-            logger.error(f"{err_msg}. Debug: {token_claims=}")
-            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-        if sub:
-            # OIDC tokens linked to both a user and a client are supported in the case of a user
-            # key ID (format A). In the case of a client key ID (format B), they are not:
-            # - Ambiguity: we would need to decide which of `sub` (from token_claims) and `user_id`
-            #   (from access_key_id) should be trusted as the user ID.
-            # - There is no use case for it: format B was specifically designed for use cases where
-            #   the token comes from a `client_credentials` flow and does not include a user ID
-            #   (`sub`). In this flow, the client must declare the user they are acting on behalf of
-            #   via the `;userId=` suffix in the key ID.
-            err_msg = f"Expected a client token not linked to a user, but found {client_id=} and {sub=}"
-            logger.error(err_msg)
-            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-    if not user_id:
-        err_msg = f"No user ID in token or key ID"
-        logger.error(
-            f"{err_msg}. Debug: {is_client_on_behalf_of_user_token=} {token_claims=}"
+
+    # a bound token names the key its holder must prove possession of, so accepting one here
+    # without a validated proof would make it usable as an ordinary bearer credential (which
+    # we do not want - b/c if it's DPoP-Bound, it MUST be used with a proof).
+    #
+    # The DPoP middleware identifies an S3 request by its
+    # Authorization header, so it is checked again here: this endpoint accepts header formats
+    # the middleware may not recognize, and it is the one place that knows the token was used.
+    cnf = token_claims.get("cnf")
+    if (
+        config["DPOP_REQUIRED"]
+        and not dpop_validated
+        and isinstance(cnf, dict)
+        and cnf.get("jkt")
+    ):
+        err_msg = (
+            "This access token is DPoP-bound and can only be used with a DPoP proof"
         )
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    # a task token is long-lived, so it is only accepted with a proof of possession
+    context = token_claims.get("context")
+    if (
+        config["DPOP_REQUIRED"]
+        and not dpop_validated
+        and isinstance(context, dict)
+        and "task_token_type" in context
+    ):
+        err_msg = "Task tokens can only be used DPoP-bound, with a DPoP proof"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    # tokens obtained through a `client_credentials` flow are not linked to a user and have
+    # no `sub`: the client itself is the principal, identified by `azp` (client ID)
+    user_id = token_claims.get("sub") or token_claims.get("azp")
+    client_id = token_claims.get("azp")
+    if not user_id:
+        err_msg = "No user or client ID in token"
+        logger.error(f"{err_msg}. Debug: {token_claims=}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
     return user_id, client_id
+
+
+def get_s3_access_key_id_from_auth_header(auth_header: str) -> str:
+    """
+    Extract the access key ID from the Authorization header of a signed S3 request.
+
+    The DPoP middleware relies on this too: the access token it validates the proof against
+    must be the exact same one this endpoint authorizes.
+
+    Args:
+        auth_header (str): value of the Authorization header. See
+            `set_access_token_and_get_user_id` for the 2 expected formats.
+
+    Returns:
+        str: the access key ID
+
+    Raises:
+        ValueError: if the header is in neither of the 2 expected formats
+    """
+    try:
+        if "Credential=" in auth_header:  # format 1
+            return auth_header.split("Credential=")[1].split("/")[0]
+        return auth_header.split("AWS ")[1].split(":")[0]  # format 2
+    except Exception as e:
+        raise ValueError(f"Unable to extract the access key ID: {e}")
+
+
+async def authorize_s3_request(request: Request, path: str) -> str:
+    """
+    Authenticate an incoming S3 request and check the caller may make it.
+
+    The user must have access to their own files, and anything but a "list buckets" request must target the user's own bucket.
+    Note: sharing task inputs/output is not supported. Currently, users can only access their own
+    S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
+    the list of files for a specific task.
+
+    Args:
+        request (Request): the incoming S3 request
+        path (str): the requested path, in the `<bucket>[/<key>]` format
+        headers (Headers): request headers
+
+    Returns:
+        str: the name of the user's bucket
+
+    Raises:
+        HTTPException: 401 if the caller cannot be authenticated, 403 if they are not allowed to
+            make this request
+    """
+    auth = Auth(api_request=request)
+    dpop_validated = getattr(request.state, "dpop_validated", False)
+    user_id, client_id = await set_access_token_and_get_user_id(
+        auth,
+        request.headers,
+        method=request.method,
+        path=path,
+        dpop_validated=dpop_validated,
+    )
+
+    # The DPoP middleware enforces this too, but it identifies a root-mounted S3 request by its
+    # Authorization header, so this endpoint checks again for header formats it may not recognize.
+    if (
+        config["DPOP_REQUIRED"]
+        and not dpop_validated
+        and not s3_request_accepts_bearer_token(request.method, request.url.path)
+    ):
+        err_msg = f"'{request.method} {path}' can only be made with a DPoP-bound access token, presented with a DPoP proof"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+
+    auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
+        request.method, "create"
+    )
+    await auth.authorize(
+        auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
+    )
+
+    logger.info(
+        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {request.url}'"
+    )
+    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
+
+    if not is_list_buckets_request(request.method, path):
+        request_bucket = path.split("?")[0].split("/")[0]
+        if request_bucket != user_bucket:
+            err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+
+    if "x-amz-copy-source" in request.headers:
+        copy_source_bucket = (
+            request.headers["x-amz-copy-source"].strip("/").split("/")[0]
+        )
+        if copy_source_bucket != user_bucket:
+            err_msg = f"Copy source '{copy_source_bucket}' not allowed. You can copy from your personal bucket, '{user_bucket}'"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+
+    return user_bucket
+
+
+def is_list_buckets_request(method: str, path: str) -> bool:
+    """
+    Check whether an S3 request is a "list buckets" request.
+
+    Args:
+        method (str): the HTTP method of the request
+        path (str): the requested path
+
+    Returns:
+        bool: True for a "list buckets" request
+    """
+    return method == "GET" and path in ("", "s3")
+
+
+def s3_request_accepts_bearer_token(method: str, request_path: str) -> bool:
+    """
+    Check whether an S3 request may be made without a DPoP proof, when `DPOP_REQUIRED` is set.
+
+    Only requests that expose keys and metadata qualify: `HEAD` on any path, and `GET` on a
+    path with no object key (list buckets, list objects, including under a key prefix with the
+    `prefix` query parameter, and other bucket-level reads). Anything that reads or writes
+    object content, such as `GET` on a key, an upload or `POST ?select`, requires a proof.
+
+    Everything after the first `/` following the bucket name is the object key.
+
+    Args:
+        method (str): the HTTP method of the request
+        request_path (str): the path of the incoming request, as this service sees it, on
+            either the `S3_PATH_PREFIX` mount or the root mount
+
+    Returns:
+        bool: True if the request may be made with an access token that is not DPoP-bound
+    """
+    if method == "HEAD":
+        return True
+    if method != "GET":
+        return False
+
+    # `/s3/<bucket>` and the root-mounted `/<bucket>` name the same bucket, and `/s3` alone is
+    # a "list buckets" request
+    bucket_and_key = request_path
+    if request_path == S3_PATH_PREFIX or request_path.startswith(f"{S3_PATH_PREFIX}/"):
+        bucket_and_key = request_path[len(S3_PATH_PREFIX) :]
+    return not bucket_and_key[1:].partition("/")[2]
+
+
+def list_buckets_response(user_bucket: str) -> Response:
+    """
+    Answer a "list buckets" request with the user's bucket only, since it is the only one they
+    can access.
+
+    Args:
+        user_bucket (str): the name of the user's bucket
+
+    Returns:
+        Response: the S3 "list buckets" response
+    """
+    xml_data = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult xmlns="http://amazonaws.com">
+    <Buckets>
+        <Bucket>
+            <Name>{user_bucket}</Name>
+        </Bucket>
+    </Buckets>
+</ListAllMyBucketsResult>"""
+    return Response(content=xml_data, media_type="application/xml")
 
 
 def get_signature_key(key: str, date: str, region_name: str, service_name: str) -> str:
@@ -150,39 +416,6 @@ def get_signature_key(key: str, date: str, region_name: str, service_name: str) 
     ).digest()
     key_signing = hmac.new(key_service, b"aws4_request", hashlib.sha256).digest()
     return key_signing
-
-
-def chunked_to_non_chunked_body(body: bytes) -> bytes:
-    """
-    Turn a chunked body into a non-chunked body.
-
-    Each chunk has:
-        <chunk-size-in-hex>;chunk-signature=<sig>\r\n
-        <chunk-data>\r\n
-    Final chunk:
-        0;chunk-signature=<sig>\r\n\r\n
-
-    Parse the chunks and return a non-chunked body.
-    """
-    result = []
-    i = 0
-    while i < len(body):
-        # find the end of the chunk
-        line_end = body.index(b"\r\n", i)
-        line = body[i:line_end]
-        i = line_end + 2  # skip the separator `\r\n`
-
-        # strip chunk extensions (such as the signature) and extract the chunk size
-        chunk_size_hex = line.split(b";")[0]
-        chunk_size = int(chunk_size_hex, 16)
-
-        if chunk_size == 0:
-            break  # final chunk
-
-        result.append(body[i : i + chunk_size])  # extract exactly `chunk_size` bytes
-        i += chunk_size + 2  # skip chunk data + the separator `\r\n`
-
-    return b"".join(result)
 
 
 @s3_root_router.api_route(
@@ -203,40 +436,15 @@ async def s3_endpoint(path: str, request: Request):
     not support S3 endpoints with a path, such as the Minio-go S3 client.
     """
 
-    # Because this endpoint is exposed at root, if the GET path is empty, the user may not be
-    # trying to reach the S3 endpoint: suggest using the status endpoint.
-    # "All buckets" listing requests also land here and are not supported, since users can only
-    # access their own bucket.
-    if request.method == "GET" and path in ("", "s3"):
-        err_msg = f"'{request.method} /{path}': If you are using the S3 endpoint: 's3 ls' not supported, use 's3 ls s3://<your bucket>' instead. If you are trying to reach the Gen3-Workflow API, try '/_status'."
-        logger.error(err_msg)
-        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+    try:
+        user_bucket = await authorize_s3_request(request, path)
+    except HTTPException as e:
+        return Response(**generate_xml_error(e.status_code, e.detail))
 
-    # Extract the caller's access token from the request headers, and ensure the caller (user, or
-    # client acting on behalf of the user) has access to the user's files.
-    # Note: sharing task inputs/output is not supported. Currently, users can only access their own
-    # S3 bucket. Sharing could be supported in the future by hitting the "GET task" endpoint to get
-    # the list of files for a specific task.
-    auth = Auth(api_request=request)
+    if is_list_buckets_request(request.method, path):
+        return list_buckets_response(user_bucket)
+
     in_headers = request.headers
-    user_id, client_id = await set_access_token_and_get_user_id(auth, in_headers)
-    auth_verb = {"GET": "read", "HEAD": "read", "DELETE": "delete"}.get(
-        request.method, "create"
-    )
-    await auth.authorize(
-        auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
-    )
-
-    # get the name of the user's bucket and ensure the user is making a call to their own bucket
-    logger.info(
-        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {path}'"
-    )
-    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
-    request_bucket = path.split("?")[0].split("/")[0]
-    if request_bucket != user_bucket:
-        err_msg = f"'{path}' (bucket '{request_bucket}') not allowed. You can make calls to your personal bucket, '{user_bucket}'"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     # if a custom S3 endpoint is configured, assume it is non-AWS and uses path-style addressing
     # (as opposed to virtual-hosted style addressing)
@@ -318,7 +526,7 @@ async def s3_endpoint(path: str, request: Request):
     # - Chunked payload support:
     #   - The AWS CLI uploads files with the STREAMING-UNSIGNED-PAYLOAD-TRAILER method.
     #     The body includes chunks and checksums. It can be forwarded to AWS without changes as long
-    #     as the necessary headers are forwarded as well.
+    #     as the necessary headers are forwarded as well. The body is streamed directly.
     #   - The Minio-go S3 client uploads files with the STREAMING-AWS4-HMAC-SHA256-PAYLOAD method.
     #     Funnel uses this client.
     #     We overwrite the original `x-amz-content-sha256` header value with the body hash and we
@@ -329,26 +537,26 @@ async def s3_endpoint(path: str, request: Request):
     #   - aws-sdk-java used by Nextflow may use the STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER
     #     method, which is treated similarly to the above.
     #   Note: Chunked uploads != multipart uploads.
-    try:
-        body = await request.body()
-    except ClientDisconnect:  # catch this to avoid throwing 500 errors
-        raise HTTPException(
-            499, "Client disconnected before request body was fully received"
-        )
-    if in_headers.get("x-amz-content-sha256") in [
+    is_chunked_streaming = in_headers.get("x-amz-content-sha256") in [
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
         "STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER",
-    ]:
-        # parse the body and update the corresponding headers
-        body = chunked_to_non_chunked_body(body)
-        content_len = str(len(body))
-        out_headers["x-amz-content-sha256"] = hashlib.sha256(body).hexdigest()
-        for h in ["content-length", "x-amz-decoded-content-length"]:
-            if h in in_headers:
-                out_headers[h] = content_len
+    ]
+    if is_chunked_streaming:
+        # UNSIGNED-PAYLOAD skips the hash requirement, enabling streaming without
+        # buffering.
+        out_headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
+        decoded_len = out_headers.pop("x-amz-decoded-content-length", None)
+        if decoded_len:
+            out_headers["content-length"] = decoded_len
+
         # the outgoing body is no longer chunked, so there's no trailer/checksum in it anymore
         out_headers.pop("x-amz-trailer", None)
         out_headers.pop("x-amz-sdk-checksum-algorithm", None)
+        request_content = _dechunk_stream(request.stream())
+    else:
+        # Non-chunked: the client already computed x-amz-content-sha256 and content-length,
+        # so we can stream the body directly without buffering it in memory.
+        request_content = request.stream()
 
     # get AWS credentials from the configuration or the current assumed role session
     if config["S3_ENDPOINTS_AWS_ACCESS_KEY_ID"]:
@@ -357,8 +565,7 @@ async def s3_endpoint(path: str, request: Request):
             secret_key=config["S3_ENDPOINTS_AWS_SECRET_ACCESS_KEY"],
         )
     else:  # assume the service is running in k8s: get credentials from the assumed role
-        session = boto3.Session()
-        credentials = session.get_credentials()
+        credentials = irsa_session.get_credentials()
         assert credentials, "No AWS credentials found"
         out_headers["x-amz-security-token"] = credentials.token
 
@@ -367,11 +574,13 @@ async def s3_endpoint(path: str, request: Request):
     # configuration, and the following UploadPart and CompleteMultipartUpload requests do not.
     # We know this is an UploadPart or CompleteMultipartUpload request if it includes the
     # uploadId query parameter.
+    # Other types of PUT/POST requests that are not object uploads (e.g. legal hold configuration)
+    # also do not include the KMS configuration.
     query_params = dict(request.query_params)
     if (
         config["KMS_ENCRYPTION_ENABLED"]
         and request.method in ["PUT", "POST"]
-        and "uploadId" not in query_params
+        and all(e not in query_params for e in ["uploadId", "legal-hold"])
     ):
         _, kms_key_arn = get_existing_kms_key_for_bucket(user_bucket)
         if not kms_key_arn:
@@ -379,7 +588,7 @@ async def s3_endpoint(path: str, request: Request):
             logger.error(
                 f"No existing KMS key found for bucket '{user_bucket}'. {err_msg}"
             )
-            raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
+            return Response(**generate_xml_error(HTTP_400_BAD_REQUEST, err_msg))
         out_headers["x-amz-server-side-encryption"] = "aws:kms"
         out_headers["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_arn
 
@@ -429,12 +638,16 @@ async def s3_endpoint(path: str, request: Request):
         s3_api_url = f"{config['S3_UPSTREAM_ENDPOINT'].rstrip('/')}/{api_endpoint}"
     else:
         s3_api_url = f"https://{user_bucket}.s3.{region}.amazonaws.com/{api_endpoint}"
-    logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
 
     # forward the call to the S3 server with the new Authorization header.
-    # this call is retried with exponential backoff in case of unexpected error from S3.
-    for attempt in range(1, S3_MAX_TRIES + 1):
-        proceed = True
+    # body-less requests (GET/HEAD/DELETE) can be retried;
+    # whereas, other requests consume the stream and cannot be retried
+    has_body = request.method in {"PUT", "POST", "PATCH"}
+    max_tries = 1 if has_body else S3_MAX_TRIES
+    for attempt in range(1, max_tries + 1):
+        should_retry = False
+        resp_contents = None
+        logger.debug(f"Outgoing S3 request: '{request.method} {s3_api_url}'")
         exception = None
         try:
             response = await request.app.async_client.send(
@@ -443,7 +656,7 @@ async def s3_endpoint(path: str, request: Request):
                     url=s3_api_url,
                     headers=out_headers,
                     params=query_params,
-                    content=body,
+                    content=request_content,
                 ),
                 stream=True,
             )
@@ -453,8 +666,10 @@ async def s3_endpoint(path: str, request: Request):
                 # error: 404s are are expected when running workflows (e.g. for Nextflow workflows,
                 # stderr output files may not be present when there were no errors)
                 if response.status_code != HTTP_404_NOT_FOUND:
+                    should_retry = True
+                    resp_contents = await response.aread()
                     logger.error(
-                        f"Error from S3: {response.status_code} {response.text}"
+                        f"Error from S3: {response.status_code} {resp_contents}"
                     )
                     # in the case of a client-side (4xx) error (except `408 Request  Timeout` and
                     # `429 Too Many Requests`), print debug logs and do not retry
@@ -464,28 +679,33 @@ async def s3_endpoint(path: str, request: Request):
                         and response.status_code
                         not in [HTTP_408_REQUEST_TIMEOUT, HTTP_429_TOO_MANY_REQUESTS]
                     ):
-                        proceed = False
-                        logger.debug(f"Incoming headers:\n{in_headers}")
-                        logger.debug(f"Outgoing headers:\n{out_headers}")
-                        logger.debug(f"Canonical request:\n{canonical_request}")
-                        logger.debug(f"String to sign:\n{string_to_sign}")
-                        logger.debug(f"Incoming query params:\n{request.query_params}")
-                        logger.debug(f"Outgoing query params:\n{query_params}")
-                        logger.debug(f"Outgoing body:\n{body}")
+                        should_retry = False
+                        # if the problem is a missing permission, no need for additional logs
+                        if b"is not authorized to perform" not in resp_contents:
+                            logger.debug(f"Incoming headers:\n{in_headers}")
+                            logger.debug(f"Outgoing headers:\n{out_headers}")
+                            logger.debug(f"Canonical request:\n{canonical_request}")
+                            logger.debug(f"String to sign:\n{string_to_sign}")
+                            logger.debug(
+                                f"Incoming query params:\n{request.query_params}"
+                            )
+                            logger.debug(f"Outgoing query params:\n{query_params}")
+                            if has_body:
+                                logger.debug(f"Outgoing body:\n{request_content}")
                 else:
                     logger.debug(f"Error from S3: {response.status_code}")
         except Exception as e:
             logger.error(f"Exception while attempting to make a call to S3: {e}")
-            proceed = False
+            should_retry = True
             exception = e
 
         # exit if the call succeeded or should not be retried, or we reached the max number of
         # retries
-        if proceed:
+        if not should_retry:
             break
-        if attempt == S3_MAX_TRIES:
+        if attempt == max_tries:
             logger.error(
-                f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Giving up"
+                f"Outgoing S3 request failed (attempt {attempt}/{max_tries}). Giving up"
             )
             if exception:
                 raise exception
@@ -495,7 +715,7 @@ async def s3_endpoint(path: str, request: Request):
         delay = S3_RETRY_BASE_DELAY * (S3_RETRY_BACKOFF_FACTOR**attempt)
         delay += delay * 0.1 * random.uniform(-1, 1)  # add jitter
         logger.warning(
-            f"Outgoing S3 request failed (attempt {attempt}/{S3_MAX_TRIES}). Retrying in {delay:.2f} seconds"
+            f"Outgoing S3 request failed (attempt {attempt}/{max_tries}). Retrying in {delay:.2f} seconds"
         )
         await asyncio.sleep(delay)
 
@@ -529,7 +749,9 @@ async def s3_endpoint(path: str, request: Request):
     # function, so 403 errors are internal service errors.
     if response.status_code == HTTP_403_FORBIDDEN:
         await response.aclose()  # discard the body we're not returning
-        return Response(status_code=403, headers=filtered_headers)
+        return Response(
+            **generate_xml_error(403, "Forbidden"), headers=filtered_headers
+        )
 
     if response.headers.get("content-encoding", "").lower() == "gzip":
         # the backend compressed this response (e.g. Minio does this for small, compressible
@@ -549,16 +771,16 @@ async def s3_endpoint(path: str, request: Request):
             #   `content-encoding` header still says gzip.
             if h.lower() not in {"content-length", "content-encoding"}
         }
-        decoded = await response.aread()
-        await response.aclose()
+        if not resp_contents:
+            resp_contents = await response.aread()
+            await response.aclose()
         return Response(
-            content=decoded,
+            content=resp_contents,
             status_code=response.status_code,
             headers=filtered_headers,
         )
-
     # the response is not compressed: stream the raw response bytes (skip the automatic httpx
-    # post-handling)
+    # post-handling).
     return StreamingResponse(
         response.aiter_raw(),
         status_code=response.status_code,

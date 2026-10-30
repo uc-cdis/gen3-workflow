@@ -65,11 +65,10 @@ class Auth:
             )
 
         try:
-            configured_audience = config["VALID_AUTHZ_AUDIENCE"]
             token_claims = await access_token(
                 "user",
                 "openid",
-                audience=configured_audience,
+                audience=config["VALID_AUTHZ_AUDIENCE"],
                 purpose="access",
             )(self.bearer_token)
         except Exception as e:
@@ -159,7 +158,11 @@ class Auth:
         else:
             try:
                 authorized = await self.arborist_client.auth_request(
-                    token, "gen3-workflow", method, resources
+                    token,
+                    "gen3-workflow",
+                    method,
+                    resources,
+                    aud=config["VALID_AUTHZ_AUDIENCE"],
                 )
             except ArboristError as e:
                 logger.error(f"Error while talking to arborist: {e}")

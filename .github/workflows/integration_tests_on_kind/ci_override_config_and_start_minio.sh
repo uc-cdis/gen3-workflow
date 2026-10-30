@@ -21,9 +21,17 @@ yq eval -i '.gen3-workflow.gen3WorkflowConfig.s3SecretAccessKey = "minioadmin"' 
 yq eval -i '.gen3-workflow.gen3WorkflowConfig.kmsEncryptionEnabled = false' gen3-workflow.yaml
 # kind clusters do not have nodepools
 yq eval -i '.gen3-workflow.gen3WorkflowConfig.enableOptimizedNodeScheduling = false' gen3-workflow.yaml
+# DPoP is required by default and needs a secret shared with Fence, which this environment does not set
+# and existing tests aren't sending DPoP Proofs. TODO: for now disable DPOP, but once we implement support
+# in integration tests, we can remove this and let the default true take over
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.DPOP_REQUIRED = false' gen3-workflow.yaml
+
+# S3Files is disabled in CI on Kind
+yq eval -i '.gen3-workflow.GEN3_WORKFLOW_CONFIG.ENABLE_S3_FILES = false' gen3-workflow.yaml
 
 # overwrite gen3-workflow config `EKS_CLUSTER_NAME` to an empty string
 yq eval -i '.global.clusterName = ""' values.yaml
+yq eval -i '.global.netPolicy.dbSubnets = []' values.yaml
 
 # update fence and indexd configs to generate secrets instead of looking for pre-existing secrets.
 # update fields in the private fence config because it takes precedence over the public config.
@@ -72,6 +80,7 @@ yq eval -i '.funnel.postgresql.enabled = false' funnel.yaml
 yq eval -i '.funnel.Kubernetes.NodeSelector = {}' funnel.yaml
 yq eval -i '.funnel.Kubernetes.Tolerations = []' funnel.yaml
 yq eval -i '.funnel.Kubernetes.Worker.PriorityClassName = ""' funnel.yaml
+yq eval -i '.funnel.Kubernetes.Storage.type = "mountpoint_s3"' funnel.yaml
 # Configure `endpoint_url`, `authenticationSource` and `stsRegion` so the PVs talk to Minio
 # instead of AWS S3.
 MINIO_SERVICE_URL=$MINIO_SERVICE_URL yq eval -i '.funnel.endpoint_url = strenv(MINIO_SERVICE_URL)' funnel.yaml
@@ -145,7 +154,7 @@ metadata:
 spec:
   containers:
     - name: minio
-      image: quay.io/minio/minio:latest-cicd
+      image: quay.io/cdis/minio:chainguard-latest-2026-09-25
       args:
         - server
         - /data
@@ -168,18 +177,72 @@ spec:
   ports:
     - port: 9000
       targetPort: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-minio-ingress-netpolicy
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: mount-s3
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ${NAMESPACE}
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: workflow-pods-${NAMESPACE}
+      podSelector:
+        matchLabels:
+          app: funnel-worker
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-minio-egress-netpolicy
+  namespace: ${NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: minio
 EOF
 
 # external-secrets is required to install gen3 and is not installed out of the box in kind clusters
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
-helm install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace --set installCRDs=true --version 0.8.5
+helm upgrade --install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace --set installCRDs=true --version 2.9.0
 
 # Install aws-mountpoint-s3-csi-driver. The driver reads S3 credentials from `aws-secret`.
 # see https://github.com/awslabs/mountpoint-s3-csi-driver/blob/db678c1/docs/CONFIGURATION.md#driver-level-credentials-with-kubernetes-secrets
 kubectl create secret generic aws-secret --namespace kube-system --from-literal "key_id=minioadmin" --from-literal "access_key=minioadmin" --from-literal "session_token="
+# Pull the driver images from our quay.io mirror instead of public.ecr.aws,to avoid ecr rate limits.
 # The mount-s3 pods also need access to Minio.
 cat <<EOF > values-kind.yaml
+image:
+  repository: quay.io/cdis/aws-mountpoint-s3-csi-driver
+  tag: driver-v2.8.0
+sidecars:
+  nodeDriverRegistrar:
+    image:
+      repository: quay.io/cdis/aws-mountpoint-s3-csi-driver
+      tag: node-driver-registrar-v2.17.0-eksbuild.5
+  livenessProbe:
+    image:
+      repository: quay.io/cdis/aws-mountpoint-s3-csi-driver
+      tag: livenessprobe-v2.19.0-eksbuild.5
 mountpointPod:
   namespace: mount-s3
   env:

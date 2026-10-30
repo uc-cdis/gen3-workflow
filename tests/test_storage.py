@@ -1,17 +1,20 @@
-from botocore.exceptions import ClientError
 import json
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+from botocore.exceptions import ClientError
+
+from gen3workflow.aws import bucket, clients
+from gen3workflow.config import config
 from tests.conftest import (
+    NEW_TEST_USER_ID,
     TEST_CLIENT_ID,
     TEST_USER_ID,
     TEST_USER_TOKEN,
-    NEW_TEST_USER_ID,
+    VALID_AUD_STR,
     mock_arborist_request,
+    remove_bucket_policy_and_put_object,
 )
-from gen3workflow.aws import bucket, clients
-from gen3workflow.config import config
 
 
 @pytest.fixture(scope="function")
@@ -140,7 +143,16 @@ async def test_storage_setup(
             "NoncurrentVersionExpiration": {
                 "NoncurrentDays": bucket.NONCURRENT_VERSION_EXPIRATION_DAYS
             },
-        }
+            "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": config["S3_OBJECTS_EXPIRATION_DAYS"]
+            },
+        },
+        {
+            "Expiration": {"ExpiredObjectDeleteMarker": True},
+            "ID": "RemoveExpiredDeleteMarkers",
+            "Filter": {"Prefix": ""},
+            "Status": "Enabled",
+        },
     ]
 
     # check that arborist calls to grant the user access to their own data were made
@@ -244,21 +256,15 @@ async def test_storage_setup_with_client_token(
 
 @pytest.mark.asyncio
 async def test_bucket_enforces_encryption(
-    client, access_token_patcher, mock_aws_services
+    access_token_patcher, mock_aws_services, user_bucket
 ):
     """
     Attempting to PUT an object that does not respect the bucket policy should fail (not using KMS
     encryption, or not using the right KMS key). It should succeed when using KMS encryption and
     the right key.
     """
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    assert res.status_code == 200, res.text
-    storage_info = res.json()
-
     with pytest.raises(ClientError, match="Forbidden"):
-        clients.s3_client.put_object(Bucket=storage_info["bucket"], Key="test-file.txt")
+        clients.s3_client.put_object(Bucket=user_bucket, Key="test-file.txt")
 
     unauthorized_kms_key_arn = clients.kms_client.create_key(
         Tags=[
@@ -270,7 +276,7 @@ async def test_bucket_enforces_encryption(
     )["KeyMetadata"]["Arn"]
     with pytest.raises(ClientError, match="Forbidden"):
         clients.s3_client.put_object(
-            Bucket=storage_info["bucket"],
+            Bucket=user_bucket,
             Key="test-file.txt",
             ServerSideEncryption="aws:kms",
             SSEKMSKeyId=unauthorized_kms_key_arn,
@@ -279,10 +285,9 @@ async def test_bucket_enforces_encryption(
     # For some reason the call below is denied when it should be allowed. I believe there is a bug
     # in `moto.mock_aws`. This test works well when ran against the real AWS.
     # Against the real AWS, the 2 calls above also raise `AccessDenied` instead of `Forbidden`.
-
-    # authorized_kms_key_arn = clients.kms_client.describe_key(KeyId=f"alias/{storage_info['bucket']}")["KeyMetadata"]["Arn"]
+    # authorized_kms_key_arn = clients.kms_client.describe_key(KeyId=f"alias/{user_bucket}")["KeyMetadata"]["Arn"]
     # clients.s3_client.put_object(
-    #     Bucket=storage_info["bucket"],
+    #     Bucket=user_bucket,
     #     Key="test-file.txt",
     #     ServerSideEncryption="aws:kms",
     #     SSEKMSKeyId=authorized_kms_key_arn,
@@ -291,20 +296,13 @@ async def test_bucket_enforces_encryption(
 
 @pytest.mark.asyncio
 async def test_delete_user_bucket(
-    client, access_token_patcher, mock_aws_services, trailing_slash
+    client, access_token_patcher, mock_aws_services, trailing_slash, user_bucket
 ):
     """
     The user should be able to delete their own bucket.
     """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    bucket_name = res.json()["bucket"]
-
     # Verify the bucket exists
-    bucket_exists = clients.s3_client.head_bucket(Bucket=bucket_name)
+    bucket_exists = clients.s3_client.head_bucket(Bucket=user_bucket)
     assert bucket_exists, "Bucket does not exist"
 
     # Delete the bucket
@@ -316,7 +314,7 @@ async def test_delete_user_bucket(
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
-        clients.s3_client.head_bucket(Bucket=bucket_name)
+        clients.s3_client.head_bucket(Bucket=user_bucket)
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket still exists: {e.value}"
@@ -325,7 +323,7 @@ async def test_delete_user_bucket(
     mock_arborist_request.assert_called_with(
         method="POST",
         path=f"/auth/request",
-        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/storage/{TEST_USER_ID}","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}}}}',
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/storage/{TEST_USER_ID}","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}},"aud":{VALID_AUD_STR}}}',
         authorized=client.authorized,
     )
 
@@ -338,46 +336,34 @@ async def test_delete_user_bucket(
 
 @pytest.mark.asyncio
 async def test_delete_user_bucket_with_files(
-    client, access_token_patcher, mock_aws_services
+    client, access_token_patcher, mock_aws_services, user_bucket
 ):
     """
     Attempt to delete a bucket that is not empty.
     Endpoint must be able to delete all the files and then delete the bucket.
     """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    bucket_name = res.json()["bucket"]
-
-    # Remove the bucket policy enforcing KMS encryption
-    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
-    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
-    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
-
     # Upload more than 1000 objects to ensure batching is working correctly. Not too many so the
     # test doesn't take too long to run.
     object_count = 1050
     for i in range(object_count):
-        clients.s3_client.put_object(
-            Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
+        remove_bucket_policy_and_put_object(
+            bucket=user_bucket, key=f"file_{i}", body=b"Dummy file contents"
         )
 
     # Start a multipart upload, don't complete it, and check that the bucket can still be emptied
     # and deleted
     response = clients.s3_client.create_multipart_upload(
-        Bucket=bucket_name, Key="large_file.zip"
+        Bucket=user_bucket, Key="large_file.zip"
     )
     upload_id = response["UploadId"]
     clients.s3_client.upload_part(
-        Bucket=bucket_name,
+        Bucket=user_bucket,
         Key="large_file.zip",
         PartNumber=1,
         UploadId=upload_id,
         Body="file contents",
     )
-    res = clients.s3_client.list_multipart_uploads(Bucket=bucket_name)
+    res = clients.s3_client.list_multipart_uploads(Bucket=user_bucket)
     assert res["Uploads"][0]["UploadId"] == upload_id
 
     # Delete the bucket
@@ -388,7 +374,7 @@ async def test_delete_user_bucket_with_files(
 
     # Verify the bucket is deleted
     with pytest.raises(ClientError) as e:
-        clients.s3_client.head_bucket(Bucket=bucket_name)
+        clients.s3_client.head_bucket(Bucket=user_bucket)
     assert (
         e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
     ), f"Bucket still exists: {e.value}"
@@ -435,28 +421,16 @@ async def test_delete_user_bucket_unauthorized(
 
 @pytest.mark.asyncio
 async def test_delete_user_bucket_objects_with_existing_files(
-    client, access_token_patcher, mock_aws_services
+    client, access_token_patcher, mock_aws_services, user_bucket
 ):
     """
     Attempt to delete all the objects in a bucket that is not empty.
     Endpoint must be able to delete all the files but should not delete the bucket.
     """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    bucket_name = res.json()["bucket"]
-
-    # Remove the bucket policy enforcing KMS encryption
-    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
-    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
-    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
-
     object_count = 10
     for i in range(object_count):
-        clients.s3_client.put_object(
-            Bucket=bucket_name, Key=f"file_{i}", Body=b"Dummy file contents"
+        remove_bucket_policy_and_put_object(
+            bucket=user_bucket, key=f"file_{i}", body=b"Dummy file contents"
         )
 
     # Delete all the bucket objects
@@ -467,11 +441,11 @@ async def test_delete_user_bucket_objects_with_existing_files(
     assert res.status_code == 204, res.text
 
     # Verify the bucket still exists
-    bucket_exists = clients.s3_client.head_bucket(Bucket=bucket_name)
-    assert bucket_exists, f"Bucket '{bucket_name} is expected to exist but not found"
+    bucket_exists = clients.s3_client.head_bucket(Bucket=user_bucket)
+    assert bucket_exists, f"Bucket '{user_bucket} is expected to exist but not found"
 
     # Verify all the objects in the bucket are deleted
-    response = clients.s3_client.list_objects_v2(Bucket=bucket_name)
+    response = clients.s3_client.list_objects_v2(Bucket=user_bucket)
     object_list = response.get("Contents", [])
     assert (
         len(object_list) == 0
@@ -480,37 +454,25 @@ async def test_delete_user_bucket_objects_with_existing_files(
 
 @pytest.mark.asyncio
 async def test_delete_user_bucket_with_versioning(
-    client, access_token_patcher, mock_aws_services, enable_s3_files
+    client, access_token_patcher, mock_aws_services, enable_s3_files, user_bucket
 ):
     """
     Attempt to delete all the objects in non-empty bucket with versioning enabled (when S3Files
     is enabled, versioning is enabled on the user's bucket.
     """
-
-    # Create the bucket if it doesn't exist
-    res = await client.get(
-        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
-    )
-    bucket_name = res.json()["bucket"]
-
-    # Remove the bucket policy enforcing KMS encryption
-    # Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
-    # More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
-    clients.s3_client.delete_bucket_policy(Bucket=bucket_name)
-
     # Create a file
-    clients.s3_client.put_object(
-        Bucket=bucket_name, Key=f"file", Body=b"Dummy file contents"
+    remove_bucket_policy_and_put_object(
+        bucket=user_bucket, key=f"file", body=b"Dummy file contents"
     )
-    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    response = clients.s3_client.list_object_versions(Bucket=user_bucket)
     versions = response.get("Versions", [])
     assert len(versions) == 1
 
     # Create a new version of the file
-    clients.s3_client.put_object(
-        Bucket=bucket_name, Key=f"file", Body=b"Updated file contents"
+    remove_bucket_policy_and_put_object(
+        bucket=user_bucket, key=f"file", body=b"Updated file contents"
     )
-    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    response = clients.s3_client.list_object_versions(Bucket=user_bucket)
     versions = response.get("Versions", [])
     assert len(versions) == 2
 
@@ -522,8 +484,66 @@ async def test_delete_user_bucket_with_versioning(
     assert res.status_code == 204, res.text
 
     # Verify all the versions in the bucket are deleted
-    response = clients.s3_client.list_object_versions(Bucket=bucket_name)
+    response = clients.s3_client.list_object_versions(Bucket=user_bucket)
     versions = response.get("Versions", [])
     delete_markers = response.get("DeleteMarkers", [])
     assert len(versions) == 0
     assert len(delete_markers) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher", [{"user_id": NEW_TEST_USER_ID}], indirect=True
+)
+async def test_storage_setup_in_debug_stub_mode_grants_access_without_creating_a_bucket(
+    debug_stub_client, access_token_patcher, mock_aws_services
+):
+    """
+    In debug stub mode, `/storage/setup` grants the user access to their own tasks and storage
+    in Arborist, so that the other stubbed endpoints authorize them, but creates no bucket.
+    """
+    expected_bucket_name = f"gen3wf-{config['HOSTNAME']}-{NEW_TEST_USER_ID}"
+
+    res = await debug_stub_client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {
+        "bucket": expected_bucket_name,
+        "workdir": f"s3://{expected_bucket_name}/ga4gh-tes",
+        "region": config["USER_BUCKETS_REGION"],
+    }
+
+    mock_arborist_request.assert_any_call(
+        method="POST",
+        path=f"/user/test-username-{NEW_TEST_USER_ID}/policy",
+        body=f'{{"policy":"gen3_workflow_user_sub_{NEW_TEST_USER_ID}"}}',
+        authorized=True,
+    )
+    with pytest.raises(ClientError):
+        clients.s3_client.head_bucket(Bucket=expected_bucket_name)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "debug_stub_client", [pytest.param({"authorized": False})], indirect=True
+)
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        pytest.param("get", "/storage/setup", id="setup"),
+        pytest.param("delete", "/storage/user-bucket", id="delete-bucket"),
+        pytest.param("delete", "/storage/user-bucket/objects", id="empty-bucket"),
+    ],
+)
+async def test_storage_endpoints_in_debug_stub_mode_check_authorization(
+    debug_stub_client, access_token_patcher, method, path
+):
+    """
+    In debug stub mode, a storage request the caller is not authorized to make is rejected
+    rather than stubbed.
+    """
+    res = await getattr(debug_stub_client, method)(
+        path, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 403, res.text

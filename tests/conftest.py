@@ -3,24 +3,24 @@ See https://github.com/uc-cdis/gen3-user-data-library/blob/main/tests/conftest.p
 """
 
 import contextlib
-from datetime import datetime
-from dateutil.tz import tzutc
 import json
 import os
 import time
+from datetime import datetime
+from threading import Thread
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qsl, urlparse
 
 import boto3
-from botocore.exceptions import ClientError
-from fastapi import Request
 import httpx
-from moto import mock_aws
 import pytest
 import pytest_asyncio
-from starlette.config import environ
-from threading import Thread
 import uvicorn
+from botocore.exceptions import ClientError
+from dateutil.tz import tzutc
+from fastapi import Request
+from moto import mock_aws
+from starlette.config import environ
 
 # Set up the config *before* loading the app, which loads the configuration
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -32,7 +32,7 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
-from gen3workflow.aws import clients
+from gen3workflow.aws import aws_utils, clients
 from gen3workflow.aws.bucket import USER_BUCKET_CACHE
 
 TEST_USER_ID = "user-64"
@@ -70,6 +70,8 @@ MOCKED_S3_RESPONSE_DICT = {
     "MaxKeys": 250,
     "EncodingType": "url",
 }
+
+VALID_AUD_STR = json.dumps(config["VALID_AUTHZ_AUDIENCE"], separators=(",", ":"))
 
 
 @pytest.fixture(scope="function")
@@ -121,6 +123,12 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
                 (
                     {
                         f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123": [
+                            {"service": "gen3-workflow", "method": "read"}
+                        ],
+                        f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/with-logs-outputs": [
+                            {"service": "gen3-workflow", "method": "read"}
+                        ],
+                        f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/incomplete-with-logs-outputs": [
                             {"service": "gen3-workflow", "method": "read"}
                         ],
                     }
@@ -188,7 +196,7 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
 
 
 def mock_tes_server_request_function(
-    method: str, path: str, query_params: dict, body: str, status_code: int
+    method: str, path: str, query_params: list, body: str, status_code: int
 ):
     """
     Mock responses from an external TES server
@@ -197,6 +205,25 @@ def mock_tes_server_request_function(
         "id": "123",
         "state": "COMPLETE",
         "logs": [{"system_logs": ["blah"]}],
+        "tags": {
+            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER"
+        },
+    }
+    task_with_logs_outputs = {
+        "id": "with-logs-outputs",
+        "state": "COMPLETE",
+        "logs": [
+            {
+                "system_logs": ["blah"],
+                "outputs": [
+                    {
+                        "url": f"s3://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}/file.txt",
+                        "path": "file.txt",
+                        "size_bytes": "19",
+                    },
+                ],
+            }
+        ],
         "tags": {
             "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/TASK_ID_PLACEHOLDER"
         },
@@ -220,12 +247,27 @@ def mock_tes_server_request_function(
                     },
                     # test that the app can handle a task with no tags:
                     {"id": "456", "state": "COMPLETE"},
+                    # tasks with the `logs.outputs` field:
+                    task_with_logs_outputs,
+                    {
+                        **task_with_logs_outputs,
+                        "id": "incomplete-with-logs-outputs",
+                        "state": "INITIALIZING",
+                    },
                 ],
             },
             "POST": {"id": "123"},
         },
         "/tasks/123": {"GET": accessible_task},
         "/tasks/123:cancel": {"POST": {}},
+        "/tasks/with-logs-outputs": {"GET": task_with_logs_outputs},
+        "/tasks/incomplete-with-logs-outputs": {
+            "GET": {
+                **task_with_logs_outputs,
+                "id": "incomplete-with-logs-outputs",
+                "state": "INITIALIZING",
+            }
+        },
     }
     text, out = None, None
     if path not in paths_to_responses:
@@ -254,6 +296,9 @@ def mock_aws_s3_request_function(url: str):
     """
     resp_xml = MOCKED_S3_RESPONSE_XML
     headers = {"content-type": "application/xml"}
+
+    if "test_s3_endpoint_error_from_s3" in url:
+        return httpx.Response(status_code=400)
 
     # multipart upload special case:
     if "test_s3_upload_file_multipart.txt" in url:
@@ -287,10 +332,28 @@ async def reset_requests_mocks_and_caches():
     previous function calls. Also clear caches.
     """
     global mock_tes_server_request
-    global mock_arborist_request
     mock_tes_server_request.reset_mock()
+    global mock_arborist_request
     mock_arborist_request.reset_mock()
+    aws_utils.OUTPUTS_ARE_READY_CACHE.clear()
     USER_BUCKET_CACHE.clear()
+
+
+def get_debug_stub_warnings(caplog) -> list:
+    """
+    Extract the warnings logged for stubbed requests from the captured logs.
+
+    Args:
+        caplog: pytest's log capturing fixture
+
+    Returns:
+        list: the logged messages, one per stubbed request
+    """
+    return [
+        record.message
+        for record in caplog.records
+        if record.levelname == "WARNING" and "DEBUG MODE" in record.message
+    ]
 
 
 class UvicornServer(uvicorn.Server):
@@ -330,13 +393,48 @@ async def client(request):
       app URL directly (use case: configure a boto3 client with the app URL), otherwise an httpx
       client is used.
     """
-    tes_resp_code = 200
-    authorized = True
-    get_url = False
-    if hasattr(request, "param"):
-        tes_resp_code = request.param.get("tes_resp_code", 200)
-        authorized = request.param.get("authorized", True)
-        get_url = request.param.get("get_url", get_url)
+    params = getattr(request, "param", {})
+    async with make_test_client(
+        tes_resp_code=params.get("tes_resp_code", 200),
+        authorized=params.get("authorized", True),
+        get_url=params.get("get_url", False),
+    ) as test_client:
+        yield test_client
+
+
+@pytest_asyncio.fixture(scope="function")
+async def debug_stub_client(request):
+    """
+    Same as `client`, for an app started in debug stub mode. The stubbed routers are chosen when
+    the app is created, so this builds an app of its own. See `DEBUG_STUB_EXTERNAL_SERVICES`.
+
+    - Set request param "authorized" (bool, default True) to change the response returned by
+      Arborist for access requests.
+    """
+    params = getattr(request, "param", {})
+    original_val = config["DEBUG_STUB_EXTERNAL_SERVICES"]
+    config["DEBUG_STUB_EXTERNAL_SERVICES"] = True
+    try:
+        async with make_test_client(
+            authorized=params.get("authorized", True)
+        ) as test_client:
+            yield test_client
+    finally:
+        config["DEBUG_STUB_EXTERNAL_SERVICES"] = original_val
+
+
+@contextlib.asynccontextmanager
+async def make_test_client(
+    tes_resp_code: int = 200, authorized: bool = True, get_url: bool = False
+):
+    """
+    Create an app whose calls to external services are mocked, and a client to call it with.
+    See `client` for the parameters.
+
+    Yields:
+        httpx.AsyncClient | str: a client forwarding requests to the app, or the app URL if
+            `get_url` is True
+    """
 
     async def handle_request(request: Request):
         url = str(request.url)
@@ -348,7 +446,7 @@ async def client(request):
             mocked_response = mock_tes_server_request(
                 method=request.method,
                 path=path,
-                query_params=dict(parse_qsl(parsed_url.query)),
+                query_params=parse_qsl(parsed_url.query),
                 body=request.content.decode(),
                 status_code=tes_resp_code,
             )
@@ -494,3 +592,26 @@ def trailing_slash(request):
     slash
     """
     return request.param
+
+
+@pytest_asyncio.fixture
+async def user_bucket(client):
+    """
+    Create the bucket if it doesn't exist and return its name
+    """
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    return res.json()["bucket"]
+
+
+def remove_bucket_policy_and_put_object(bucket, key, body):
+    """
+    Remove the bucket policy enforcing KMS encryption before making the put_object call.
+
+    Moto has limitations that prevent adding objects to a bucket with KMS encryption enabled.
+    More details: https://github.com/uc-cdis/gen3-workflow/blob/554fc3eb4c1d333f9ef81c1a5f8e75a6b208cdeb/tests/test_misc.py#L161-L171
+    """
+    clients.s3_client.delete_bucket_policy(Bucket=bucket)
+    clients.s3_client.put_object(Bucket=bucket, Key=key, Body=body)

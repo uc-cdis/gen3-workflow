@@ -1,56 +1,36 @@
-import re
 import tempfile
 from unittest.mock import AsyncMock, patch
 
 import boto3
+import pytest
+import pytest_asyncio
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-import pytest
-import pytest_asyncio
 
+from gen3workflow.aws import bucket
+from gen3workflow.config import config
+from gen3workflow.routes.s3 import (
+    _dechunk_stream,
+    set_access_token_and_get_user_id,
+)
 from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
     TEST_CLIENT_ID,
     TEST_USER_ID,
     TEST_USER_TOKEN,
+    get_debug_stub_warnings,
     mock_aws_s3_request,
-)
-from gen3workflow.config import config
-from gen3workflow.routes.s3 import (
-    set_access_token_and_get_user_id,
-    chunked_to_non_chunked_body,
 )
 
 # reusable parametrization of the `s3_client` and `access_token_patcher` fixtures
-s3_client_and_token_test_ids = [
-    "s3 path-user creds",
-    "root path-user creds",
-    "s3 path-client creds",
-    "root path-client creds",
-]
+s3_client_and_token_test_ids = ["s3 path", "root path"]
 s3_client_and_token_test_cases = [
-    # first 2 test cases: user key ID and user token
     (
         {"endpoint": "s3", "aws_access_key_id": TEST_USER_TOKEN},
         {"user_id": TEST_USER_ID},
     ),
     ({"endpoint": "", "aws_access_key_id": TEST_USER_TOKEN}, {"user_id": TEST_USER_ID}),
-    # last 2 test cases: client key ID and client token
-    (
-        {
-            "endpoint": "s3",
-            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
-        },
-        {"user_id": None, "client_id": TEST_CLIENT_ID},
-    ),
-    (
-        {
-            "endpoint": "",
-            "aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}",
-        },
-        {"user_id": None, "client_id": TEST_CLIENT_ID},
-    ),
 ]
 
 
@@ -113,8 +93,6 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
 
     Testing:
     - s3 path and root path
-    - matching credentials: user aws_access_key_id and user token
-    - matching credentials: client aws_access_key_id and client token
     """
     res = s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
     res.get("ResponseMetadata", {}).get("HTTPHeaders", {}).pop("date", None)
@@ -125,19 +103,20 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
 @pytest.mark.parametrize(
     "s3_client, access_token_patcher",
     [
-        # client key ID and user token
         (
             {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {"user_id": TEST_USER_ID},
+            {"user_id": None, "client_id": TEST_CLIENT_ID},
         ),
     ],
-    ids=["client aws_access_key_id-user token"],
+    ids=["client aws_access_key_id-client token"],
     indirect=True,
 )
-def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
+def test_s3_endpoint_rejects_client_acting_on_behalf_of_a_user(
+    s3_client, access_token_patcher
+):
     """
-    Hitting the `/s3` endpoint with mismatched credentials (client aws_access_key_id and user
-    token) should result in a 401 Unauthorized error.
+    Hitting the `/s3` endpoint with a client aws_access_key_id (`<token>;userId=<user ID>`)
+    should result in a 401 Unauthorized error.
     """
     with pytest.raises(ClientError, match="Unauthorized"):
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
@@ -175,37 +154,12 @@ def test_s3_endpoint_no_token(s3_client):
     Hitting the `/s3` endpoint without a Gen3 access token should result in a 401 Unauthorized
     error.
     """
-    with pytest.raises(ClientError, match="Unauthorized"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
-
-
-@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
-@pytest.mark.parametrize(
-    "s3_client, access_token_patcher",
-    [
-        # user key ID and user+client token
-        (
-            {"aws_access_key_id": TEST_USER_TOKEN},
-            {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
-        ),
-        # client key ID and user+client token
-        (
-            {"aws_access_key_id": f"{TEST_USER_TOKEN};userId={TEST_USER_ID}"},
-            {"user_id": TEST_USER_ID, "client_id": TEST_CLIENT_ID},
-        ),
-    ],
-    ids=["supported user+client token", "unsupported user+client token"],
-    indirect=True,
-)
-def test_s3_endpoint_unsupported_oidc_token(s3_client, access_token_patcher, request):
-    """
-    Hitting the `/s3` endpoint with a Gen3 access token issued from the OIDC flow (token linked to a client AND to a user) is supported in the case of a user key ID. In the case of a client key ID, it should result in a 401 Unauthorized error.
-    """
-    if "unsupported" in request.node.callspec.id:
-        with pytest.raises(ClientError, match="Unauthorized"):
-            s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
-    else:
-        s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    assert exc_info.value.response.get("Error") == {
+        "Code": "Unauthorized",
+        "Message": "Could not verify, parse, and/or validate provided access token",
+    }
 
 
 @pytest.mark.parametrize(
@@ -222,8 +176,12 @@ def test_s3_endpoint_unauthorized(s3_client, access_token_patcher):
     Hitting the `/s3` endpoint with a Gen3 access token that does not have the appropriate access
     should result in a 403 Forbidden error.
     """
-    with pytest.raises(ClientError, match="403"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    assert exc_info.value.response.get("Error") == {
+        "Code": "Forbidden",
+        "Message": "Permission denied",
+    }
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
@@ -244,23 +202,27 @@ def test_s3_endpoint_wrong_bucket(s3_client, access_token_patcher, bucket_name):
     Specific edge case: if the user's bucket is "gen3wf-<hostname>-<user ID>", a bucket name which
     is a superstring of that, such as "gen3wf-<hostname>-<user ID>-2", should not be allowed.
     """
-    with pytest.raises(ClientError, match="Forbidden"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=bucket_name)
+    assert exc_info.value.response.get("Error") == {
+        "Code": "Forbidden",
+        "Message": f"'{bucket_name}' (bucket '{bucket_name}') not allowed. You can make calls to your personal bucket, 'gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}'",
+    }
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
-def test_s3_endpoint_list_buckets(s3_client):
+@pytest.mark.parametrize("max_buckets", [True, False])
+def test_s3_endpoint_list_buckets(s3_client, access_token_patcher, max_buckets):
     """
-    Listing all the buckets the user can access is not supported, since users can only access
-    their own bucket.
+    Listing all the buckets the user can access returns the user's bucket only.
     """
-    with pytest.raises(
-        ClientError,
-        match=re.escape(
-            "An error occurred (400) when calling the ListBuckets operation: Bad Request"
-        ),
-    ):
-        s3_client.list_buckets()
+    bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    if max_buckets:
+        res = s3_client.list_buckets(MaxBuckets=1)
+    else:
+        res = s3_client.list_buckets()
+    res.pop("ResponseMetadata", None)
+    assert res == {"Buckets": [{"Name": bucket_name}]}
 
 
 @pytest.mark.asyncio
@@ -275,9 +237,10 @@ async def test_s3_endpoint_with_bearer_token(client, path):
         headers={"Authorization": f"bearer test-token"},
     )
     assert res.status_code == 401, res.text
-    assert res.json() == {
-        "detail": "Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI"
-    }
+    assert (
+        "Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI"
+        in res.text
+    )
 
 
 @pytest.mark.asyncio
@@ -292,23 +255,17 @@ async def test_s3_endpoint_with_bearer_token(client, path):
     ids=["with token sub", "without token sub"],
 )
 @pytest.mark.parametrize(
-    "key_includes_user_id", [True, False], ids=["key format A", "key format B"]
-)
-@pytest.mark.parametrize(
     "auth_header_format", [1, 2], ids=["auth format 1", "auth format 2"]
 )
 async def test_set_access_token_and_get_user_id(
-    auth_header_format, key_includes_user_id, token_claims_sub, token_claims_azp
+    auth_header_format, token_claims_sub, token_claims_azp
 ):
     """
-    Test `set_access_token_and_get_user_id` behavior with various combinations of access token and
-    key ID.
+    Test `set_access_token_and_get_user_id` behavior with various access token claims.
 
     Testing:
     - Authorization header ID format 1 and 2, as documented in the
       `set_access_token_and_get_user_id` docstring
-    - Key ID format A and B, as documented in the `set_access_token_and_get_user_id`
-      docstring
     - Access token claims with or without the `sub` field (user ID)
     - Access token claims with or without the `azp` field (client ID)
     """
@@ -322,39 +279,25 @@ async def test_set_access_token_and_get_user_id(
     auth.get_token_claims.return_value = token_claims
 
     aws_access_key_id = TEST_USER_TOKEN
-    if key_includes_user_id:
-        aws_access_key_id += f";userId={TEST_USER_ID}"
 
     if auth_header_format == 1:
         auth_header = f"AWS4-HMAC-SHA256 Credential={aws_access_key_id}/<date>/<region>/<service>/aws4_request, SignedHeaders=some-text, Signature=some-text"
     else:
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
-    # no user or client ID in the token claims or in the key ID: error
-    if not key_includes_user_id and not token_claims_sub and not token_claims_azp:
-        with pytest.raises(HTTPException, match="401: No user ID in token or key ID"):
-            await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
-    # user ID in the key ID, which implies a client flow, but no client ID in the token
-    # claims: error
-    elif key_includes_user_id and not token_claims_azp:
-        with pytest.raises(HTTPException, match="401: No client ID in token"):
-            await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
-    # user ID in the key ID, which implies a client flow, AND user ID in the token claims: error.
-    # similar test case as `test_s3_endpoint_unsupported_oidc_token`
-    elif key_includes_user_id and token_claims_sub:
-        with pytest.raises(
-            HTTPException, match="401: Expected a client token not linked to a user"
-        ):
+    # no user or client ID in the token claims: error
+    if not token_claims_sub and not token_claims_azp:
+        with pytest.raises(HTTPException, match="401: No user or client ID in token"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
     else:
         user_id, _ = await set_access_token_and_get_user_id(
             auth, {"authorization": auth_header}
         )
-        if key_includes_user_id or token_claims_sub:
+        if token_claims_sub:
             assert user_id == TEST_USER_ID
         else:
-            # format A with a client token (no `sub`): the client itself is the principal
+            # a client token (no `sub`): the client itself is the principal
             assert user_id == TEST_CLIENT_ID
         assert auth.bearer_token.credentials == TEST_USER_TOKEN
 
@@ -421,17 +364,181 @@ def test_s3_upload_file(s3_client, access_token_patcher, multipart):
     )
 
 
-def test_chunked_to_non_chunked_body():
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize("s3_client", [{"endpoint": "s3"}], indirect=True)
+def test_s3_copy_file(monkeypatch, s3_client, access_token_patcher, mock_aws_services):
     """
-    Test that `chunked_to_non_chunked_body` correctly parses request bodies from chunked data
+    Users should not be able to copy files from another user's bucket (or in
+    general, any bucket that isn't their own) into their own bucket.
     """
-    body = b"f;chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6891\r\nBonjour world!\n\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
-    assert chunked_to_non_chunked_body(body) == b"Bonjour world!\n"
+    # disable KMS encryption to simplify the test: when it's enabled, it's required to hit the
+    # `/storage/setup` endpoint before hitting the `s3` endpoint.
+    monkeypatch.setitem(bucket.config, "KMS_ENCRYPTION_ENABLED", False)
 
-    body = b"5;chunk-signature=9f5c0b7f5c1a1e0a6f2f7c5f7c0d3a8f1c9e3a3b8b1cbb4eaa27f0d5b3a0b0f2\r\nHello\r\n5;chunk-signature=3b92d0a84f7b91f3a9f4d1f8c1e90c0f5b6d1b42a2f82a8e0b91d78a0cb8e0f1\r\nWorld\r\n5;chunk-signature=7e2c5a8c8a3d1b0f9d3a3a5e1f3e6b1a9c9f1a3e5f9c0d8a2b4c3e8f0d9b1c2\r\nAgain\r\n0;chunk-signature=2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d\r\n\r\n"
-    assert chunked_to_non_chunked_body(body) == b"HelloWorldAgain"
+    # users are allowed to copy a file within their bucket
+    bucket_name = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    object_key = "test_s3_copy_file.txt"
+    s3_client.copy_object(
+        CopySource=f"/{bucket_name}/{object_key}",
+        Bucket=bucket_name,
+        Key=f"{object_key}_copy",
+    )
 
-    txt = "this text includes '\r\n' which is also the chunk separator"
-    chunk_len = f"{len(txt):x}"
-    body = f"{chunk_len};chunk-signature=34dd77cb18532bc47b54bdd13695cab5b2ae837044842fa782bb374b246d6222\r\n{txt}\r\n0;chunk-signature=08a3c85444fa43f618638e17498d3e2c8a7166e62ae75ef1fad29e5bff2f8a46\r\n\r\n"
-    assert chunked_to_non_chunked_body(body.encode()) == txt.encode()
+    # users are NOT allowed to copy a file from another bucket into their bucket
+    other_bucket = f"gen3wf-{config['HOSTNAME']}-other_user"
+    with pytest.raises(ClientError) as exc_info:
+        s3_client.copy_object(
+            CopySource=f"{other_bucket}/{object_key}",
+            Bucket=bucket_name,
+            Key=f"{object_key}_copy",
+        )
+    assert exc_info.value.response.get("Error") == {
+        "Code": "Forbidden",
+        "Message": f"Copy source '{other_bucket}' not allowed. You can copy from your personal bucket, '{bucket_name}'",
+    }
+
+
+async def _async_iter(segments):
+    for s in segments:
+        yield s
+
+
+@pytest.mark.asyncio
+async def test_s3_endpoint_in_debug_stub_mode(
+    debug_stub_client, access_token_patcher, caplog
+):
+    """
+    In debug stub mode, an authorized S3 request to the user's bucket gets a canned response,
+    logged as a warning, without being forwarded to S3.
+    """
+    bucket = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+
+    res = await debug_stub_client.get(
+        f"/s3/{bucket}",
+        headers={"Authorization": f"AWS4-HMAC-SHA256 Credential={TEST_USER_TOKEN}/"},
+    )
+    assert res.status_code == 200, res.text
+    assert f"<Name>{bucket}</Name>" in res.text
+    assert len(get_debug_stub_warnings(caplog)) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/s3/{bucket}", id="s3-prefix"),
+        pytest.param("/{bucket}", id="root"),
+    ],
+)
+async def test_s3_endpoint_in_debug_stub_mode_requires_an_access_token(
+    debug_stub_client, caplog, path
+):
+    """
+    In debug stub mode, an S3 request without credentials is rejected rather than stubbed, so
+    the root mount does not answer every unrouted path with a canned 200.
+    """
+    bucket = f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}"
+    res = await debug_stub_client.get(path.format(bucket=bucket))
+    assert res.status_code == 401, res.text
+    assert get_debug_stub_warnings(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_s3_endpoint_in_debug_stub_mode_rejects_another_users_bucket(
+    debug_stub_client, access_token_patcher, caplog
+):
+    """
+    In debug stub mode, an S3 request for a bucket other than the user's is rejected rather than
+    stubbed.
+    """
+    res = await debug_stub_client.get(
+        "/s3/someone-elses-bucket",
+        headers={"Authorization": f"AWS4-HMAC-SHA256 Credential={TEST_USER_TOKEN}/"},
+    )
+    assert res.status_code == 403, res.text
+    assert get_debug_stub_warnings(caplog) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "wire_segments, expected",
+    [
+        # single segment: one data chunk + terminal chunk
+        (
+            [b"b;chunk-signature=abc\r\nhello world\r\n0;chunk-signature=abc\r\n\r\n"],
+            b"hello world",
+        ),
+        # multiple data chunks in one segment
+        (
+            [
+                b"3;chunk-signature=abc\r\nfoo\r\n3;chunk-signature=abc\r\nbar\r\n0;chunk-signature=abc\r\n\r\n"
+            ],
+            b"foobar",
+        ),
+        # chunk header split across two TCP segments
+        (
+            [
+                b"b;chunk-sig",
+                b"nature=abc\r\nhello world\r\n0;chunk-signature=abc\r\n\r\n",
+            ],
+            b"hello world",
+        ),
+        # chunk data split across two TCP segments
+        (
+            [
+                b"b;chunk-signature=abc\r\nhello",
+                b" world\r\n0;chunk-signature=abc\r\n\r\n",
+            ],
+            b"hello world",
+        ),
+        # terminal chunk only: empty body
+        (
+            [b"0;chunk-signature=abc\r\n\r\n"],
+            b"",
+        ),
+        # text with chunk separators
+        (
+            [
+                b"39;chunk-signature=abc\r\nthis text includes '\r\n' which is also the chunk separator\r\n0;chunk-signature=abc\r\n\r\n"
+            ],
+            b"this text includes '\r\n' which is also the chunk separator",
+        ),
+    ],
+    ids=[
+        "single chunk",
+        "multiple chunks",
+        "header split across segments",
+        "data split across segments",
+        "empty body",
+        "text with chunk separators",
+    ],
+)
+async def test_dechunk_stream(wire_segments, expected):
+    """
+    Test that `_dechunk_stream` correctly reconstructs the original data
+    from a stream of chunked transfer encoding segments.
+    """
+    result = bytearray()
+    async for piece in _dechunk_stream(_async_iter(wire_segments)):
+        result += piece
+    assert bytes(result) == expected
+
+
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize("s3_client", [{"endpoint": "s3"}], indirect=True)
+def test_s3_endpoint_error_from_s3(
+    request, s3_client, s3_addressing_style, access_token_patcher
+):
+    """
+    The `mock_aws_s3_request_function` fixture returns an error for this test. Check that the error
+    is correctly handled and forwarded to the user.
+    """
+    with pytest.raises(ClientError) as exc_info:
+        s3_client.get_object(
+            Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}",
+            Key="test_s3_endpoint_error_from_s3",
+        )
+    assert exc_info.value.response.get("Error") == {
+        "Code": "400",
+        "Message": "Bad Request",
+    }

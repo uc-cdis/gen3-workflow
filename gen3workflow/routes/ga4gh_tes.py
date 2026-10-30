@@ -7,21 +7,24 @@ https://editor.swagger.io/?url=https://raw.githubusercontent.com/ga4gh/task-exec
 
 import json
 import re
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from dateutil import parser
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from gen3authz.client.arborist.errors import ArboristError
 from starlette.status import (
     HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
 )
 
 from gen3workflow import logger
 from gen3workflow.auth import Auth
-from gen3workflow.config import config
-from gen3workflow.routes.utils import make_tes_server_request
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import create_iam_role_for_funnel_bucket_access
+from gen3workflow.config import config
+from gen3workflow.routes.utils import make_tes_server_request
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
@@ -35,6 +38,13 @@ RESERVED_TAGS = {
 }
 TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
 TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
+
+
+def get_authz_string_for_user(user_id: str) -> str:
+    """
+    Get the authz_resource string for a user
+    """
+    return f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
 
 
 async def get_request_body(request: Request) -> dict:
@@ -51,10 +61,9 @@ async def get_request_body(request: Request) -> dict:
     try:
         return json.loads(body)
     except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON in request body: {e.msg}",
-        )
+        err_msg = f"Invalid JSON in request body: {e.msg}"
+        logger.error(err_msg)
+        raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
 
 @router.get("/service-info", status_code=HTTP_200_OK)
@@ -143,7 +152,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
 
     # Add internal tags
-    if "tags" not in body:
+    if not body.get("tags"):
         body["tags"] = {}
     if type(body["tags"]) != dict:
         err_msg = f"Tags should be a dictionary (tag name -> tag value mapping). Received type {type(body['tags'])}: {body["tags"]}"
@@ -157,9 +166,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         )
         logger.error(err_msg)
         raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
-    authz_resource = (
-        f"/services/workflow/gen3-workflow/tasks/{principal_id}/TASK_ID_PLACEHOLDER"
-    )
+    authz_resource = get_authz_string_for_user(principal_id)
     body["tags"]["_AUTHZ"] = authz_resource
 
     # TODO add _IMAGE_PULL_POLICY tag to user docs (MIDRC-1255)
@@ -211,7 +218,56 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
         headers={"Authorization": f"bearer {auth.bearer_token.credentials}"},
     )
 
+    request.app.metrics.add_task_created(status_code=HTTP_200_OK)
+
     return res.json()
+
+
+def process_task_outputs(user_id, body: dict) -> dict:
+    """
+    Call `are_outputs_ready` and process the result: update the task's `state` if needed, and add
+    any detailed logs to the `system_logs` returned to the user.
+    """
+    # NOTE: we use `body["logs"][-1]` here because the last set of logs represents the last
+    # retry (see GA4GH TES spec)
+    if not body.get("logs"):
+        body["logs"] = [{}]
+    task_logs = body["logs"][-1]
+
+    if body["state"] != "COMPLETE" or not task_logs.get("outputs"):
+        return body
+
+    task_len = (
+        datetime.now(timezone.utc) - parser.parse(task_logs["end_time"])
+        if task_logs.get("end_time")
+        else timedelta(0)
+    )
+    if task_len > timedelta(hours=config["SKIP_CHECK_TASK_OUTPUTS_HOURS"]):
+        logger.debug(
+            f"Task completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
+        )
+        return body
+
+    ready, logs = aws_utils.are_outputs_ready(
+        user_id, body.get("id"), task_logs["outputs"]
+    )
+    if not ready:
+        if task_len > timedelta(hours=config["GIVE_UP_CHECK_TASK_OUTPUTS_HOURS"]):
+            msg = f"{datetime.now(timezone.utc)}: task completed more than {config['GIVE_UP_CHECK_TASK_OUTPUTS_HOURS']} hours ago but outputs are still not ready: marking as failed"
+            body["state"] = "SYSTEM_ERROR"
+        else:
+            msg = (
+                f"{datetime.now(timezone.utc)}: waiting for outputs to be available..."
+            )
+            body["state"] = "RUNNING"
+    else:
+        msg = f"{datetime.now(timezone.utc)}: all outputs are available; task complete"
+
+    if not task_logs.get("system_logs"):
+        body["logs"][-1]["system_logs"] = []
+    body["logs"][-1]["system_logs"].extend(logs)
+    body["logs"][-1]["system_logs"].append(msg)
+    return body
 
 
 def apply_view_to_task(view: str, task: dict) -> dict:
@@ -226,7 +282,7 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     Returns:
         dict: TES task with applied view
     """
-    if view == "BASIC":
+    if not view or view == "MINIMAL":
         return {"id": task.get("id"), "state": task.get("state")}
 
     # Eliminate fields not exposed to the end user
@@ -237,10 +293,10 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     if view == "FULL":
         return task
 
-    # otherwise, view == None or "MINIMAL", which is the default according to the TES spec
+    # otherwise, view == BASIC
     for i in range(len(task.get("executors", []))):
         task["executors"][i].pop("stderr", None)
-        task["executors"][i].pop("stdin", None)
+        task["executors"][i].pop("stdout", None)
     for i in range(len(task.get("inputs", []))):
         task["inputs"][i].pop("content", None)
     for i in range(len(task.get("logs", []))):
@@ -251,7 +307,18 @@ def apply_view_to_task(view: str, task: dict) -> dict:
 
 @router.get("/tasks", status_code=HTTP_200_OK)
 @router.get("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
-async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
+async def list_tasks(
+    request: Request,
+    auth=Depends(Auth),
+    all: str = Query(
+        None,
+        description=(
+            "If present, retrieves all the TES tasks you may have access to, instead of just your own."
+            " Default: false (not present)."
+            " This is a flag parameter, no value is needed."
+        ),
+    ),
+) -> dict:
     """
     List the user's GA4GH TES tasks
     """
@@ -267,15 +334,34 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
         "page_token",
         "view",
     }
-    query_params = {
-        k: v for k, v in dict(request.query_params).items() if k in supported_params
-    }
+
+    # keep only supported params, preserving repeated keys like tag_key/tag_value.
+    requested_view = None
+    query_params = []
+    for k, v in request.query_params.multi_items():
+        if k not in supported_params:
+            continue
+        if k == "view":
+            if requested_view is not None:
+                message = f"Only one 'view' parameter is allowed. Found '{requested_view}' and '{v}'"
+                logger.error(message)
+                raise HTTPException(status_code=400, detail=message)
+            requested_view = v
+        else:
+            query_params.append((k, v))
 
     # force the use of "FULL" view so the response includes tags
-    requested_view = query_params.get("view")
-    query_params["view"] = "FULL"
+    query_params.append(("view", "FULL"))
 
-    # get all the tasks, regardless of access
+    if all is None:
+        query_params.append(("tag_key", "_AUTHZ"))
+        if not user_id:
+            err_msg = "Login required when parameter 'all' is not used"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        authz_resource = get_authz_string_for_user(user_id)
+        query_params.append(("tag_value", authz_resource))
+
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client, "get", url, params=query_params
@@ -300,14 +386,16 @@ async def list_tasks(request: Request, auth=Depends(Auth)) -> dict:
                 r: {"service": "gen3-workflow", "method": "read"}
                 for r in all_resource_paths
             },
+            aud=config["VALID_AUTHZ_AUDIENCE"],
         )
     except ArboristError as e:
         logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
     # filter out tasks the current user does not have access to
+    # this should be redundant if all is None but is included in case server-side filtering fails
     listed_tasks["tasks"] = [
-        apply_view_to_task(requested_view, task)
+        apply_view_to_task(requested_view, process_task_outputs(user_id, task))
         for task in listed_tasks.get("tasks", [])
         if user_access.get(task.get("tags", {}).get("_AUTHZ"))
     ]
@@ -348,7 +436,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     body["tags"]["_AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
 
-    return apply_view_to_task(requested_view, body)
+    return apply_view_to_task(requested_view, process_task_outputs(user_id, body))
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
