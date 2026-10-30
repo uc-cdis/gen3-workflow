@@ -283,11 +283,27 @@ def process_task_outputs(user_id, body: dict) -> dict:
     return body
 
 
+def get_tes_server_view(requested_view: str) -> str:
+    """
+    Get the view to use when making get/list requests to the TES server. We need the _AUTHZ tag
+    in order to check whether users have access, and the "MINIMAL" view does not include tags,
+    so the view is at least "BASIC". "FULL" is only used when requested, since it includes logs
+    and can make the TES server's response much larger.
+
+    Args:
+        requested_view (str): view requested by the user (FULL, MINIMAL, BASIC or None)
+    Returns:
+        str: view to use when making requests to the TES server
+    """
+    return "FULL" if requested_view == "FULL" else "BASIC"
+
+
 def apply_view_to_task(view: str, task: dict) -> dict:
     """
-    We always set the view to "FULL" when making get/list requests to the TES server, because we
-    need to get the _AUTHZ tag in order to check whether users have access. This function applies
-    the view that was originally requested by removing fields according to the TES spec.
+    The view used when making get/list requests to the TES server is at least "BASIC" (see
+    `get_tes_server_view`), because we need to get the _AUTHZ tag in order to check whether
+    users have access. This function applies the view that was originally requested by removing
+    fields according to the TES spec.
 
     Args:
         view (str): view to apply (FULL, MINIMAL or BASIC). If None, MINIMAL is applied.
@@ -366,15 +382,12 @@ async def list_tasks(
     ),
 ) -> dict:
     """
-    List the user's GA4GH TES tasks
+    List the user's GA4GH TES tasks.
+
+    Pages may contain fewer tasks than `page_size`. Use `next_page_token`, when present, to get
+    the next page.
     """
     user_id = await auth.get_user_id()
-
-    if not user_id:
-        err_msg = "Login required"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-
     logger.info(f"User '{user_id}' listing TES tasks")
 
     supported_params = {
@@ -402,19 +415,16 @@ async def list_tasks(
         else:
             query_params.append((k, v))
 
-    # force the use of "FULL" view so the response includes tags
-    query_params.append(("view", "FULL"))
+    query_params.append(("view", get_tes_server_view(requested_view)))
 
     if all is None:
-        # only list the user's own tasks
         query_params.append(("tag_key", "_AUTHZ"))
-        query_params.append(("tag_value", get_authz_string_for_user(user_id)))
-    else:
-        # listing all the tasks is restricted to admins
-        if not await auth.is_current_user_admin():
-            err_msg = "Parameter 'all' is only available to gen3-workflow admins"
-            logger.error(f"User '{user_id}': {err_msg}")
-            raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
+        if not user_id:
+            err_msg = "Login required when parameter 'all' is not used"
+            logger.error(err_msg)
+            raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+        authz_resource = get_authz_string_for_user(user_id)
+        query_params.append(("tag_value", authz_resource))
 
     url = f"{config['TES_SERVER_URL']}/tasks"
     listed_tasks = await list_tes_server_tasks(
@@ -470,9 +480,8 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
         k: v for k, v in dict(request.query_params).items() if k in supported_params
     }
 
-    # force the use of "FULL" view so the response includes tags
     requested_view = query_params.get("view")
-    query_params["view"] = "FULL"
+    query_params["view"] = get_tes_server_view(requested_view)
 
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}"
     res = await make_tes_server_request(

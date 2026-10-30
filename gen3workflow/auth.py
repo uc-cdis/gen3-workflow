@@ -25,7 +25,6 @@ bearer = HTTPBearer(auto_error=False)
 
 CACHE_SECONDS = 5
 AUTHZ_CACHE = SimpleCache(default_timeout=CACHE_SECONDS)
-IS_ADMIN_CACHE = SimpleCache(default_timeout=CACHE_SECONDS)
 
 
 class Auth:
@@ -263,44 +262,3 @@ class Auth:
                 err_msg = "Unable to grant access to user"
                 logger.error(f"{err_msg}. Status code: {status_code}")
                 raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, err_msg)
-
-    async def get_user_policies(self, username: str) -> list:
-        """
-        Get the list of policies assigned to a user in Arborist
-        Args:
-            username (str): The user's Gen3 username
-        Returns:
-            list: A list of policy IDs assigned to the user
-        """
-        try:
-            user = await self.arborist_client.get_user(username)
-            return [p["policy"] for p in user["policies"]]
-        except ArboristError as e:
-            if e.code == 404:
-                logger.warning(f"User '{username}' not found in Arborist")
-                return []
-            else:
-                logger.error(f"Error retrieving policies for user '{username}': {e}")
-                raise HTTPException(
-                    HTTP_500_INTERNAL_SERVER_ERROR,
-                    f"Error retrieving policies for user '{username}'",
-                )
-
-    async def is_current_user_admin(self) -> bool:
-        """
-        Check if the current token's user has the 'gen3_workflow_admin' policy in Arborist
-        Returns:
-            bool: True if the user has the 'gen3_workflow_admin' policy, False otherwise
-        """
-        token = self.get_access_token()
-        cache_key = f"{token}_is_gen3_workflow_admin"
-        if not await self.is_token_close_to_expiry(token) and IS_ADMIN_CACHE.has(
-            cache_key
-        ):
-            return IS_ADMIN_CACHE.get(cache_key)
-
-        token_claims = await self.get_token_claims()
-        username = token_claims.get("context", {}).get("user", {}).get("name")
-        is_admin = "gen3_workflow_admin" in await self.get_user_policies(username)
-        IS_ADMIN_CACHE.set(cache_key, is_admin)
-        return is_admin

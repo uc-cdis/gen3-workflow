@@ -29,18 +29,13 @@ async def tasks_ui(
     """
     user_id = await auth.get_user_id()
     username = None
-    is_admin = False
     tasks = []
     is_more = ""
 
     if user_id:  # only get the tasks if the user is logged in
         token_claims = await auth.get_token_claims()
         username = token_claims.get("context", {}).get("user", {}).get("name")
-        is_admin = await auth.is_current_user_admin()
-        # only admins can list all the tasks
-        if not is_admin:
-            all = None
-        query_params = {"view": "FULL", "page_size": UI_PAGE_SIZE}
+        query_params = {"view": "BASIC", "page_size": UI_PAGE_SIZE}
         if page_token:
             query_params["page_token"] = page_token
         resp = await list_tasks(
@@ -48,8 +43,6 @@ async def tasks_ui(
                 scope={
                     "app": request.scope["app"],
                     "type": request.scope["type"],
-                    # paginate: FULL-view tasks include logs, and listing all tasks at
-                    # once can exceed the TES server's 4MB gRPC message limit
                     "query_string": urlencode(query_params).encode(),
                 }
             ),
@@ -86,7 +79,6 @@ async def tasks_ui(
             "username": username,
             "tasks": tasks,
             "is_more": is_more,
-            "is_admin": is_admin,
             "show_all": all is not None,
         },
     )

@@ -32,7 +32,6 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
-from gen3workflow.auth import IS_ADMIN_CACHE
 from gen3workflow.aws import aws_utils, clients
 from gen3workflow.aws.bucket import USER_BUCKET_CACHE
 
@@ -107,21 +106,6 @@ def access_token_patcher(request):
     access_token_patch.stop()
 
 
-# set "test_user_is_admin" to True (see the `admin_user` fixture) to give the test user the
-# `gen3_workflow_admin` policy in Arborist
-MOCK_ARBORIST_SETTINGS = {"test_user_is_admin": False}
-
-
-@pytest.fixture(scope="function")
-def admin_user():
-    """
-    Give the test user the `gen3_workflow_admin` policy in Arborist
-    """
-    MOCK_ARBORIST_SETTINGS["test_user_is_admin"] = True
-    yield
-    MOCK_ARBORIST_SETTINGS["test_user_is_admin"] = False
-
-
 def mock_arborist_request_function(method: str, path: str, body: str, authorized: bool):
     """
     Mock authz responses from Gen3 Arborist
@@ -162,14 +146,7 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
         f"/user/test-username-{TEST_USER_ID}": {
             "GET": (
                 200,
-                {
-                    "policies": [{"policy": f"gen3_workflow_user_sub_{TEST_USER_ID}"}]
-                    + (
-                        [{"policy": "gen3_workflow_admin"}]
-                        if MOCK_ARBORIST_SETTINGS["test_user_is_admin"]
-                        else []
-                    )
-                },
+                {"policies": [{"policy": f"gen3_workflow_user_sub_{TEST_USER_ID}"}]},
             )
         },
         f"/user/test-username-{NEW_TEST_USER_ID}": {"GET": (404, {})},
@@ -381,7 +358,6 @@ async def reset_requests_mocks_and_caches():
     mock_arborist_request.reset_mock()
     aws_utils.OUTPUTS_ARE_READY_CACHE.clear()
     USER_BUCKET_CACHE.clear()
-    IS_ADMIN_CACHE.clear()
 
 
 def get_debug_stub_warnings(caplog) -> list:

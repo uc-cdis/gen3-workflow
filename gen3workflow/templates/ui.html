@@ -5,18 +5,16 @@
 <body>
     {% if username %}
         <p>Logged in as: {{ username }} (ID {{ user_id }})</p>
-        {% if is_admin %}
-            <form action="{{ proxy_prefix }}/ui" method="get">
-                {% if show_all %}
-                    Viewing: all users' tasks
-                    <button type="submit">View my tasks only</button>
-                {% else %}
-                    Viewing: my tasks
-                    <input type="hidden" name="all"/>
-                    <button type="submit">View all users' tasks</button>
-                {% endif %}
-            </form>
-        {% endif %}
+        <form action="{{ proxy_prefix }}/ui" method="get">
+            {% if show_all %}
+                Viewing: all the tasks I have access to
+                <button type="submit">View my tasks only</button>
+            {% else %}
+                Viewing: my tasks
+                <input type="hidden" name="all"/>
+                <button type="submit">View all the tasks I have access to</button>
+            {% endif %}
+        </form>
         {% if tasks %}
             <table border="1" cellspacing="0" cellpadding="10">
                 <tr>
