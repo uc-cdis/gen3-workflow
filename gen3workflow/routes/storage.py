@@ -4,7 +4,6 @@ from starlette.status import (
     HTTP_200_OK,
     HTTP_202_ACCEPTED,
     HTTP_204_NO_CONTENT,
-    HTTP_401_UNAUTHORIZED,
     HTTP_404_NOT_FOUND,
 )
 
@@ -27,20 +26,15 @@ async def storage_setup(
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
     and authz.
     """
-    token_claims = await auth.get_token_claims()
-    user_id = token_claims.get("sub")
-    logger.info(f"User '{user_id}' setting up their own storage")
-
-    username = token_claims.get("context", {}).get("user", {}).get("name")
-    if not username:
-        err_msg = "No context.user.name in token"
-        logger.error(err_msg)
-        raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
+    principal_id, username, is_client = await auth.get_principal()
+    logger.info(
+        f"{'Client' if is_client else 'User'} '{principal_id}' setting up their own storage"
+    )
 
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
-    bucket_name = await create_user_bucket(user_id)
+    bucket_name = await create_user_bucket(principal_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
 
@@ -66,7 +60,7 @@ async def storage_setup(
 
     try:
         await auth.grant_user_access_to_their_own_data(
-            username=username, user_id=user_id
+            username=username, user_id=principal_id, is_client=is_client
         )
     except ArboristError as e:
         logger.error(e.message)

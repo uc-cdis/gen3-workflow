@@ -142,9 +142,10 @@ async def set_access_token_and_get_user_id(
        <region>/<service>/aws4_request, SignedHeaders=<...>, Signature=<...>`
     2. Set by Funnel GenericS3 through the Minio-go client: `AWS <key ID>:<...>`
 
-    The key ID should be the user's access token. A key ID in the
-    `<client's access token>;userId=<user ID>` format, in which a client acts on behalf of a user,
-    is rejected.
+    The key ID should be an access token: a user's token, or a client's token obtained through
+    a `client_credentials` flow, in which case the client itself is the principal. A key ID in
+    the `<client's access token>;userId=<user ID>` format, in which a client acts on behalf of
+    a user, is rejected.
 
     Args:
         auth (Auth): Gen3Workflow auth instance
@@ -222,10 +223,12 @@ async def set_access_token_and_get_user_id(
         logger.error(err_msg)
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    user_id = token_claims.get("sub")
+    # tokens obtained through a `client_credentials` flow are not linked to a user and have
+    # no `sub`: the client itself is the principal, identified by `azp` (client ID)
+    user_id = token_claims.get("sub") or token_claims.get("azp")
     client_id = token_claims.get("azp")
     if not user_id:
-        err_msg = "No user ID in token"
+        err_msg = "No user or client ID in token"
         logger.error(f"{err_msg}. Debug: {token_claims=}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 

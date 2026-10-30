@@ -16,14 +16,12 @@ from gen3workflow.routes.s3 import (
 )
 from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
+    TEST_CLIENT_ID,
     TEST_USER_ID,
     TEST_USER_TOKEN,
     get_debug_stub_warnings,
     mock_aws_s3_request,
 )
-
-TEST_CLIENT_ID = "client-azp"
-
 
 # reusable parametrization of the `s3_client` and `access_token_patcher` fixtures
 s3_client_and_token_test_ids = ["s3 path", "root path"]
@@ -95,41 +93,10 @@ def test_s3_endpoint(s3_client, s3_addressing_style, access_token_patcher):
 
     Testing:
     - s3 path and root path
-    - matching credentials: user aws_access_key_id and user token
-    - matching credentials: client aws_access_key_id and client token
     """
     res = s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
     res.get("ResponseMetadata", {}).get("HTTPHeaders", {}).pop("date", None)
     assert res == MOCKED_S3_RESPONSE_DICT
-
-
-@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
-@pytest.mark.parametrize(
-    "s3_client, access_token_patcher",
-    [
-        # user key ID and client token
-        (
-            {"aws_access_key_id": TEST_USER_TOKEN},
-            {"user_id": None, "client_id": TEST_CLIENT_ID},
-        ),
-    ],
-    ids=[
-        "client aws_access_key_id-user token",
-    ],
-    indirect=True,
-)
-def test_s3_endpoint_creds_mismatch(s3_client, access_token_patcher):
-    """
-    Hitting the `/s3` endpoint with mismatched credentials (user aws_access_key_id and client
-    token, or client aws_access_key_id and user token) should result in a 401 Unauthorized
-    error.
-    """
-    with pytest.raises(ClientError) as exc_info:
-        s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
-    assert exc_info.value.response.get("Error") == {
-        "Code": "Unauthorized",
-        "Message": "No user ID in token",
-    }
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
@@ -153,6 +120,32 @@ def test_s3_endpoint_rejects_client_acting_on_behalf_of_a_user(
     """
     with pytest.raises(ClientError, match="Unauthorized"):
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+
+
+@pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
+@pytest.mark.parametrize(
+    "s3_client, access_token_patcher",
+    [
+        (
+            {"aws_access_key_id": TEST_USER_TOKEN},
+            {"user_id": None, "client_id": TEST_CLIENT_ID},
+        ),
+    ],
+    ids=["user aws_access_key_id format-client token"],
+    indirect=True,
+)
+def test_s3_endpoint_client_token_own_bucket(s3_client, access_token_patcher):
+    """
+    A client token (obtained through a `client_credentials` flow, not linked to a user) used
+    as the aws_access_key_id is valid: the client itself is the principal, and hitting the
+    `/s3` endpoint with the client's own bucket should succeed.
+    Note that the bucket name is lowercased, unlike the client ID.
+    """
+    res = s3_client.list_objects(
+        Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_CLIENT_ID.lower()}"
+    )
+    res.get("ResponseMetadata", {}).get("HTTPHeaders", {}).pop("date", None)
+    assert res == MOCKED_S3_RESPONSE_DICT
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
@@ -292,16 +285,20 @@ async def test_set_access_token_and_get_user_id(
     else:
         auth_header = f"AWS {aws_access_key_id}:some-text"
 
-    # no user ID in the token claims: error
-    if not token_claims_sub:
-        with pytest.raises(HTTPException, match="401: No user ID in token"):
+    # no user or client ID in the token claims: error
+    if not token_claims_sub and not token_claims_azp:
+        with pytest.raises(HTTPException, match="401: No user or client ID in token"):
             await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
     # every other case is supported: success
     else:
         user_id, _ = await set_access_token_and_get_user_id(
             auth, {"authorization": auth_header}
         )
-        assert user_id == TEST_USER_ID
+        if token_claims_sub:
+            assert user_id == TEST_USER_ID
+        else:
+            # a client token (no `sub`): the client itself is the principal
+            assert user_id == TEST_CLIENT_ID
         assert auth.bearer_token.credentials == TEST_USER_TOKEN
 
 
