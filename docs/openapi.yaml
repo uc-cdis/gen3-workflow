@@ -96,7 +96,13 @@ paths:
       - GA4GH TES
   /ga4gh/tes/v1/tasks:
     get:
-      description: List the user's GA4GH TES tasks
+      description: 'List the user''s GA4GH TES tasks.
+
+
+        Pages may contain fewer tasks than `page_size`. Use `next_page_token`, when
+        present, to get
+
+        the next page.'
       operationId: list_tasks
       parameters:
       - description: 'If present, retrieves all the TES tasks you may have access
