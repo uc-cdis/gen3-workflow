@@ -28,6 +28,11 @@ from gen3workflow.routes.utils import make_tes_server_request
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
 
+# Funnel's default page size when none is provided
+TES_SERVER_DEFAULT_PAGE_SIZE = 256
+# returned by Funnel when a response exceeds its gRPC max message size (4MB by default)
+GRPC_MESSAGE_TOO_LARGE_ERROR = "received message larger than max"
+
 
 RESERVED_TAGS = {
     "_AUTHZ",
@@ -278,11 +283,27 @@ def process_task_outputs(user_id, body: dict) -> dict:
     return body
 
 
+def get_tes_server_view(requested_view: str) -> str:
+    """
+    Get the view to use when making get/list requests to the TES server. We need the _AUTHZ tag
+    in order to check whether users have access, and the "MINIMAL" view does not include tags,
+    so the view is at least "BASIC". "FULL" is only used when requested, since it includes logs
+    and can make the TES server's response much larger.
+
+    Args:
+        requested_view (str): view requested by the user (FULL, MINIMAL, BASIC or None)
+    Returns:
+        str: view to use when making requests to the TES server
+    """
+    return "FULL" if requested_view == "FULL" else "BASIC"
+
+
 def apply_view_to_task(view: str, task: dict) -> dict:
     """
-    We always set the view to "FULL" when making get/list requests to the TES server, because we
-    need to get the _AUTHZ tag in order to check whether users have access. This function applies
-    the view that was originally requested by removing fields according to the TES spec.
+    The view used when making get/list requests to the TES server is at least "BASIC" (see
+    `get_tes_server_view`), because we need to get the _AUTHZ tag in order to check whether
+    users have access. This function applies the view that was originally requested by removing
+    fields according to the TES spec.
 
     Args:
         view (str): view to apply (FULL, MINIMAL or BASIC). If None, MINIMAL is applied.
@@ -313,6 +334,39 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     return task
 
 
+async def list_tes_server_tasks(async_client, url: str, query_params: list) -> dict:
+    """
+    List tasks from the TES server. If the response is too large for the TES server's gRPC
+    message size limit, retry with a smaller page size. The TES server then returns a
+    `next_page_token` the client can use to get the remaining tasks.
+
+    Args:
+        async_client: HTTP client
+        url (str): TES server "list tasks" URL
+        query_params (list): list of (key, value) query parameters
+    Returns:
+        dict: TES server response
+    """
+    page_size = next(
+        (int(v) for k, v in query_params if k == "page_size"),
+        TES_SERVER_DEFAULT_PAGE_SIZE,
+    )
+    other_params = [(k, v) for k, v in query_params if k != "page_size"]
+    params = query_params
+    while True:
+        try:
+            res = await make_tes_server_request(async_client, "get", url, params=params)
+            return res.json()
+        except HTTPException as e:
+            if GRPC_MESSAGE_TOO_LARGE_ERROR not in str(e.detail) or page_size <= 1:
+                raise
+            page_size = page_size // 2
+            logger.warning(
+                f"TES server response too large; retrying with page_size={page_size}"
+            )
+            params = other_params + [("page_size", page_size)]
+
+
 @router.get("/tasks", status_code=HTTP_200_OK)
 @router.get("/tasks/", status_code=HTTP_200_OK, include_in_schema=False)
 async def list_tasks(
@@ -328,7 +382,10 @@ async def list_tasks(
     ),
 ) -> dict:
     """
-    List the user's GA4GH TES tasks
+    List the user's GA4GH TES tasks.
+
+    Pages may contain fewer tasks than `page_size`. Use `next_page_token`, when present, to get
+    the next page.
     """
     user_id = await auth.get_user_id()
     logger.info(f"User '{user_id}' listing TES tasks")
@@ -358,8 +415,7 @@ async def list_tasks(
         else:
             query_params.append((k, v))
 
-    # force the use of "FULL" view so the response includes tags
-    query_params.append(("view", "FULL"))
+    query_params.append(("view", get_tes_server_view(requested_view)))
 
     if all is None:
         query_params.append(("tag_key", "_AUTHZ"))
@@ -371,10 +427,9 @@ async def list_tasks(
         query_params.append(("tag_value", authz_resource))
 
     url = f"{config['TES_SERVER_URL']}/tasks"
-    res = await make_tes_server_request(
-        request.app.async_client, "get", url, params=query_params
+    listed_tasks = await list_tes_server_tasks(
+        request.app.async_client, url, query_params
     )
-    listed_tasks = res.json()
 
     # get all the tasks' authz resource paths, replacing the task ID placeholder with the actual ID
     all_resource_paths = set()
@@ -425,9 +480,8 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
         k: v for k, v in dict(request.query_params).items() if k in supported_params
     }
 
-    # force the use of "FULL" view so the response includes tags
     requested_view = query_params.get("view")
-    query_params["view"] = "FULL"
+    query_params["view"] = get_tes_server_view(requested_view)
 
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}"
     res = await make_tes_server_request(

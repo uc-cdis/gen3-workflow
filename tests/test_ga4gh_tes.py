@@ -13,6 +13,7 @@ from tests.conftest import (
     get_debug_stub_warnings,
     mock_arborist_request,
     mock_tes_server_request,
+    mock_tes_server_with_max_page_size,
     remove_bucket_policy_and_put_object,
 )
 
@@ -61,11 +62,11 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
         url += f"&view={view}"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    # the call to the TES server has at least `view=BASIC` so we get the _AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks/123",
-        query_params=[("view", "FULL")],
+        query_params=[("view", "FULL" if view == "FULL" else "BASIC")],
         body="",
         status_code=client.tes_resp_code,
     )
@@ -533,8 +534,11 @@ async def test_list_tasks(
         url += "&all"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params = [("state", "COMPLETE"), ("view", "FULL")]
+    # the call to the TES server has at least `view=BASIC` so we get the _AUTHZ tag
+    query_params = [
+        ("state", "COMPLETE"),
+        ("view", "FULL" if view == "FULL" else "BASIC"),
+    ]
     if not get_all:
         query_params += [
             ("tag_key", "_AUTHZ"),
@@ -626,7 +630,6 @@ async def test_list_tasks_repeated_params(
         "&tag_key=tag_key_1&tag_value=tag_val_1&tag_key=tag_key_2&tag_value=tag_val_2"
     )
     url += repeated_params
-    # Test with view != "FULL" to verify that request includes ("view", "FULL")
     url += "&view=BASIC"
 
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
@@ -651,8 +654,8 @@ async def test_list_tasks_repeated_params(
         + tag_values
         + [("tag_value", get_authz_string_for_user(TEST_USER_ID))]
     )
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params += [("view", "FULL")]
+    # the call to the TES server has at least `view=BASIC` so we get the _AUTHZ tag
+    query_params += [("view", "BASIC")]
 
     mock_tes_server_request.assert_called_once_with(
         method="GET",
@@ -681,6 +684,66 @@ async def test_list_tasks_repeated_params(
             }
         ]
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("requested_page_size", "max_page_size", "expected_page_sizes", "expected_status"),
+    [
+        pytest.param(None, 64, [None, "128", "64"], 200, id="default page size"),
+        pytest.param("100", 30, ["100", "50", "25"], 200, id="requested page size"),
+        pytest.param("2", 0, ["2", "1"], 500, id="even 1 task is too large"),
+    ],
+)
+async def test_list_tasks_response_too_large(
+    client,
+    access_token_patcher,
+    mock_aws_services,
+    requested_page_size,
+    max_page_size,
+    expected_page_sizes,
+    expected_status,
+):
+    """
+    When the TES server's response is too large for its gRPC message size limit, the request
+    should be retried with a smaller page size, until the response fits or the page size is 1.
+    """
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+
+    url = "/ga4gh/tes/v1/tasks"
+    if requested_page_size:
+        url += f"?page_size={requested_page_size}"
+    original_side_effect = mock_tes_server_request.side_effect
+    mock_tes_server_request.side_effect = mock_tes_server_with_max_page_size(
+        max_page_size
+    )
+    try:
+        res = await client.get(
+            url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
+    finally:
+        mock_tes_server_request.side_effect = original_side_effect
+
+    assert res.status_code == expected_status, res.text
+    if expected_status == 200:
+        assert "123" in [t["id"] for t in res.json()["tasks"]]
+    else:
+        assert "received message larger than max" in res.json()["detail"]
+
+    # the other query params should be the same in all the calls
+    page_sizes = []
+    for c in mock_tes_server_request.call_args_list:
+        params = c.kwargs["query_params"]
+        page_sizes.append(dict(params).get("page_size"))
+        assert [p for p in params if p[0] != "page_size"] == [
+            ("view", "BASIC"),
+            ("tag_key", "_AUTHZ"),
+            ("tag_value", get_authz_string_for_user(TEST_USER_ID)),
+        ]
+    assert page_sizes == expected_page_sizes
 
 
 @pytest.mark.asyncio
@@ -744,8 +807,8 @@ async def test_get_tasks_no_user(client, access_token_patcher, trailing_slash):
 
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params = [("view", "FULL")]
+    # the call to the TES server has at least `view=BASIC` so we get the _AUTHZ tag
+    query_params = [("view", "BASIC")]
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
