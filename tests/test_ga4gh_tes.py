@@ -519,7 +519,6 @@ async def test_list_tasks(
     to should be filtered out.
     When the TES server returns an error, gen3-workflow should return it as well.
     """
-
     # create the bucket if it doesn't exist - can't use the `user_bucket` fixture since the
     # call is conditional
     if client.authorized:
@@ -740,7 +739,7 @@ async def test_list_tasks_response_too_large(
         params = c.kwargs["query_params"]
         page_sizes.append(dict(params).get("page_size"))
         assert [p for p in params if p[0] != "page_size"] == [
-            ("view", "FULL"),
+            ("view", "BASIC"),
             ("tag_key", "_AUTHZ"),
             ("tag_value", get_authz_string_for_user(TEST_USER_ID)),
         ]
