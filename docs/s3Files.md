@@ -40,17 +40,46 @@ Note: It is important for S3Files to also be enabled in Funnel for an end-to-end
 
 2. **Find the Karpenter `EC2NodeClass` for each relevant role** in `gen3-helm` under `helm/cluster-level-resources/templates/karpenter-config-resources-<role>.yaml` (e.g. `karpenter-config-resources-workflow.yaml`). Look at the `securityGroupSelectorTerms` block — nodes get whichever security groups carry the matching `karpenter.sh/discovery` tag value (`selectorTag` from Helm values).
 
+   For example, if `karpenter-config-resources-<role>.yaml` includes:
+   ```
+   securityGroupSelectorTerms:
+   - tags:
+      karpenter.sh/discovery: {{ index .Values "CLASS_VALUE" "selectorTag" }}
+   ```
+   and `cluster-values.yaml` includes:
+   ```
+   CLASS_VALUE:
+     [...]
+     selectorTag: SELECTOR_TAG_VALUE
+   ```
+   then use `selectorTag = SELECTOR_TAG_VALUE`.
+
 3. **Query AWS for the security groups carrying that discovery tag**, scoped to the cluster's VPC:
    ```
    aws ec2 describe-security-groups \
      --filters "Name=tag:karpenter.sh/discovery,Values=<selectorTag>" \
      --query "SecurityGroups[].{Name:GroupName,Id:GroupId}"
    ```
+   The result should look like this:
+   ```
+   [
+       {
+           "Name": "SECURITY_GROUP_NAME",
+           "Id": "SECURITY_GROUP_ID"
+       },
+       [...]
+   ]
+   ```
 
-4. **Manually identify the "main" security group** from the results — the one that actually holds the cluster's inbound/outbound networking rules (as opposed to any minimal/placeholder groups also carrying the tag). This step requires manual judgment; it is usually the group with the most inbound and outbound rules.
+5. **Manually identify the "main" security group** from the results — the one that actually holds the cluster's inbound/outbound networking rules (as opposed to any minimal/placeholder groups also carrying the tag). This step requires manual judgment; it is usually the group with the most inbound and outbound rules.
 
-5. Repeat for each role that can run workflow tasks. Note: in `devplanetv2`, nodes labeled `role=workflow` carry the same discovery tag as jupyter nodes, so the Jupyter security group ends up governing traffic for workflow nodes — check whether your cluster has the same overlap before assuming you only need one SG name.
+   You can list a security group's rules using its ID:
+   ```
+   aws ec2 describe-security-group-rules --filters "Name=group-id,Values=SECURITY_GROUP_ID"
+   ```
 
-6. Set the resulting security group name(s) in the `gen3-workflow` config under the field `EKS_SECURITY_GROUP_NAMES`.
+6. Repeat for each role that can run workflow tasks. Note: in `devplanetv2`, nodes labeled `role=workflow` carry the same discovery tag as jupyter nodes, so the Jupyter security group ends up governing traffic for workflow nodes — check whether your cluster has the same overlap before assuming you only need one SG name.
+
+7. Set the resulting security group name(s) (`SECURITY_GROUP_NAME` in the example above) in the `gen3-workflow` config under the field `EKS_SECURITY_GROUP_NAMES`.
 
 > **Known limitation:** this is a temporary, manually-maintained workaround. The long-term plan is to move nodepool (and likely security group) creation into `gen3-workflow` itself once per-user nodepools are implemented, at which point this lookup process should be revisited/removed.
