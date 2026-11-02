@@ -348,7 +348,7 @@ async def list_tes_server_tasks(async_client, query_params: list) -> dict:
     """
     url = f"{config['TES_SERVER_URL']}/tasks"
     page_size = next(
-        (int(v) for k, v in query_params if k == "page_size"),
+        (v for k, v in query_params if k == "page_size"),
         TES_SERVER_DEFAULT_PAGE_SIZE,
     )
     other_params = [(k, v) for k, v in query_params if k != "page_size"]
