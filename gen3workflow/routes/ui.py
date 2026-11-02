@@ -30,7 +30,7 @@ async def tasks_ui(
     user_id = await auth.get_user_id()
     username = None
     tasks = []
-    is_more = ""
+    next_page_token = ""
 
     if user_id:  # only get the tasks if the user is logged in
         token_claims = await auth.get_token_claims()
@@ -50,7 +50,7 @@ async def tasks_ui(
             all=all,
         )
         tasks = resp.pop("tasks")
-        is_more = resp.get("next_page_token")
+        next_page_token = resp.get("next_page_token")
 
     for i in range(len(tasks)):
         authz_tag = tasks[i]["tags"]["_AUTHZ"]
@@ -78,7 +78,7 @@ async def tasks_ui(
             "user_id": user_id,
             "username": username,
             "tasks": tasks,
-            "is_more": is_more,
+            "next_page_token": next_page_token,
             "show_all": all is not None,
         },
     )

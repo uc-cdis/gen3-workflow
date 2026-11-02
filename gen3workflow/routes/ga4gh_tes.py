@@ -334,7 +334,7 @@ def apply_view_to_task(view: str, task: dict) -> dict:
     return task
 
 
-async def list_tes_server_tasks(async_client, url: str, query_params: list) -> dict:
+async def list_tes_server_tasks(async_client, query_params: list) -> dict:
     """
     List tasks from the TES server. If the response is too large for the TES server's gRPC
     message size limit, retry with a smaller page size. The TES server then returns a
@@ -342,11 +342,11 @@ async def list_tes_server_tasks(async_client, url: str, query_params: list) -> d
 
     Args:
         async_client: HTTP client
-        url (str): TES server "list tasks" URL
         query_params (list): list of (key, value) query parameters
     Returns:
         dict: TES server response
     """
+    url = f"{config['TES_SERVER_URL']}/tasks"
     page_size = next(
         (int(v) for k, v in query_params if k == "page_size"),
         TES_SERVER_DEFAULT_PAGE_SIZE,
@@ -426,10 +426,7 @@ async def list_tasks(
         authz_resource = get_authz_string_for_user(user_id)
         query_params.append(("tag_value", authz_resource))
 
-    url = f"{config['TES_SERVER_URL']}/tasks"
-    listed_tasks = await list_tes_server_tasks(
-        request.app.async_client, url, query_params
-    )
+    listed_tasks = await list_tes_server_tasks(request.app.async_client, query_params)
 
     # get all the tasks' authz resource paths, replacing the task ID placeholder with the actual ID
     all_resource_paths = set()

@@ -55,8 +55,8 @@
     {% else %}
         <p>You are not logged in. Login at <a href={{ hostname }}>{{ hostname }}</a>.</p>
     {% endif %}
-    {% if is_more %}
-        <p><a href="{{ proxy_prefix }}/ui?page_token={{ is_more | urlencode }}{% if show_all %}&all{% endif %}">Next page</a></p>
+    {% if next_page_token %}
+        <p><a href="{{ proxy_prefix }}/ui?page_token={{ next_page_token | urlencode }}{% if show_all %}&all{% endif %}">Next page</a></p>
     {% endif %}
 </body>
 </html>
