@@ -282,6 +282,35 @@ def mock_tes_server_request_function(
     return httpx.Response(status_code=status_code, json=out, text=text)
 
 
+def mock_tes_server_with_max_page_size(max_page_size: int):
+    """
+    Return a mocked TES server whose "list tasks" endpoint returns a gRPC "message too large"
+    error, like Funnel does, unless the requested page size is at most `max_page_size`.
+    """
+
+    def mocked_function(method, path, query_params, body, status_code):
+        page_size = dict(query_params).get("page_size")
+        if (
+            method == "GET"
+            and path == "/tasks"
+            and (page_size is None or int(page_size) > max_page_size)
+        ):
+            return httpx.Response(
+                status_code=500,
+                text=json.dumps(
+                    {
+                        "error": "grpc: received message larger than max (6532097 vs. 4194304)",
+                        "code": 8,
+                    }
+                ),
+            )
+        return mock_tes_server_request_function(
+            method, path, query_params, body, status_code
+        )
+
+    return mocked_function
+
+
 def mock_aws_s3_request_function(url: str):
     """
     Mock responses from AWS S3
