@@ -358,9 +358,12 @@ async def list_tes_server_tasks(async_client, query_params: list) -> dict:
             res = await make_tes_server_request(async_client, "get", url, params=params)
             return res.json()
         except HTTPException as e:
-            if GRPC_MESSAGE_TOO_LARGE_ERROR not in str(e.detail) or page_size <= 1:
+            if GRPC_MESSAGE_TOO_LARGE_ERROR not in str(e.detail):
                 raise
-            page_size = page_size // 2
+            # the TES server accepted `page_size`, so it is a valid integer
+            page_size = int(page_size) // 2
+            if page_size < 1:
+                raise
             logger.warning(
                 f"TES server response too large; retrying with page_size={page_size}"
             )
