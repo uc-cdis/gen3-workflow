@@ -881,14 +881,14 @@ python-dateutil = ">=2.7"
 
 [[package]]
 name = "gen3authz"
-version = "3.1.3"
+version = "3.1.4"
 description = "Gen3 authz client"
 optional = false
 python-versions = "<4.0,>=3.13"
 groups = ["main"]
 files = [
-    {file = "gen3authz-3.1.3-py3-none-any.whl", hash = "sha256:ffc500ab6a56a40a41b7b208a00c15bce21df6680c05133ae0248b3873900994"},
-    {file = "gen3authz-3.1.3.tar.gz", hash = "sha256:98240a2a5132323847b74a592b10a95b661d8fd4a6031b90d2ecfe6e269de9fa"},
+    {file = "gen3authz-3.1.4-py3-none-any.whl", hash = "sha256:87fdffcc5c6b2593a77a03c8eff00e67fbec34c72713b3dda5a7cacccdfb1e25"},
+    {file = "gen3authz-3.1.4.tar.gz", hash = "sha256:c5a6f0a3aaaf6e216e76bbe1b480b8ec2269c36c1b58a05129bade3857041747"},
 ]
 
 [package.dependencies]
@@ -2958,4 +2958,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "fdc73827c8ad0b842eccedd52f2681d5504107acbd1a15fb832a7fb653b14c59"
+content-hash = "1d841b8748fddf46cba8cea0c1543ee3db2659cbeab56edd25f8a2836441849e"
