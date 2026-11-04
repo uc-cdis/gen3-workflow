@@ -17,7 +17,7 @@ boto3 = ">=1"
 botocore = "*"
 cachelib = "*"
 fastapi = "<1"
-gen3authz = ">=3.1.3"
+gen3authz = ">=3.1.4"
 gen3config = ">=2"
 gen3logging = ">=2.0.0"
 gen3pyutils = { version = ">=3.0.0", extras = ["observability"] }

@@ -38,6 +38,8 @@ from gen3workflow.aws.bucket import USER_BUCKET_CACHE
 TEST_USER_ID = "user-64"
 NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
 TEST_USER_TOKEN = "user-token-23985xyz"
+# a client that does not already exist in arborist. Mixed case like real fence client IDs:
+TEST_CLIENT_ID = "testClient64"
 
 # a "ListBucketResult" S3 response from AWS, and the corresponding response as parsed by boto3
 MOCKED_S3_RESPONSE_XML = f"""<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}</Name><Prefix>test-folder/test-file1.txt</Prefix><Marker></Marker><MaxKeys>250</MaxKeys><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>test-folder/test-file1.txt</Key><LastModified>2024-12-09T22:32:20.000Z</LastModified><ETag>&quot;something&quot;</ETag><Size>211</Size><Owner><ID>something</ID><DisplayName>something</DisplayName></Owner><StorageClass>STANDARD</StorageClass></Contents></ListBucketResult>"""
@@ -143,6 +145,7 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
         "/policy": {"POST": (200, {})},
         f"/policy/gen3_workflow_user_sub_{TEST_USER_ID}": {"GET": (200, {})},
         f"/policy/gen3_workflow_user_sub_{NEW_TEST_USER_ID}": {"GET": (404, {})},
+        f"/policy/gen3_workflow_user_sub_{TEST_CLIENT_ID}": {"GET": (404, {})},
         f"/user/test-username-{TEST_USER_ID}": {
             "GET": (
                 200,
@@ -153,6 +156,11 @@ def mock_arborist_request_function(method: str, path: str, body: str, authorized
         "/user": {"POST": (200, {})},
         # grant user access to a policy:
         f"/user/test-username-{NEW_TEST_USER_ID}/policy": {"POST": (204, {})},
+        # client lookup (the test client does not already exist in arborist) and creation:
+        f"/client/{TEST_CLIENT_ID}": {"GET": (404, {})},
+        "/client": {"POST": (200, {})},
+        # grant client access to a policy:
+        f"/client/{TEST_CLIENT_ID}/policy": {"POST": (204, {})},
     }
     text, out = None, None
     if path not in paths_to_responses:
@@ -280,6 +288,35 @@ def mock_tes_server_request_function(
         else:
             text = content
     return httpx.Response(status_code=status_code, json=out, text=text)
+
+
+def mock_tes_server_with_max_page_size(max_page_size: int):
+    """
+    Return a mocked TES server whose "list tasks" endpoint returns a gRPC "message too large"
+    error, like Funnel does, unless the requested page size is at most `max_page_size`.
+    """
+
+    def mocked_function(method, path, query_params, body, status_code):
+        page_size = dict(query_params).get("page_size")
+        if (
+            method == "GET"
+            and path == "/tasks"
+            and (page_size is None or int(page_size) > max_page_size)
+        ):
+            return httpx.Response(
+                status_code=500,
+                text=json.dumps(
+                    {
+                        "error": "grpc: received message larger than max (6532097 vs. 4194304)",
+                        "code": 8,
+                    }
+                ),
+            )
+        return mock_tes_server_request_function(
+            method, path, query_params, body, status_code
+        )
+
+    return mocked_function
 
 
 def mock_aws_s3_request_function(url: str):
@@ -451,9 +488,15 @@ async def make_test_client(
                 body=request.content.decode(),
                 authorized=authorized,
             )
-        elif url.startswith(
-            f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
-        ) or url.startswith("http://minio:9000"):
+        elif (
+            url.startswith(
+                f"https://gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
+            )
+            or url.startswith(
+                f"https://gen3wf-{config['HOSTNAME']}-{TEST_CLIENT_ID.lower()}.s3.{config['USER_BUCKETS_REGION']}.amazonaws.com"
+            )
+            or url.startswith("http://minio:9000")
+        ):
             # mock calls to AWS S3 (or minio if using path-style addressing)
             mocked_response = mock_aws_s3_request(url)
 

@@ -1,5 +1,7 @@
+from urllib.parse import urlencode
+
 from dateutil import parser
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.status import HTTP_200_OK
@@ -10,34 +12,45 @@ from gen3workflow.routes.ga4gh_tes import cancel_task, list_tasks
 
 router = APIRouter(prefix="/ui")
 
+UI_PAGE_SIZE = 50
+
 templates = Jinja2Templates(directory="gen3workflow/templates")
 
 
 @router.get("", status_code=HTTP_200_OK, response_class=HTMLResponse)
-async def tasks_ui(request: Request, auth=Depends(Auth)):
+async def tasks_ui(
+    request: Request,
+    auth=Depends(Auth),
+    page_token: str = Query(None, include_in_schema=False),
+    all: str = Query(None, include_in_schema=False),
+):
     """
     A UI which allows for basic TES task management
     """
     user_id = await auth.get_user_id()
     username = None
     tasks = []
-    is_more = ""
+    next_page_token = ""
 
     if user_id:  # only get the tasks if the user is logged in
         token_claims = await auth.get_token_claims()
         username = token_claims.get("context", {}).get("user", {}).get("name")
+        query_params = {"view": "BASIC", "page_size": UI_PAGE_SIZE}
+        if page_token:
+            query_params["page_token"] = page_token
         resp = await list_tasks(
             Request(
                 scope={
                     "app": request.scope["app"],
                     "type": request.scope["type"],
-                    "query_string": "view=FULL",
+                    "query_string": urlencode(query_params).encode(),
                 }
             ),
             auth,
+            all=all,
         )
         tasks = resp.pop("tasks")
-        is_more = resp.get("next_page_token")
+        next_page_token = resp.get("next_page_token")
 
     for i in range(len(tasks)):
         authz_tag = tasks[i]["tags"]["_AUTHZ"]
@@ -65,7 +78,8 @@ async def tasks_ui(request: Request, auth=Depends(Auth)):
             "user_id": user_id,
             "username": username,
             "tasks": tasks,
-            "is_more": is_more,
+            "next_page_token": next_page_token,
+            "show_all": all is not None,
         },
     )
 

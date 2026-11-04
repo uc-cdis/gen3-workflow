@@ -7,12 +7,14 @@ import pytest
 from gen3workflow.config import config
 from gen3workflow.routes.ga4gh_tes import get_authz_string_for_user
 from tests.conftest import (
+    TEST_CLIENT_ID,
     TEST_USER_ID,
     TEST_USER_TOKEN,
     VALID_AUD_STR,
     get_debug_stub_warnings,
     mock_arborist_request,
     mock_tes_server_request,
+    mock_tes_server_with_max_page_size,
     remove_bucket_policy_and_put_object,
 )
 
@@ -61,11 +63,11 @@ async def test_get_task(client, access_token_patcher, view, trailing_slash):
         url += f"&view={view}"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    # the call to the TES server has at least `view=BASIC` so we get the _AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks/123",
-        query_params=[("view", "FULL")],
+        query_params=[("view", "FULL" if view == "FULL" else "BASIC")],
         body="",
         status_code=client.tes_resp_code,
     )
@@ -178,6 +180,174 @@ async def test_create_task_without_token(client):
     assert res.status_code == 401, res.text
     assert res.json() == {"detail": "Must provide an access token"}
     mock_tes_server_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_create_task_with_client_token(
+    client, access_token_patcher, mock_aws_services
+):
+    """
+    Calls to `POST /ga4gh/tes/v1/tasks` with a token obtained through a `client_credentials`
+    flow (not linked to a user) should be forwarded to the TES server, with the client itself
+    as the principal: the `_AUTHZ` tag and worker names should be based on the client ID.
+    """
+    with patch(
+        "gen3workflow.aws.bucket.get_existing_kms_key_for_bucket",
+        lambda _: ("test_kms_key_alias", "*"),
+    ):
+        res = await client.post(
+            "/ga4gh/tes/v1/tasks",
+            json={"name": "test-task"},
+            headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+        )
+    assert res.status_code == 200, res.text
+    assert res.json() == {"id": "123"}
+
+    expected_body = {
+        "name": "test-task",
+        "tags": {
+            "_AUTHZ": f"/services/workflow/gen3-workflow/tasks/{TEST_CLIENT_ID}/TASK_ID_PLACEHOLDER",
+            # AWS/k8s-safe names are lowercased, unlike the authz resource path above
+            "_FUNNEL_WORKER_ROLE_ARN": f"arn:aws:iam::123456789012:role/gen3wf-localhost-{TEST_CLIENT_ID.lower()}-funnel-role",
+            "_WORKER_SA": f"gen3wf-localhost-{TEST_CLIENT_ID.lower()}-worker-sa",
+            "_NODE_SELECTOR": "role:workflow",
+            "_TOLERATIONS": "Key:role,Operator:Equal,Value:workflow,Effect:NoSchedule",
+        },
+    }
+    expected_body["tags"] = dict(sorted(expected_body["tags"].items()))
+    mock_tes_server_request.assert_called_once_with(
+        method="POST",
+        path="/tasks",
+        query_params=[],
+        body=json.dumps(expected_body, separators=(",", ":")),
+        status_code=200,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_get_task_with_client_token(client, access_token_patcher):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks/<task ID>` with a token obtained through a
+    `client_credentials` flow (not linked to a user) should be forwarded to the TES server,
+    with the usual authorization check against the task's `_AUTHZ` tag.
+    """
+    res = await client.get(
+        "/ga4gh/tes/v1/tasks/123",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 200, res.text
+
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    mock_tes_server_request.assert_called_once_with(
+        method="GET",
+        path="/tasks/123",
+        query_params=[("view", "FULL")],
+        body="",
+        status_code=200,
+    )
+
+    # check that the appropriate authorization checks were made
+    mock_arborist_request.assert_called_with(
+        method="POST",
+        path=f"/auth/request",
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"read"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}},"aud":{VALID_AUD_STR}}}',
+        authorized=True,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_list_tasks_with_client_token(client, access_token_patcher):
+    """
+    Calls to `GET /ga4gh/tes/v1/tasks` with a token obtained through a `client_credentials`
+    flow (not linked to a user) should be forwarded to the TES server, with the usual
+    task filtering based on the tasks' `_AUTHZ` tags.
+    """
+    res = await client.get(
+        "/ga4gh/tes/v1/tasks", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+    assert len(res.json().get("tasks", [])) == 3
+
+    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag, and the
+    # tasks are pre-filtered on the client's own `_AUTHZ` tag value
+    mock_tes_server_request.assert_called_once_with(
+        method="GET",
+        path="/tasks",
+        query_params=[
+            ("view", "FULL"),
+            ("tag_key", "_AUTHZ"),
+            ("tag_value", get_authz_string_for_user(TEST_CLIENT_ID)),
+        ],
+        body="",
+        status_code=200,
+    )
+
+    # check that the appropriate authorization checks were made
+    mock_arborist_request.assert_called_with(
+        method="POST",
+        path="/auth/mapping",
+        body=f'{{"aud":{VALID_AUD_STR}}}',
+        authorized=True,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+async def test_delete_task_with_client_token(client, access_token_patcher):
+    """
+    Calls to `POST /ga4gh/tes/v1/tasks/<task ID>:cancel` with a token obtained through a
+    `client_credentials` flow (not linked to a user) should be forwarded to the TES server,
+    with the usual authorization check against the task's `_AUTHZ` tag.
+    """
+    res = await client.post(
+        "/ga4gh/tes/v1/tasks/123:cancel",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {}
+
+    # there is always a 1st call with view=FULL to get the _AUTHZ tag, then the cancel call
+    mock_tes_server_request.assert_any_call(
+        method="GET",
+        path="/tasks/123",
+        query_params=[("view", "FULL")],
+        body="",
+        status_code=200,
+    )
+    mock_tes_server_request.assert_called_with(
+        method="POST",
+        path="/tasks/123:cancel",
+        query_params=[],
+        body="",
+        status_code=200,
+    )
+
+    # check that the appropriate authorization checks were made
+    mock_arborist_request.assert_called_with(
+        method="POST",
+        path=f"/auth/request",
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/tasks/{TEST_USER_ID}/123","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}},"aud":{VALID_AUD_STR}}}',
+        authorized=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -533,8 +703,11 @@ async def test_list_tasks(
         url += "&all"
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params = [("state", "COMPLETE"), ("view", "FULL")]
+    # the call to the TES server has at least `view=BASIC` so we get the _AUTHZ tag
+    query_params = [
+        ("state", "COMPLETE"),
+        ("view", "FULL" if view == "FULL" else "BASIC"),
+    ]
     if not get_all:
         query_params += [
             ("tag_key", "_AUTHZ"),
@@ -626,7 +799,6 @@ async def test_list_tasks_repeated_params(
         "&tag_key=tag_key_1&tag_value=tag_val_1&tag_key=tag_key_2&tag_value=tag_val_2"
     )
     url += repeated_params
-    # Test with view != "FULL" to verify that request includes ("view", "FULL")
     url += "&view=BASIC"
 
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
@@ -651,8 +823,8 @@ async def test_list_tasks_repeated_params(
         + tag_values
         + [("tag_value", get_authz_string_for_user(TEST_USER_ID))]
     )
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params += [("view", "FULL")]
+    # the call to the TES server has at least `view=BASIC` so we get the _AUTHZ tag
+    query_params += [("view", "BASIC")]
 
     mock_tes_server_request.assert_called_once_with(
         method="GET",
@@ -685,6 +857,66 @@ async def test_list_tasks_repeated_params(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("requested_page_size", "max_page_size", "expected_page_sizes", "expected_status"),
+    [
+        pytest.param(None, 64, [None, "128", "64"], 200, id="default page size"),
+        pytest.param("100", 30, ["100", "50", "25"], 200, id="requested page size"),
+        pytest.param("2", 0, ["2", "1"], 500, id="even 1 task is too large"),
+    ],
+)
+async def test_list_tasks_response_too_large(
+    client,
+    access_token_patcher,
+    mock_aws_services,
+    requested_page_size,
+    max_page_size,
+    expected_page_sizes,
+    expected_status,
+):
+    """
+    When the TES server's response is too large for its gRPC message size limit, the request
+    should be retried with a smaller page size, until the response fits or the page size is 1.
+    """
+    res = await client.get(
+        "/storage/setup", headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+    )
+    assert res.status_code == 200, res.text
+
+    url = "/ga4gh/tes/v1/tasks"
+    if requested_page_size:
+        url += f"?page_size={requested_page_size}"
+    original_side_effect = mock_tes_server_request.side_effect
+    mock_tes_server_request.side_effect = mock_tes_server_with_max_page_size(
+        max_page_size
+    )
+    try:
+        res = await client.get(
+            url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"}
+        )
+    finally:
+        mock_tes_server_request.side_effect = original_side_effect
+
+    assert res.status_code == expected_status, res.text
+    if expected_status == 200:
+        assert "123" in [t["id"] for t in res.json()["tasks"]]
+    else:
+        assert "received message larger than max" in res.json()["detail"]
+
+    # the other query params should be the same in all the calls
+    page_sizes = []
+    for c in mock_tes_server_request.call_args_list:
+        params = c.kwargs["query_params"]
+        page_sizes.append(dict(params).get("page_size"))
+        assert [p for p in params if p[0] != "page_size"] == [
+            ("view", "BASIC"),
+            ("tag_key", "_AUTHZ"),
+            ("tag_value", get_authz_string_for_user(TEST_USER_ID)),
+        ]
+    assert page_sizes == expected_page_sizes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "client",
     [
         pytest.param({"tes_resp_code": 200}, id="no user"),
@@ -697,7 +929,7 @@ async def test_list_tasks_repeated_params(
     ("method", "expected_error"),
     [
         ("get", "Login required when parameter 'all' is not used"),
-        ("post", "No user sub in token"),
+        ("post", "No user or client identity in token"),
     ],
 )
 async def test_tasks_error_no_user(
@@ -744,8 +976,8 @@ async def test_get_tasks_no_user(client, access_token_patcher, trailing_slash):
 
     res = await client.get(url, headers={"Authorization": f"bearer {TEST_USER_TOKEN}"})
 
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
-    query_params = [("view", "FULL")]
+    # the call to the TES server has at least `view=BASIC` so we get the _AUTHZ tag
+    query_params = [("view", "BASIC")]
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
