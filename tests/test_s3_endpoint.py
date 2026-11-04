@@ -118,8 +118,11 @@ def test_s3_endpoint_rejects_client_acting_on_behalf_of_a_user(
     Hitting the `/s3` endpoint with a client aws_access_key_id (`<token>;userId=<user ID>`)
     should result in a 401 Unauthorized error.
     """
-    with pytest.raises(ClientError, match="Unauthorized"):
+    with pytest.raises(ClientError) as exc_info:
         s3_client.list_objects(Bucket=f"gen3wf-{config['HOSTNAME']}-{TEST_USER_ID}")
+    error = exc_info.value.response.get("Error", {})
+    assert error.get("Code") == "Unauthorized"
+    assert "rejected - this path is deprecated" in error.get("Message", "")
 
 
 @pytest.mark.parametrize("client", [{"get_url": True}], indirect=True)
