@@ -36,9 +36,9 @@ Note: It is important for S3Files to also be enabled in Funnel for an end-to-end
 
 **Steps for a Gen3 operator:**
 
-1. **Identify the node role(s) workflow tasks run on** for this environment. In most clusters this is `role=workflow` (and `role=gpu` if GPU tasks are supported). Check the cluster's `gen3-gitops` `cluster-values.yaml` for how these roles are configured, since role → security-group mapping can differ per environment.
+1. **Identify the node role(s) workflow tasks run on** for this environment. In most clusters this is `role=workflow` (and `role=gpu` if GPU tasks are supported). Check the cluster's `gen3-gitops` `cluster-values.yaml` for how these roles are configured, since role → security-group mapping can differ per environment. (example [here](https://github.com/uc-cdis/gen3-gitops/blob/086277d/devplanetv2/cluster-values/cluster-values.yaml#L108))
 
-2. **Find the Karpenter `EC2NodeClass` for each relevant role** in `gen3-helm` under `helm/cluster-level-resources/templates/karpenter-config-resources-<role>.yaml` (e.g. `karpenter-config-resources-workflow.yaml`). Look at the `securityGroupSelectorTerms` block — nodes get whichever security groups carry the matching `karpenter.sh/discovery` tag value (`selectorTag` from Helm values).
+2. **Find the Karpenter `EC2NodeClass` for each relevant role** in `gen3-helm` under `helm/cluster-level-resources/templates/karpenter-config-resources-<role>.yaml` (e.g. [karpenter-config-resources-workflow.yaml](https://github.com/uc-cdis/gen3-helm/blob/master/helm/cluster-level-resources/templates/karpenter-config-resources-workflow.yaml)). Look at the `securityGroupSelectorTerms` block — nodes get whichever security groups carry the matching `karpenter.sh/discovery` tag value (`selectorTag` from Helm values).
 
    For example, if `karpenter-config-resources-<role>.yaml` includes:
    ```
