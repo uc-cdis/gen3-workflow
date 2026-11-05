@@ -247,11 +247,11 @@ async def test_get_task_with_client_token(client, access_token_patcher):
     )
     assert res.status_code == 200, res.text
 
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag
+    # the call to the TES server always has `view=BASIC` so we get the _AUTHZ tag
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks/123",
-        query_params=[("view", "FULL")],
+        query_params=[("view", "BASIC")],
         body="",
         status_code=200,
     )
@@ -283,13 +283,13 @@ async def test_list_tasks_with_client_token(client, access_token_patcher):
     assert res.status_code == 200, res.text
     assert len(res.json().get("tasks", [])) == 3
 
-    # the call to the TES server always has `view=FULL` so we get the _AUTHZ tag, and the
+    # the call to the TES server always has `view=BASIC` so we get the _AUTHZ tag, and the
     # tasks are pre-filtered on the client's own `_AUTHZ` tag value
     mock_tes_server_request.assert_called_once_with(
         method="GET",
         path="/tasks",
         query_params=[
-            ("view", "FULL"),
+            ("view", "BASIC"),
             ("tag_key", "_AUTHZ"),
             ("tag_value", get_authz_string_for_user(TEST_CLIENT_ID)),
         ],
