@@ -230,7 +230,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     request.app.metrics.add_task_created(status_code=HTTP_200_OK)
 
-    return redact_secrets(res.json())
+    return res.json()
 
 
 def process_task_outputs(user_id, body: dict) -> dict:
