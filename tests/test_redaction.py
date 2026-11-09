@@ -21,6 +21,7 @@ PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nIBAAKC\n-----END RSA PRIVATE KEY
     ids=["jwt", "aws key id", "high entropy", "pem"],
 )
 def test_secrets_are_redacted(value):
+    """Test that all secrets are replaced with the redacted placeholder."""
     assert redact_string(value) == REDACTED_PLACEHOLDER
     # secrets embedded in a longer string, such as a command argument
     assert (
@@ -82,6 +83,7 @@ def test_secrets_are_redacted(value):
     ],
 )
 def test_secrets_in_context_are_redacted(value, expected):
+    """Test that secrets embedded within a longer string are replaced with the redacted placeholder."""
     assert redact_string(value) == expected
 
 
@@ -109,10 +111,12 @@ def test_secrets_in_context_are_redacted(value, expected):
     ],
 )
 def test_non_secrets_are_not_redacted(value):
+    """Test that non-secrets are not redacted even if they contain secret-like patterns."""
     assert redact_string(value) == value
 
 
 def test_redact_secrets_in_task():
+    """Test that secrets in a task response are properly redacted."""
     task = {
         "id": "d1hnepgddd2s73ah7fug",
         "executors": [
