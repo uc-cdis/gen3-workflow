@@ -2,14 +2,16 @@
 Value-based detection and redaction of secrets in TES tasks.
 
 Secrets (such as a `GEN3_TOKEN` env var) are detected by looking at values, not names, so they
-are caught regardless of the variable name or where they are in the task. Redaction is applied
-to API responses and to gen3-workflow's own logs. The task sent to the TES server is unchanged.
+are caught regardless of the variable name or where they are in the task. As a second line of
+defence, an executor's env vars are also redacted by name, which catches short or low-entropy
+credentials that no value-based rule can recognise. Redaction is applied to API responses and
+to gen3-workflow's own logs. The task sent to the TES server is unchanged.
 """
 
 import math
 import re
 from collections import Counter
-from typing import Any
+from typing import Any, Iterable
 
 REDACTED_PLACEHOLDER = "[REDACTED]"
 
@@ -22,6 +24,13 @@ HIGH_ENTROPY_MIN_LENGTH = math.ceil(
 HIGH_ENTROPY_CANDIDATE = re.compile(rf"[A-Za-z0-9+/_=-]{{{HIGH_ENTROPY_MIN_LENGTH},}}")
 
 PATH_MIN_SEPARATORS = 3
+
+# an env var whose name contains one of these holds a secret, whatever its value looks like:
+# this covers `GEN3_TOKEN`, `GEN3_API_KEY`, `GEN3_ACCESS_TOKEN`, `TASK_TOKEN`, `DB_PASSWORD`...
+# matched against a lowercased name: `re.IGNORECASE` would cost more than the `str.lower()` call
+SECRET_ENV_VAR_NAME = re.compile(
+    r"credential|key|passphrase|passwd|password|pwd|secret|token"
+)
 
 
 def shannon_entropy(s: str) -> float:
@@ -142,6 +151,38 @@ def redact_string(value: str) -> str:
     return value
 
 
+def _env_var_names_a_secret(name: Any) -> bool:
+    return (
+        isinstance(name, str) and SECRET_ENV_VAR_NAME.search(name.lower()) is not None
+    )
+
+
+def _redact_env_secrets(env: Any) -> Any:
+    """
+    Redact an executor's `env`. A variable whose name says it holds a secret is redacted
+    outright, which catches short or low-entropy values that no value-based rule can
+    recognise, and saves running the patterns over a value we already know to redact.
+
+    Args:
+        env: the value of an `env` key, normally a dict of variable names to values
+
+    Returns:
+        a redacted copy of the value
+    """
+    # TODO: Add redaction of values also based on user defined key names
+
+    if not isinstance(env, dict):
+        return redact_secrets(env)
+    return {
+        name: (
+            REDACTED_PLACEHOLDER
+            if value and isinstance(value, str) and _env_var_names_a_secret(name)
+            else redact_secrets(value)
+        )
+        for name, value in env.items()
+    }
+
+
 def redact_secrets(obj: Any) -> Any:
     """
     Recursively redact secret-looking values in a JSON-like object (dicts, lists, strings).
@@ -156,7 +197,14 @@ def redact_secrets(obj: Any) -> Any:
     if isinstance(obj, str):
         return redact_string(obj)
     if isinstance(obj, dict):
-        return {k: redact_secrets(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
+        return {
+            k: (
+                _redact_env_secrets(v)
+                if isinstance(k, str) and k.lower() == "env"
+                else redact_secrets(v)
+            )
+            for k, v in obj.items()
+        }
+    if isinstance(obj, Iterable):
         return [redact_secrets(v) for v in obj]
     return obj

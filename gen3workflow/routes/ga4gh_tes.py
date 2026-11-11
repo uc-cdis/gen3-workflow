@@ -136,9 +136,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
-    logger.debug(
-        f"Incoming task creation request body: {json.dumps(redact_secrets(body))}"
-    )
+    if config["APP_DEBUG"]:
+        logger.debug(
+            f"Incoming task creation request body: {json.dumps(redact_secrets(body))}"
+        )
 
     # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
     principal_id, username, is_client = await auth.get_principal()
@@ -216,9 +217,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     body["tags"] = dict(sorted(body["tags"].items()))
 
-    logger.debug(
-        f"Outgoing task creation request body: {json.dumps(redact_secrets(body))}"
-    )
+    if config["APP_DEBUG"]:
+        logger.debug(
+            f"Outgoing task creation request body: {json.dumps(redact_secrets(body))}"
+        )
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
