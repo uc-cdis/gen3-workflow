@@ -6,10 +6,7 @@ from botocore.exceptions import ClientError
 
 from gen3workflow import logger
 from gen3workflow.aws import clients
-from gen3workflow.aws.aws_utils import (
-    get_safe_name_from_hostname,
-    get_tags_for_cost_tracking,
-)
+from gen3workflow.aws.aws_utils import get_tags_for_cost_tracking
 from gen3workflow.config import config
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
@@ -123,7 +120,7 @@ def get_s3files_setup_status(filesystem_id):
 
 def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> str:
     """
-    Creating S3 Files file system for the given bucket.
+    Create or update a S3 Files file system for the given bucket.
 
     Args:
         bucket_name: name of the source S3 bucket.

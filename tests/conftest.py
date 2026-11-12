@@ -6,6 +6,7 @@ import contextlib
 import json
 import os
 import time
+from collections import deque
 from datetime import datetime
 from threading import Thread
 from unittest.mock import MagicMock, patch
@@ -32,8 +33,8 @@ from gen3workflow.config import config
 config.validate()
 
 from gen3workflow.app import get_app
-from gen3workflow.aws import aws_utils, clients
-from gen3workflow.aws.bucket import USER_BUCKET_CACHE
+from gen3workflow.auth import AUTHZ_CACHE
+from gen3workflow.aws import aws_utils, bucket, clients
 
 TEST_USER_ID = "user-64"
 NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
@@ -366,7 +367,10 @@ async def reset_requests_mocks_and_caches():
     global mock_arborist_request
     mock_arborist_request.reset_mock()
     aws_utils.OUTPUTS_ARE_READY_CACHE.clear()
-    USER_BUCKET_CACHE.clear()
+    aws_utils.OUTPUTS_ARE_READY_CACHE_ORDER = deque()
+    AUTHZ_CACHE.clear()
+    bucket.USER_BUCKET_CACHE.clear()
+    bucket._KMS_KEY_ARN_CACHE = {}
 
 
 def get_debug_stub_warnings(caplog) -> list:
