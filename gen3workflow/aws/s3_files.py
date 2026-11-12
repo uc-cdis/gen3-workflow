@@ -7,8 +7,8 @@ from botocore.exceptions import ClientError
 from gen3workflow import logger
 from gen3workflow.aws import clients
 from gen3workflow.aws.aws_utils import (
-    get_cost_tracking_tags,
     get_safe_name_from_hostname,
+    get_tags_for_cost_tracking,
 )
 from gen3workflow.config import config
 
@@ -132,29 +132,31 @@ def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> st
     Returns:
         The file system ID.
     """
-    bucket_arn = f"arn:aws:s3:::{bucket_name}"
+    file_system_id = get_s3_files_system(bucket_name)
+    if not file_system_id:
+        bucket_arn = f"arn:aws:s3:::{bucket_name}"
+        try:
+            response = clients.s3files_client.create_file_system(
+                bucket=bucket_arn, roleArn=role_arn
+            )
+            file_system_id = response["fileSystemId"]
+            logger.debug(
+                f"Created new S3 Files file system '{file_system_id}' for bucket '{bucket_name}'"
+            )
+        except ClientError as e:
+            logger.error(
+                f"Failed to create S3 Files file system for bucket '{bucket_name}': {e.response['Error']['Message']}"
+            )
+            raise
 
-    try:
-        response = clients.s3files_client.create_file_system(
-            bucket=bucket_arn,
-            roleArn=role_arn,
-            tags=[
-                {
-                    "key": "Name",
-                    "value": get_safe_name_from_hostname(user_id=user_id),
-                }
-            ],
-        )
-        file_system_id = response["fileSystemId"]
-        logger.debug(
-            f"Created new S3 Files file system '{file_system_id}' for bucket '{bucket_name}'"
-        )
-        return file_system_id
-    except ClientError as e:
-        logger.error(
-            f"Failed to create S3 Files file system for bucket '{bucket_name}': {e.response['Error']['Message']}"
-        )
-        raise
+    # update the file system tags
+    # could add logic to skip if the tags are up to date
+    clients.efs_client.tag_resource(
+        ResourceId=file_system_id,
+        Tags=get_tags_for_cost_tracking(user_id, "s3files"),
+    )
+
+    return file_system_id
 
 
 # --------------------------------------------------------------------------- #
@@ -400,18 +402,11 @@ def _get_or_create_s3_files_bucket_role(
     """
     # TODO: Make it such that it is under 64 characters
     role_name = f"{bucket_name}-s3files-role"
+    role_policy_name = "S3FilesBucketAccess"
     account_id = clients.sts_client.get_caller_identity()["Account"]
     bucket_arn = f"arn:aws:s3:::{bucket_name}"
 
-    try:
-        role = clients.iam_client.get_role(RoleName=role_name)
-        role_arn = role["Role"]["Arn"]
-        logger.info("IAM role '%s' already exists (%s)", role_name, role_arn)
-        return role_arn
-    except clients.iam_client.exceptions.NoSuchEntityException:
-        pass
-
-    trust_policy = {
+    new_trust_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -429,9 +424,45 @@ def _get_or_create_s3_files_bucket_role(
         ],
     }
 
+    try:
+        existing_role = clients.iam_client.get_role(RoleName=role_name)
+        role_arn = existing_role["Role"]["Arn"]
+        logger.info("IAM role '%s' already exists (%s)", role_name, role_arn)
+        existing_trust_policy = existing_role["Role"]["AssumeRolePolicyDocument"]
+        if existing_trust_policy != new_trust_policy:
+            clients.iam_client.update_assume_role_policy(
+                RoleName=role_name,
+                PolicyDocument=json.dumps(new_trust_policy),
+            )
+        else:
+            logger.debug("Role trust policy is already up to date")
+    except clients.iam_client.exceptions.NoSuchEntityException as e:
+        existing_role = None
+        try:
+            response = clients.iam_client.create_role(
+                RoleName=role_name,
+                AssumeRolePolicyDocument=json.dumps(new_trust_policy),
+                Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
+                Tags=get_tags_for_cost_tracking(user_id, "s3files"),
+            )
+            role_arn = response["Role"]["Arn"]
+        except ClientError as e:
+            logger.error(
+                f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
+            )
+            raise
+
+    if existing_role:
+        try:
+            existing_role_policy = clients.iam_client.get_role_policy(
+                RoleName=role_name, PolicyName=role_policy_name
+            )["PolicyDocument"]
+        except clients.iam_client.exceptions.NoSuchEntityException as e:
+            existing_role_policy = None
+
     # NOTE: includes the KMS statement unconditionally. If the kmsEncryptionEnabled is false,
     # this statement is simply unused -- harmless
-    inline_policy = {
+    new_role_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -507,35 +538,26 @@ def _get_or_create_s3_files_bucket_role(
         ],
     }
 
-    try:
-        response = clients.iam_client.create_role(
-            RoleName=role_name,
-            AssumeRolePolicyDocument=json.dumps(trust_policy),
-            Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
-            Tags=get_cost_tracking_tags(user_id, "s3files"),
-        )
-        role_arn = response["Role"]["Arn"]
-    except ClientError as e:
-        logger.error(
-            f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
-        )
-        raise
-
-    try:
-        clients.iam_client.put_role_policy(
-            RoleName=role_name,
-            PolicyName="S3FilesBucketAccess",
-            PolicyDocument=json.dumps(inline_policy),
-        )
-        logger.info(
-            "Created IAM role '%s' (%s) for S3 Files bucket access", role_name, role_arn
-        )
-        return role_arn
-    except ClientError as e:
-        logger.error(
-            f"Failed to put IAM policy for role {role_arn} for bucket '{bucket_name}': {e.response['Error']['Message']}"
-        )
-        raise
+    if not existing_role or new_role_policy != existing_role_policy:
+        try:
+            clients.iam_client.put_role_policy(
+                RoleName=role_name,
+                PolicyName=role_policy_name,
+                PolicyDocument=json.dumps(new_role_policy),
+            )
+            logger.info(
+                "Created IAM role '%s' (%s) for S3 Files bucket access",
+                role_name,
+                role_arn,
+            )
+            return role_arn
+        except ClientError as e:
+            logger.error(
+                f"Failed to put IAM policy for role {role_arn} for bucket '{bucket_name}': {e.response['Error']['Message']}"
+            )
+            raise
+    else:
+        logger.debug("Role inline policy is already up to date")
 
 
 # ---------

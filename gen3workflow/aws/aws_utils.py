@@ -154,7 +154,16 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
     return all_ready, logs
 
 
-def get_cost_tracking_tags(user_id: str, role_owner: Union[str, None] = None):
+def get_tags_for_cost_tracking(
+    user_id: str, role_owner: Union[str, None] = None, format: str = ""
+):
+    """
+    Generate AWS resource tags that support cost tracking by including the user ID.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+        role_owner (str | None): A name for the entity using the associated IAM role, if relevant
+    """
     tags = [
         {
             "Key": "Name",
@@ -176,4 +185,6 @@ def get_cost_tracking_tags(user_id: str, role_owner: Union[str, None] = None):
                 "Value": role_owner,
             }
         )
+    if format == "kms":
+        tags = [{"TagKey": tag["Key"], "TagValue": tag["Value"]} for tag in tags]
     return tags

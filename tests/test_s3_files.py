@@ -226,7 +226,6 @@ def test_create_s3_files_system_success(mock_aws_services):
     clients.s3files_client.create_file_system.assert_called_once_with(
         bucket="arn:aws:s3:::test-bucket",
         roleArn="arn:aws:iam::123456789012:role/s3files-role",
-        tags=[{"key": "Name", "value": f"gen3wf-localhost-{TEST_USER_ID}"}],
     )
 
 
@@ -661,11 +660,9 @@ def test_get_or_create_s3_files_bucket_role_creates_new_role(mock_aws_services):
     assert "S3ObjectPermissions" in sids
 
 
-def test_get_or_create_s3_files_bucket_role_returns_existing_role(
-    mock_aws_services,
-):
+def test_get_or_create_s3_files_bucket_role_returns_existing_role(mock_aws_services):
     """
-    If the role already exists, it is returned as-is and no new role/policy is
+    If the role already exists, it is returned as-is and no new role is
     created.
     """
     bucket_name = "test-bucket"
@@ -690,7 +687,9 @@ def test_get_or_create_s3_files_bucket_role_returns_existing_role(
 
     assert role_arn == expected_arn
     create_role_spy.assert_not_called()
-    put_policy_spy.assert_not_called()
+
+    # the role policy should be updated even if the role already exists
+    put_policy_spy.assert_called()
 
 
 def test_get_or_create_s3_files_bucket_role_client_error_reraises(

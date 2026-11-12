@@ -13,8 +13,8 @@ from gen3workflow.aws import clients
 from gen3workflow.aws.aws_utils import (
     dict_to_sorted_json_str,
     get_bucket_name_from_user_id,
-    get_cost_tracking_tags,
     get_safe_name_from_hostname,
+    get_tags_for_cost_tracking,
     get_worker_sa_name,
 )
 from gen3workflow.config import config
@@ -127,7 +127,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
         worker_role = clients.iam_client.create_role(
             RoleName=role_name,
             AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-            Tags=get_cost_tracking_tags(user_id, "funnel"),
+            Tags=get_tags_for_cost_tracking(user_id, "funnel"),
         )
         logger.info(f"Created IAM role '{role_name}'")
 
@@ -202,12 +202,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str, user_id: str) -> None:
     else:
         # the KMS key doesn't exist: create it
         output = clients.kms_client.create_key(
-            Tags=[
-                {
-                    "TagKey": "Name",
-                    "TagValue": get_safe_name_from_hostname(user_id=user_id),
-                }
-            ]
+            Tags=get_tags_for_cost_tracking(user_id, format="kms")
         )
         kms_key_arn = output["KeyMetadata"]["Arn"]
         logger.debug(f"Created KMS key '{kms_key_arn}'")
@@ -359,8 +354,6 @@ async def _create_user_bucket(user_id: str) -> str:
             clients.s3_client.create_bucket(
                 Bucket=user_bucket_name,
                 CreateBucketConfiguration={
-                    "LocationConstraint": config["USER_BUCKETS_REGION"],
-                    "Tags": get_cost_tracking_tags(user_id),
                     **(
                         # us-east-1 is the default region and cannot be specified in `LocationConstraint`
                         {"LocationConstraint": config["USER_BUCKETS_REGION"]}
@@ -381,8 +374,15 @@ async def _create_user_bucket(user_id: str) -> str:
             waiter.wait(Bucket=user_bucket_name)
             logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
-    expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
+    # Update the bucket tags - this could be done during `create_bucket` but this way is easier,
+    # to update existing buckets. Not checking whether tags need to be updated since
+    # `USER_BUCKET_CACHE` already avoids making excessive AWS calls.
+    clients.s3_client.put_bucket_tagging(
+        Bucket=user_bucket_name,
+        Tagging={"TagSet": get_tags_for_cost_tracking(user_id)},
+    )
 
+    expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
     clients.s3_client.put_bucket_lifecycle_configuration(
         Bucket=user_bucket_name,
