@@ -579,9 +579,6 @@ def mock_aws_services():
         clients.ec2_client = boto3.client(
             "ec2", region_name=config["USER_BUCKETS_REGION"]
         )
-        clients.efs_client = boto3.client(
-            "efs", region_name=config["USER_BUCKETS_REGION"]
-        )
 
         # S3Files custom mocking (since `moto` does not support it yet)
         clients.s3files_client = MagicMock(name="s3files_client")

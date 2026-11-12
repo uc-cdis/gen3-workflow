@@ -151,9 +151,9 @@ def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> st
 
     # update the file system tags
     # could add logic to skip if the tags are up to date
-    clients.efs_client.tag_resource(
-        ResourceId=file_system_id,
-        Tags=get_tags_for_cost_tracking(user_id, "s3files"),
+    clients.s3files_client.tag_resource(
+        resourceId=file_system_id,
+        tags=get_tags_for_cost_tracking(user_id, "s3files"),
     )
 
     return file_system_id
