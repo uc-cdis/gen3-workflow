@@ -152,3 +152,28 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
         OUTPUTS_ARE_READY_CACHE.add(task_id)
 
     return all_ready, logs
+
+
+def get_cost_tracking_tags(user_id: str, role_owner: Union[str, None] = None):
+    tags = [
+        {
+            "Key": "Name",
+            "Value": get_safe_name_from_hostname(user_id=user_id),
+        },
+        {
+            "Key": "hostname",
+            "Value": config["HOSTNAME"],
+        },
+        {
+            "Key": "service",
+            "Value": "gen3-workflow",
+        },
+    ]
+    if role_owner:
+        tags.append(
+            {
+                "Key": "actor",
+                "Value": role_owner,
+            }
+        )
+    return tags

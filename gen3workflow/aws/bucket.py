@@ -13,6 +13,7 @@ from gen3workflow.aws import clients
 from gen3workflow.aws.aws_utils import (
     dict_to_sorted_json_str,
     get_bucket_name_from_user_id,
+    get_cost_tracking_tags,
     get_safe_name_from_hostname,
     get_worker_sa_name,
 )
@@ -126,12 +127,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
         worker_role = clients.iam_client.create_role(
             RoleName=role_name,
             AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-            Tags=[
-                {
-                    "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=user_id),
-                }
-            ],
+            Tags=get_cost_tracking_tags(user_id, "funnel"),
         )
         logger.info(f"Created IAM role '{role_name}'")
 
@@ -360,16 +356,19 @@ async def _create_user_bucket(user_id: str) -> str:
             f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user '{user_id}'"
         )
         try:
-            if config["USER_BUCKETS_REGION"] == "us-east-1":
-                # it's the default region and cannot be specified in `LocationConstraint`
-                clients.s3_client.create_bucket(Bucket=user_bucket_name)
-            else:
-                clients.s3_client.create_bucket(
-                    Bucket=user_bucket_name,
-                    CreateBucketConfiguration={
-                        "LocationConstraint": config["USER_BUCKETS_REGION"]
-                    },
-                )
+            clients.s3_client.create_bucket(
+                Bucket=user_bucket_name,
+                CreateBucketConfiguration={
+                    "LocationConstraint": config["USER_BUCKETS_REGION"],
+                    "Tags": get_cost_tracking_tags(user_id),
+                    **(
+                        # us-east-1 is the default region and cannot be specified in `LocationConstraint`
+                        {"LocationConstraint": config["USER_BUCKETS_REGION"]}
+                        if config["USER_BUCKETS_REGION"] != "us-east-1"
+                        else {}
+                    ),
+                },
+            )
         except clients.s3_client.exceptions.BucketAlreadyOwnedByYou:
             # `An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation:
             # Your previous request to create the named bucket succeeded and you already own it.`

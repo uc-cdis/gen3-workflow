@@ -6,7 +6,10 @@ from botocore.exceptions import ClientError
 
 from gen3workflow import logger
 from gen3workflow.aws import clients
-from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
+from gen3workflow.aws.aws_utils import (
+    get_cost_tracking_tags,
+    get_safe_name_from_hostname,
+)
 from gen3workflow.config import config
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
@@ -509,12 +512,7 @@ def _get_or_create_s3_files_bucket_role(
             RoleName=role_name,
             AssumeRolePolicyDocument=json.dumps(trust_policy),
             Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
-            Tags=[
-                {
-                    "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=user_id),
-                }
-            ],
+            Tags=get_cost_tracking_tags(user_id, "s3files"),
         )
         role_arn = response["Role"]["Arn"]
     except ClientError as e:
