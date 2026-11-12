@@ -51,6 +51,7 @@ MOCKED_S3_RESPONSE_DICT = {
             "content-length": "574",
             "content-type": "application/xml",
         },
+        "MaxAttemptsReached": True,
         "RetryAttempts": 0,
     },
     "IsTruncated": False,
