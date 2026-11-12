@@ -153,7 +153,9 @@ def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> st
     # could add logic to skip if the tags are up to date
     clients.s3files_client.tag_resource(
         resourceId=file_system_id,
-        tags=get_tags_for_cost_tracking(user_id, "s3files"),
+        tags=get_tags_for_cost_tracking(
+            user_id, role_owner="s3files", format="lowercase"
+        ),
     )
 
     return file_system_id
@@ -443,7 +445,7 @@ def _get_or_create_s3_files_bucket_role(
                 RoleName=role_name,
                 AssumeRolePolicyDocument=json.dumps(new_trust_policy),
                 Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
-                Tags=get_tags_for_cost_tracking(user_id, "s3files"),
+                Tags=get_tags_for_cost_tracking(user_id, role_owner="s3files"),
             )
             role_arn = response["Role"]["Arn"]
         except ClientError as e:

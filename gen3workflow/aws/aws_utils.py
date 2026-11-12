@@ -155,14 +155,17 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
 
 
 def get_tags_for_cost_tracking(
-    user_id: str, role_owner: Union[str, None] = None, format: str = ""
+    user_id: str, role_owner: str = "", format: str = "uppercase"
 ):
     """
     Generate AWS resource tags that support cost tracking by including the user ID.
 
     Args:
         user_id (str): The user's unique Gen3 ID
-        role_owner (str | None): A name for the entity using the associated IAM role, if relevant
+        role_owner (str): A name for the entity using the associated IAM role, if relevant
+        format (str):
+            One of ["uppercase" (default), "lowercase", "kms"].
+            Different AWS clients/resources expect different tag formats
     """
     tags = [
         {
@@ -178,7 +181,7 @@ def get_tags_for_cost_tracking(
             "Value": config["HOSTNAME"],
         },
         {
-            "Key": "service",
+            "Key": "gen3_service",
             "Value": "gen3-workflow",
         },
     ]
@@ -191,4 +194,6 @@ def get_tags_for_cost_tracking(
         )
     if format == "kms":
         tags = [{"TagKey": tag["Key"], "TagValue": tag["Value"]} for tag in tags]
+    elif format == "lowercase":
+        tags = [{"key": tag["Key"], "value": tag["Value"]} for tag in tags]
     return tags

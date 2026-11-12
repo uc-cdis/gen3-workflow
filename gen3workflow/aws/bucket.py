@@ -127,7 +127,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
         worker_role = clients.iam_client.create_role(
             RoleName=role_name,
             AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-            Tags=get_tags_for_cost_tracking(user_id, "funnel"),
+            Tags=get_tags_for_cost_tracking(user_id, role_owner="funnel"),
         )
         logger.info(f"Created IAM role '{role_name}'")
 
