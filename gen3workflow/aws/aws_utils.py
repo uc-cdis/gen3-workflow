@@ -32,6 +32,7 @@ def get_safe_name_from_hostname(
     - S3 bucket / IAM role names: up to 63 characters.
     - Only alphanumeric characters and the following are allowed: +=,.@_-
         (assumes HOSTNAME and user IDs are already compliant).
+
     Args:
         user_id (str | None): The user's unique Gen3 ID. If None, will not be included in the safe name.
         reserved_length (int): Number of characters to reserve for prefixes/suffixes.

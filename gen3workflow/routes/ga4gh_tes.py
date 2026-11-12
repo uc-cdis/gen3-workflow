@@ -249,7 +249,7 @@ def process_task_outputs(user_id, body: dict) -> dict:
     )
     if task_len > timedelta(hours=config["SKIP_CHECK_TASK_OUTPUTS_HOURS"]):
         logger.debug(
-            f"Task completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
+            f"Task '{body.get('id')}' completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
         )
         return body
 
