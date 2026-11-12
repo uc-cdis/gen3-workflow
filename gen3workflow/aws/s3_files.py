@@ -149,8 +149,7 @@ def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> st
             )
             raise
 
-    # update the file system tags
-    # could add logic to skip if the tags are up to date
+    # Update the file system tags. Could add logic to skip if the tags are up to date
     clients.s3files_client.tag_resource(
         resourceId=file_system_id,
         tags=get_tags_for_cost_tracking(
@@ -445,7 +444,6 @@ def _get_or_create_s3_files_bucket_role(
                 RoleName=role_name,
                 AssumeRolePolicyDocument=json.dumps(new_trust_policy),
                 Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
-                Tags=get_tags_for_cost_tracking(user_id, role_owner="s3files"),
             )
             role_arn = response["Role"]["Arn"]
         except ClientError as e:
@@ -453,6 +451,13 @@ def _get_or_create_s3_files_bucket_role(
                 f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
             )
             raise
+
+    # Update the role tags - this could be done during `create_role` but this way is easier,
+    # to update existing roles. Could add logic to skip if the tags are up to date
+    response = clients.iam_client.tag_role(
+        RoleName=role_name,
+        Tags=get_tags_for_cost_tracking(user_id, role_owner="s3files"),
+    )
 
     if existing_role:
         try:

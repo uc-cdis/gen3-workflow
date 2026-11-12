@@ -198,11 +198,11 @@ def setup_kms_encryption_on_bucket(bucket_name: str, user_id: str) -> None:
     # the only way to check if the KMS key has already been created is to use an alias
     kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
     if kms_key_arn:
-        logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
+        logger.debug(f"Existing KMS key '{kms_key_alias}' ({kms_key_arn})")
     else:
         # the KMS key doesn't exist: create it
         output = clients.kms_client.create_key(
-            Tags=get_tags_for_cost_tracking(user_id, format="kms")
+            Tags=get_tags_for_cost_tracking(user_id, format="pascalcase")
         )
         kms_key_arn = output["KeyMetadata"]["Arn"]
         logger.debug(f"Created KMS key '{kms_key_arn}'")
