@@ -149,7 +149,8 @@ def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> st
             )
             raise
 
-    # Update the file system tags. Could add logic to skip if the tags are up to date
+    # Update the file system tags - this could be done during `create_file_system` but this way is
+    # easier, to update existing file systems. Could add logic to skip if the tags are up to date
     clients.s3files_client.tag_resource(
         resourceId=file_system_id,
         tags=get_tags_for_cost_tracking(

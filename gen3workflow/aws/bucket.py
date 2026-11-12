@@ -201,9 +201,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str, user_id: str) -> None:
         logger.debug(f"Existing KMS key '{kms_key_alias}' ({kms_key_arn})")
     else:
         # the KMS key doesn't exist: create it
-        output = clients.kms_client.create_key(
-            Tags=get_tags_for_cost_tracking(user_id, format="pascalcase")
-        )
+        output = clients.kms_client.create_key()
         kms_key_arn = output["KeyMetadata"]["Arn"]
         logger.debug(f"Created KMS key '{kms_key_arn}'")
 
@@ -211,6 +209,12 @@ def setup_kms_encryption_on_bucket(bucket_name: str, user_id: str) -> None:
             AliasName=kms_key_alias, TargetKeyId=kms_key_arn
         )
         logger.debug(f"Created KMS key alias '{kms_key_alias}'")
+
+    # Update the KMS key tags - this could be done during `create_key` but this way is easier,
+    # to update existing keys. Could add logic to skip if the tags are up to date
+    clients.kms_client.tag_resource(
+        KeyId=kms_key_arn, Tags=get_tags_for_cost_tracking(user_id, format="pascalcase")
+    )
 
     logger.debug(f"Setting KMS encryption on bucket '{bucket_name}'")
     try:

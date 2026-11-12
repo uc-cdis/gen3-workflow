@@ -191,7 +191,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
     if config["EKS_CLUSTER_NAME"]:
-        # TODO delete this, funnel doesn't need this role anymore
+        # TODO check if funnel still needs this role; AWS console says it's not used
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
             create_iam_role_for_funnel_bucket_access(principal_id)
         )
