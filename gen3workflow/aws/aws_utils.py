@@ -170,6 +170,10 @@ def get_tags_for_cost_tracking(
             "Value": get_safe_name_from_hostname(user_id=user_id),
         },
         {
+            "Key": "user_id",
+            "Value": user_id,
+        },
+        {
             "Key": "hostname",
             "Value": config["HOSTNAME"],
         },
