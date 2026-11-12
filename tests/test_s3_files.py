@@ -13,7 +13,7 @@ from botocore.exceptions import ClientError
 
 from gen3workflow.aws import clients, s3_files
 from gen3workflow.config import config
-from tests.conftest import S3FilesResourceNotFoundException
+from tests.conftest import TEST_USER_ID, S3FilesResourceNotFoundException
 
 
 def _client_error(code: str, message: str = "error", operation_name: str = "Operation"):
@@ -219,13 +219,14 @@ def test_create_s3_files_system_success(mock_aws_services):
     result = s3_files._create_s3_files_system(
         bucket_name="test-bucket",
         role_arn="arn:aws:iam::123456789012:role/s3files-role",
+        user_id=TEST_USER_ID,
     )
 
     assert result == "fs-new"
     clients.s3files_client.create_file_system.assert_called_once_with(
         bucket="arn:aws:s3:::test-bucket",
         roleArn="arn:aws:iam::123456789012:role/s3files-role",
-        tags=[{"key": "Name", "value": "gen3wf-localhost"}],
+        tags=[{"key": "Name", "value": f"gen3wf-localhost-{TEST_USER_ID}"}],
     )
 
 
@@ -241,6 +242,7 @@ def test_create_s3_files_system_client_error_reraises(mock_aws_services):
         s3_files._create_s3_files_system(
             bucket_name="test-bucket",
             role_arn="arn:aws:iam::123456789012:role/s3files-role",
+            user_id=TEST_USER_ID,
         )
 
 
@@ -631,7 +633,7 @@ def test_get_or_create_s3_files_bucket_role_creates_new_role(mock_aws_services):
         wraps=clients.iam_client.put_role_policy,
     ) as put_policy_spy:
         role_arn = s3_files._get_or_create_s3_files_bucket_role(
-            bucket_name=bucket_name, region=region
+            bucket_name=bucket_name, region=region, user_id=TEST_USER_ID
         )
 
     assert role_arn.endswith(f"role/{bucket_name}-s3files-role")
@@ -683,7 +685,7 @@ def test_get_or_create_s3_files_bucket_role_returns_existing_role(
         wraps=clients.iam_client.put_role_policy,
     ) as put_policy_spy:
         role_arn = s3_files._get_or_create_s3_files_bucket_role(
-            bucket_name=bucket_name, region="us-east-1"
+            bucket_name=bucket_name, region="us-east-1", user_id=TEST_USER_ID
         )
 
     assert role_arn == expected_arn
@@ -704,7 +706,7 @@ def test_get_or_create_s3_files_bucket_role_client_error_reraises(
     ):
         with pytest.raises(ClientError):
             s3_files._get_or_create_s3_files_bucket_role(
-                bucket_name="test-bucket", region="us-east-1"
+                bucket_name="test-bucket", region="us-east-1", user_id=TEST_USER_ID
             )
 
 
@@ -861,15 +863,18 @@ def test_setup_s3_filesystem_orchestrates_role_and_filesystem_creation():
     ) as get_role_mock, patch.object(
         s3_files, "_create_s3_files_system", return_value="fs-new"
     ) as create_fs_mock:
-        result = s3_files.setup_s3_filesystem("test-bucket")
+        result = s3_files.setup_s3_filesystem("test-bucket", TEST_USER_ID)
 
     assert result == "fs-new"
     get_role_mock.assert_called_once_with(
-        bucket_name="test-bucket", region=config["USER_BUCKETS_REGION"]
+        bucket_name="test-bucket",
+        region=config["USER_BUCKETS_REGION"],
+        user_id=TEST_USER_ID,
     )
     create_fs_mock.assert_called_once_with(
         "test-bucket",
         role_arn="arn:aws:iam::123456789012:role/test-bucket-s3files-role",
+        user_id=TEST_USER_ID,
     )
 
 

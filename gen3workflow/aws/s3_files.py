@@ -118,7 +118,7 @@ def get_s3files_setup_status(filesystem_id):
     return "Not ready"
 
 
-def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
+def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> str:
     """
     Creating S3 Files file system for the given bucket.
 
@@ -138,7 +138,7 @@ def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
             tags=[
                 {
                     "key": "Name",
-                    "value": get_safe_name_from_hostname(user_id=None),
+                    "value": get_safe_name_from_hostname(user_id=user_id),
                 }
             ],
         )
@@ -379,7 +379,9 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
+def _get_or_create_s3_files_bucket_role(
+    bucket_name: str, region: str, user_id: str
+) -> str:
     """
     Get or create the IAM role that S3 Files itself assumes to read from / write to
     the source bucket and manage its EventBridge sync rules. This is the `roleArn`
@@ -510,12 +512,11 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
             Tags=[
                 {
                     "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=None),
+                    "Value": get_safe_name_from_hostname(user_id=user_id),
                 }
             ],
         )
         role_arn = response["Role"]["Arn"]
-
     except ClientError as e:
         logger.error(
             f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
@@ -605,7 +606,7 @@ def wait_for_file_system_ready(
 # --------------------------------------------------------------------------- #
 
 
-def setup_s3_filesystem(bucket_name: str) -> str:
+def setup_s3_filesystem(bucket_name: str, user_id: str) -> str:
     """
     Ensure an S3 Files file system exists for `bucket_name`
 
@@ -615,10 +616,10 @@ def setup_s3_filesystem(bucket_name: str) -> str:
 
     region = config["USER_BUCKETS_REGION"]
     role_arn = _get_or_create_s3_files_bucket_role(
-        bucket_name=bucket_name, region=region
+        bucket_name=bucket_name, region=region, user_id=user_id
     )
 
-    return _create_s3_files_system(bucket_name, role_arn=role_arn)
+    return _create_s3_files_system(bucket_name, role_arn=role_arn, user_id=user_id)
 
 
 def provision_mount_targets(file_system_id: str):

@@ -129,7 +129,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
             Tags=[
                 {
                     "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=None),
+                    "Value": get_safe_name_from_hostname(user_id=user_id),
                 }
             ],
         )
@@ -190,7 +190,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
     return worker_role["Role"]["Arn"]
 
 
-def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
+def setup_kms_encryption_on_bucket(bucket_name: str, user_id: str) -> None:
     """
     Set up KMS encryption on the bucket.
 
@@ -209,7 +209,7 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
             Tags=[
                 {
                     "TagKey": "Name",
-                    "TagValue": get_safe_name_from_hostname(user_id=None),
+                    "TagValue": get_safe_name_from_hostname(user_id=user_id),
                 }
             ]
         )
@@ -422,7 +422,7 @@ async def _create_user_bucket(user_id: str) -> str:
     )
 
     if config["KMS_ENCRYPTION_ENABLED"]:
-        setup_kms_encryption_on_bucket(user_bucket_name)
+        setup_kms_encryption_on_bucket(user_bucket_name, user_id)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         clients.s3_client.delete_bucket_encryption(Bucket=user_bucket_name)

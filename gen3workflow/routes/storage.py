@@ -18,9 +18,7 @@ router = APIRouter(prefix="/storage")
 
 @router.get("/setup", status_code=HTTP_200_OK)
 @router.get("/setup/", status_code=HTTP_200_OK, include_in_schema=False)
-async def storage_setup(
-    request: Request, background_tasks: BackgroundTasks, auth=Depends(Auth)
-) -> dict:
+async def storage_setup(background_tasks: BackgroundTasks, auth=Depends(Auth)) -> dict:
     """
     Return details about the current user's storage setup.
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
@@ -48,7 +46,7 @@ async def storage_setup(
         fs_id = s3_files.get_s3_files_system(bucket_name)
         if not fs_id:
             # Create S3 Files Filesystem ID if not exists
-            fs_id = s3_files.setup_s3_filesystem(bucket_name)
+            fs_id = s3_files.setup_s3_filesystem(bucket_name, principal_id)
             # NOTE: To avoid blocking `/storage/setup` call, setting s3 filesystem just returns
             # the filesystem id and continues with the rest of the steps asynchronously
             background_tasks.add_task(s3_files.provision_mount_targets, fs_id)
@@ -71,7 +69,7 @@ async def storage_setup(
 
 @router.delete("/user-bucket", status_code=HTTP_202_ACCEPTED)
 @router.delete("/user-bucket/", status_code=HTTP_202_ACCEPTED, include_in_schema=False)
-async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
+async def delete_user_bucket(auth=Depends(Auth)) -> None:
     """
     Delete the current user's S3 bucket
 
@@ -107,7 +105,7 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
 @router.delete(
     "/user-bucket/objects/", status_code=HTTP_204_NO_CONTENT, include_in_schema=False
 )
-async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
+async def empty_user_bucket(auth=Depends(Auth)) -> None:
     """
     Deletes all the objects from current user's S3 bucket
     """
