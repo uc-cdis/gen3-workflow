@@ -370,7 +370,7 @@ async def reset_requests_mocks_and_caches():
     aws_utils.OUTPUTS_ARE_READY_CACHE_ORDER = deque()
     AUTHZ_CACHE.clear()
     bucket.USER_BUCKET_CACHE.clear()
-    bucket._KMS_KEY_ARN_CACHE = {}
+    bucket.KMS_KEY_ARN_CACHE = {}
 
 
 def get_debug_stub_warnings(caplog) -> list:
