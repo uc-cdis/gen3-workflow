@@ -191,6 +191,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
     if config["EKS_CLUSTER_NAME"]:
+        # TODO check if funnel still needs this role; AWS console says it's not used
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
             create_iam_role_for_funnel_bucket_access(principal_id)
         )
@@ -249,7 +250,7 @@ def process_task_outputs(user_id, body: dict) -> dict:
     )
     if task_len > timedelta(hours=config["SKIP_CHECK_TASK_OUTPUTS_HOURS"]):
         logger.debug(
-            f"Task completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
+            f"Task '{body.get('id')}' completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
         )
         return body
 

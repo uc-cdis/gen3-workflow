@@ -32,6 +32,7 @@ def get_safe_name_from_hostname(
     - S3 bucket / IAM role names: up to 63 characters.
     - Only alphanumeric characters and the following are allowed: +=,.@_-
         (assumes HOSTNAME and user IDs are already compliant).
+
     Args:
         user_id (str | None): The user's unique Gen3 ID. If None, will not be included in the safe name.
         reserved_length (int): Number of characters to reserve for prefixes/suffixes.
@@ -151,3 +152,48 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
         OUTPUTS_ARE_READY_CACHE.add(task_id)
 
     return all_ready, logs
+
+
+def get_tags_for_cost_tracking(
+    user_id: str, role_owner: str = "", format: str = "standard"
+):
+    """
+    Generate AWS resource tags that support cost tracking by including the user ID.
+
+    Args:
+        user_id (str): The user's unique Gen3 ID
+        role_owner (str): A name for the entity using the associated IAM role, if relevant
+        format (str):
+            One of ["standard" (default), "lowercase", "pascalcase"].
+            Different AWS clients/resources expect different tag formats
+    """
+    tags = [
+        {
+            "Key": "Name",
+            "Value": get_safe_name_from_hostname(user_id=user_id),
+        },
+        {
+            "Key": "user_id",
+            "Value": user_id,
+        },
+        {
+            "Key": "hostname",
+            "Value": config["HOSTNAME"],
+        },
+        {
+            "Key": "gen3_service",
+            "Value": "gen3-workflow",
+        },
+    ]
+    if role_owner:
+        tags.append(
+            {
+                "Key": "actor",
+                "Value": role_owner,
+            }
+        )
+    if format == "pascalcase":
+        tags = [{"TagKey": tag["Key"], "TagValue": tag["Value"]} for tag in tags]
+    elif format == "lowercase":
+        tags = [{"key": tag["Key"], "value": tag["Value"]} for tag in tags]
+    return tags

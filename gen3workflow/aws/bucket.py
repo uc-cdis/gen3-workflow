@@ -14,6 +14,7 @@ from gen3workflow.aws.aws_utils import (
     dict_to_sorted_json_str,
     get_bucket_name_from_user_id,
     get_safe_name_from_hostname,
+    get_tags_for_cost_tracking,
     get_worker_sa_name,
 )
 from gen3workflow.config import config
@@ -28,7 +29,7 @@ NONCURRENT_VERSION_EXPIRATION_DAYS = 3
 # KMS key ARNs are stable for the lifetime of the key. Cache them in-process to avoid
 # a synchronous botocore call on every PUT/POST that initiates an upload — those calls
 # block the asyncio event loop and stall all concurrent requests.
-_KMS_KEY_ARN_CACHE: dict[str, str] = {}
+KMS_KEY_ARN_CACHE: dict[str, str] = {}
 
 
 def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
@@ -44,12 +45,12 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         Tuple (str, str): KMS key alias, and KMS key ARN if the key exists, empty string otherwise
     """
     kms_key_alias = f"alias/{bucket_name}"
-    if kms_key_alias in _KMS_KEY_ARN_CACHE:
-        return kms_key_alias, _KMS_KEY_ARN_CACHE[kms_key_alias]
+    if kms_key_alias in KMS_KEY_ARN_CACHE:
+        return kms_key_alias, KMS_KEY_ARN_CACHE[kms_key_alias]
     try:
         output = clients.kms_client.describe_key(KeyId=kms_key_alias)
         arn = output["KeyMetadata"]["Arn"]
-        _KMS_KEY_ARN_CACHE[kms_key_alias] = arn
+        KMS_KEY_ARN_CACHE[kms_key_alias] = arn
         return kms_key_alias, arn
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "NotFoundException":
@@ -126,12 +127,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
         worker_role = clients.iam_client.create_role(
             RoleName=role_name,
             AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-            Tags=[
-                {
-                    "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=None),
-                }
-            ],
+            Tags=get_tags_for_cost_tracking(user_id, role_owner="funnel"),
         )
         logger.info(f"Created IAM role '{role_name}'")
 
@@ -190,7 +186,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
     return worker_role["Role"]["Arn"]
 
 
-def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
+def setup_kms_encryption_on_bucket(bucket_name: str, user_id: str) -> None:
     """
     Set up KMS encryption on the bucket.
 
@@ -202,17 +198,10 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     # the only way to check if the KMS key has already been created is to use an alias
     kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
     if kms_key_arn:
-        logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
+        logger.debug(f"Existing KMS key '{kms_key_alias}' ({kms_key_arn})")
     else:
         # the KMS key doesn't exist: create it
-        output = clients.kms_client.create_key(
-            Tags=[
-                {
-                    "TagKey": "Name",
-                    "TagValue": get_safe_name_from_hostname(user_id=None),
-                }
-            ]
-        )
+        output = clients.kms_client.create_key()
         kms_key_arn = output["KeyMetadata"]["Arn"]
         logger.debug(f"Created KMS key '{kms_key_arn}'")
 
@@ -220,6 +209,12 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
             AliasName=kms_key_alias, TargetKeyId=kms_key_arn
         )
         logger.debug(f"Created KMS key alias '{kms_key_alias}'")
+
+    # Update the KMS key tags - this could be done during `create_key` but this way is easier,
+    # to update existing keys. Could add logic to skip if the tags are up to date
+    clients.kms_client.tag_resource(
+        KeyId=kms_key_arn, Tags=get_tags_for_cost_tracking(user_id, format="pascalcase")
+    )
 
     logger.debug(f"Setting KMS encryption on bucket '{bucket_name}'")
     try:
@@ -360,16 +355,17 @@ async def _create_user_bucket(user_id: str) -> str:
             f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user '{user_id}'"
         )
         try:
-            if config["USER_BUCKETS_REGION"] == "us-east-1":
-                # it's the default region and cannot be specified in `LocationConstraint`
-                clients.s3_client.create_bucket(Bucket=user_bucket_name)
-            else:
-                clients.s3_client.create_bucket(
-                    Bucket=user_bucket_name,
-                    CreateBucketConfiguration={
-                        "LocationConstraint": config["USER_BUCKETS_REGION"]
-                    },
-                )
+            clients.s3_client.create_bucket(
+                Bucket=user_bucket_name,
+                CreateBucketConfiguration={
+                    **(
+                        # us-east-1 is the default region and cannot be specified in `LocationConstraint`
+                        {"LocationConstraint": config["USER_BUCKETS_REGION"]}
+                        if config["USER_BUCKETS_REGION"] != "us-east-1"
+                        else {}
+                    ),
+                },
+            )
         except clients.s3_client.exceptions.BucketAlreadyOwnedByYou:
             # `An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation:
             # Your previous request to create the named bucket succeeded and you already own it.`
@@ -382,8 +378,15 @@ async def _create_user_bucket(user_id: str) -> str:
             waiter.wait(Bucket=user_bucket_name)
             logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
 
-    expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
+    # Update the bucket tags - this could be done during `create_bucket` but this way is easier,
+    # to update existing buckets. Not checking whether tags need to be updated since
+    # `USER_BUCKET_CACHE` already avoids making excessive AWS calls.
+    clients.s3_client.put_bucket_tagging(
+        Bucket=user_bucket_name,
+        Tagging={"TagSet": get_tags_for_cost_tracking(user_id)},
+    )
 
+    expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
     clients.s3_client.put_bucket_lifecycle_configuration(
         Bucket=user_bucket_name,
@@ -422,7 +425,7 @@ async def _create_user_bucket(user_id: str) -> str:
     )
 
     if config["KMS_ENCRYPTION_ENABLED"]:
-        setup_kms_encryption_on_bucket(user_bucket_name)
+        setup_kms_encryption_on_bucket(user_bucket_name, user_id)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         clients.s3_client.delete_bucket_encryption(Bucket=user_bucket_name)

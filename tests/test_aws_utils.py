@@ -98,7 +98,7 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
         assert "Tags" in kwargs
         assert {
             "Key": "Name",
-            "Value": aws_utils.get_safe_name_from_hostname(user_id=None),
+            "Value": aws_utils.get_safe_name_from_hostname(user_id=TEST_USER_ID),
         } in kwargs["Tags"]
 
         expected_policy_name = f"gen3wf-localhost-{TEST_USER_ID}-funnel-role-s3-access"
