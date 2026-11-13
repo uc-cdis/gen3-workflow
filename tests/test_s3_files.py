@@ -206,17 +206,17 @@ def test_get_s3files_setup_status():
 
 
 # --------------------------------------------------------------------------- #
-# _create_s3_files_system
+# _get_or_create_file_system
 # --------------------------------------------------------------------------- #
 
 
-def test_create_s3_files_system_success(mock_aws_services):
+def test_get_or_create_file_system_success(mock_aws_services):
     """
     Tests S3Files create file system happy path.
     """
     clients.s3files_client.create_file_system.return_value = {"fileSystemId": "fs-new"}
 
-    result = s3_files._create_s3_files_system(
+    result = s3_files._get_or_create_file_system(
         bucket_name="test-bucket",
         role_arn="arn:aws:iam::123456789012:role/s3files-role",
         user_id=TEST_USER_ID,
@@ -229,7 +229,7 @@ def test_create_s3_files_system_success(mock_aws_services):
     )
 
 
-def test_create_s3_files_system_client_error_reraises(mock_aws_services):
+def test_get_or_create_file_system_client_error_reraises(mock_aws_services):
     """
     A `ClientError` while creating the file system is re-raised, not swallowed.
     """
@@ -238,7 +238,7 @@ def test_create_s3_files_system_client_error_reraises(mock_aws_services):
     )
 
     with pytest.raises(ClientError):
-        s3_files._create_s3_files_system(
+        s3_files._get_or_create_file_system(
             bucket_name="test-bucket",
             role_arn="arn:aws:iam::123456789012:role/s3files-role",
             user_id=TEST_USER_ID,
@@ -860,7 +860,7 @@ def test_setup_s3_filesystem_orchestrates_role_and_filesystem_creation():
         "_get_or_create_s3_files_bucket_role",
         return_value="arn:aws:iam::123456789012:role/test-bucket-s3files-role",
     ) as get_role_mock, patch.object(
-        s3_files, "_create_s3_files_system", return_value="fs-new"
+        s3_files, "_get_or_create_file_system", return_value="fs-new"
     ) as create_fs_mock:
         result = s3_files.setup_s3_filesystem("test-bucket", TEST_USER_ID)
 

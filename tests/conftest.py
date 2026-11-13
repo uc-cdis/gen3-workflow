@@ -34,7 +34,7 @@ config.validate()
 
 from gen3workflow.app import get_app
 from gen3workflow.auth import AUTHZ_CACHE
-from gen3workflow.aws import aws_utils, bucket, clients
+from gen3workflow.aws import aws_utils, bucket, clients, s3_files
 
 TEST_USER_ID = "user-64"
 NEW_TEST_USER_ID = "user-784"  # a new user that does not already exist in arborist
@@ -371,6 +371,7 @@ async def reset_requests_mocks_and_caches():
     AUTHZ_CACHE.clear()
     bucket.USER_BUCKET_CACHE.clear()
     bucket.KMS_KEY_ARN_CACHE = {}
+    s3_files.UP_TO_DATE_FILE_SYSTEM_CACHE = {}
 
 
 def get_debug_stub_warnings(caplog) -> list:

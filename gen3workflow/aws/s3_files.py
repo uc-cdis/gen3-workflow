@@ -12,6 +12,13 @@ from gen3workflow.config import config
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
 NFS_PORT = 2049
 
+# Map of bucket name to S3Files file system ID. The stored file systems are assumed to be
+# up to date. This is cached in-process to avoid making AWS calls on every /storage/setup call.
+# To update an existing file system, the app must be restarted to clear this cache.
+# NOTE: Support for an API-triggered file system refresh could be implemented by simply removing
+# the targeted file system from the cache.
+UP_TO_DATE_FILE_SYSTEM_CACHE: dict[str, str] = {}
+
 # --------------------------------------------------------------------------- #
 # File system management
 # --------------------------------------------------------------------------- #
@@ -118,9 +125,9 @@ def get_s3files_setup_status(filesystem_id):
     return "Not ready"
 
 
-def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> str:
+def _get_or_create_file_system(bucket_name: str, role_arn: str, user_id: str) -> str:
     """
-    Create or update a S3 Files file system for the given bucket.
+    Create or return an existing S3 Files file system for the given bucket.
 
     Args:
         bucket_name: name of the source S3 bucket.
@@ -147,7 +154,8 @@ def _create_s3_files_system(bucket_name: str, role_arn: str, user_id: str) -> st
             raise
 
     # Update the file system tags - this could be done during `create_file_system` but this way is
-    # easier, to update existing file systems. Could add logic to skip if the tags are up to date
+    # easier, to update existing file systems. Not checking whether tags need to be updated since
+    # `UP_TO_DATE_FILE_SYSTEM_CACHE` already avoids making excessive AWS calls.
     clients.s3files_client.tag_resource(
         resourceId=file_system_id,
         tags=get_tags_for_cost_tracking(
@@ -638,13 +646,19 @@ def setup_s3_filesystem(bucket_name: str, user_id: str) -> str:
     Returns:
         The file system ID.
     """
+    if bucket_name in UP_TO_DATE_FILE_SYSTEM_CACHE:
+        return UP_TO_DATE_FILE_SYSTEM_CACHE[bucket_name]
 
     region = config["USER_BUCKETS_REGION"]
     role_arn = _get_or_create_s3_files_bucket_role(
         bucket_name=bucket_name, region=region, user_id=user_id
     )
 
-    return _create_s3_files_system(bucket_name, role_arn=role_arn, user_id=user_id)
+    file_system_id = _get_or_create_file_system(
+        bucket_name, role_arn=role_arn, user_id=user_id
+    )
+    UP_TO_DATE_FILE_SYSTEM_CACHE[bucket_name] = file_system_id
+    return file_system_id
 
 
 def provision_mount_targets(file_system_id: str):
