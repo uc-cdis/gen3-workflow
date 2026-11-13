@@ -1,19 +1,24 @@
 import pytest
 
 from gen3workflow.redaction import (
-    HIGH_ENTROPY_MIN_BITS_PER_CHAR,
-    HIGH_ENTROPY_MIN_LENGTH,
+    ENV_SECRETS_TAG,
     REDACTED_PLACEHOLDER,
     redact_secrets,
     redact_string,
 )
 
+
+def task_with_env(env: dict, tags: dict = None) -> dict:
+    """A minimal task carrying one executor's env vars and the task's tags."""
+    return {"executors": [{"env": env}], "tags": tags or {}}
+
+
 # fake secrets, for testing only
-JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"  # pragma: allowlist secret
-AWS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"  # pragma: allowlist secret
-AWS_KEY_ID_2 = "AKIAI44QH8DHBEXAMPLE"  # pragma: allowlist secret
-AWS_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # pragma: allowlist secret
-PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nIBAAKC\n-----END RSA PRIVATE KEY-----"  # pragma: allowlist secret
+JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+AWS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
+AWS_KEY_ID_2 = "AKIAI44QH8DHBEXAMPLE"
+AWS_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nIBAAKC\n-----END RSA PRIVATE KEY-----"
 
 
 @pytest.mark.parametrize(
@@ -62,7 +67,7 @@ def test_secrets_are_redacted(value):
             f"https://user:{REDACTED_PLACEHOLDER}@example.com/a@b",
         ),
         (
-            "redis://default:pw@cache:6379",  # pragma: allowlist secret
+            "redis://default:pw@cache:6379",
             f"redis://default:{REDACTED_PLACEHOLDER}@cache:6379",
         ),
         # AWS presigned URL signatures: hex, so only a pattern can catch them
@@ -99,7 +104,7 @@ def test_secrets_in_context_are_redacted(value, expected):
         ),
         (f"{PEM}\n{PEM}", f"{REDACTED_PLACEHOLDER}\n{REDACTED_PLACEHOLDER}"),
         (
-            "postgres://a:pw1@h/x mongodb://b:pw2@h/y",  # pragma: allowlist secret
+            "postgres://a:pw1@h/x mongodb://b:pw2@h/y",
             f"postgres://a:{REDACTED_PLACEHOLDER}@h/x "
             f"mongodb://b:{REDACTED_PLACEHOLDER}@h/y",
         ),
@@ -171,7 +176,7 @@ def test_multiple_secrets_in_one_string_are_redacted(value, expected):
         "/services/workflow/gen3-workflow/tasks/aB3dEf9xYz12/TASK_ID_PLACEHOLDER",
         "/mnt/data/Run_42/IntermediateOutputs/SampleA1B2C3/results",
         "s3://gen3wf-localhost-64/some/path/to/output_file.txt",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # sha256  # pragma: allowlist secret
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # sha256
         "d1hnepgddd2s73ah7fug",  # funnel task ID
         "quay.io/cdis/some-image:1.2.3",
         "a_very_long_environment_variable_value_without_digits",
@@ -240,6 +245,92 @@ def test_env_name_redaction_only_applies_to_non_empty_strings():
     assert redact_secrets({"env": [JWT]}) == {"env": [REDACTED_PLACEHOLDER]}
 
 
+@pytest.mark.parametrize(
+    "tag_name,tag_value",
+    [
+        (ENV_SECRETS_TAG, "MY_VAR"),
+        (ENV_SECRETS_TAG, "OTHER,MY_VAR"),
+        (ENV_SECRETS_TAG, " MY_VAR , , OTHER "),
+        (ENV_SECRETS_TAG, "my_var"),
+        (ENV_SECRETS_TAG.lower(), "MY_VAR"),
+    ],
+    ids=[
+        "one name",
+        "several names",
+        "untidy whitespace and empty entries",
+        "name in a different case",
+        "tag name in a different case",
+    ],
+)
+def test_user_declared_env_vars_are_redacted(tag_name, tag_value):
+    """Test that an env var the user named in the `_ENV_SECRETS` tag is redacted."""
+    # neither the name nor the value says "secret", so only the declaration can catch it
+    task = task_with_env({"MY_VAR": "hunter2"}, {tag_name: tag_value})
+    assert redact_secrets(task)["executors"][0]["env"] == {
+        "MY_VAR": REDACTED_PLACEHOLDER
+    }
+
+
+@pytest.mark.parametrize(
+    "tag_value",
+    ["OTHER_VAR", "MY_VAR_PATH", "MY", "", "   ", ",", None, ["MY_VAR"]],
+    ids=[
+        "a different name",
+        "declared name is longer",
+        "declared name is a prefix",
+        "empty",
+        "whitespace only",
+        "separators only",
+        "not a string",
+        "a list instead of a string",
+    ],
+)
+def test_undeclared_env_vars_are_not_redacted(tag_value):
+    """Test that the tag only redacts exact name matches, and tolerates unusable values."""
+    task = task_with_env({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: tag_value})
+    assert redact_secrets(task)["executors"][0]["env"] == {"MY_VAR": "hunter2"}
+
+
+def test_declared_env_vars_tag_is_only_read_in_upper_or_lower_case():
+    """Test that a mixed-case tag name is ignored, as it is for the other user-supplied tags."""
+    task = task_with_env({"MY_VAR": "hunter2"}, {"_Env_Secrets": "MY_VAR"})
+    assert redact_secrets(task)["executors"][0]["env"] == {"MY_VAR": "hunter2"}
+
+
+def test_declared_env_vars_apply_to_every_executor_in_the_task():
+    """Test that the tag is set once per task and covers all of its executors."""
+    task = {
+        "tags": {ENV_SECRETS_TAG: "MY_VAR"},
+        "executors": [
+            {"env": {"MY_VAR": "hunter2"}},
+            {"env": {"MY_VAR": "hunter2", "SAMPLE_ID": "S42"}},
+        ],
+    }
+    redacted = redact_secrets(task)
+    assert redacted["executors"][0]["env"] == {"MY_VAR": REDACTED_PLACEHOLDER}
+    assert redacted["executors"][1]["env"] == {
+        "MY_VAR": REDACTED_PLACEHOLDER,
+        "SAMPLE_ID": "S42",
+    }
+
+
+def test_declared_env_vars_apply_only_to_their_own_task():
+    """Test that one task's `_ENV_SECRETS` tag does not redact another task's env vars."""
+    declaring = task_with_env({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"})
+    plain = task_with_env({"MY_VAR": "hunter2"})
+    redacted = redact_secrets({"tasks": [declaring, plain]})
+    assert redacted["tasks"][0]["executors"][0]["env"] == {
+        "MY_VAR": REDACTED_PLACEHOLDER
+    }
+    assert redacted["tasks"][1]["executors"][0]["env"] == {"MY_VAR": "hunter2"}
+
+
+def test_declared_env_vars_do_not_change_the_tag_itself():
+    """Test that the `_ENV_SECRETS` tag stays readable, so users can see what they declared."""
+    task = task_with_env({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"})
+    assert redact_secrets(task)["tags"] == {ENV_SECRETS_TAG: "MY_VAR"}
+
+
 def test_redact_secrets_in_task():
     """Test that secrets in a task response are properly redacted."""
     task = {
@@ -251,7 +342,7 @@ def test_redact_secrets_in_task():
                 "env": {
                     "GEN3_TOKEN": JWT,
                     # too short for a value-based rule: caught by its key name
-                    "GITLAB_TOKEN": "glpat-sVy3Qm2xTd9Lp",  # pragma: allowlist secret
+                    "GITLAB_TOKEN": "glpat-sVy3Qm2xTd9Lp",
                     "OTHER": "value",
                     "N": 1,
                 },
