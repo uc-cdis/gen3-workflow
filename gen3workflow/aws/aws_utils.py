@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from botocore.exceptions import ClientError
 
+from gen3workflow import logger
 from gen3workflow.aws import clients
 from gen3workflow.config import config
 
@@ -154,6 +155,98 @@ def are_outputs_ready(principal_id: str, task_id, outputs: list):
         OUTPUTS_ARE_READY_CACHE.add(task_id)
 
     return all_ready, logs
+
+
+def create_or_update_iam_role(
+    principal_id: str,
+    role_name: str,
+    role_description: str,
+    role_owner: str,
+    trust_policy: dict,
+    role_policy_name: str,
+    role_policy: dict,
+) -> str:
+    """
+    Create or update an IAM role.
+
+    Args:
+        principal_id (str): The user or client's unique Gen3 ID
+        role_name (str): Name of the role to create or update
+        role_description (str): Descrition of the role to create (note: not currently used if
+            updating)
+        role_owner (str): A name for the entity using the associated IAM role, if relevant
+        role_policy_name (str): Name of the IAM policy to attach to the role
+        trust_policy (dict): Assume role policy to attach to the role
+        role_policy (dict): IAM policy to attach to the role
+
+    Returns:
+        str: ARN of the (new or existing) IAM role
+
+    Raises:
+        Exception: If there is an error during the creation or updating of the IAM role or policy
+    """
+    try:
+        existing_role = clients.iam_client.get_role(RoleName=role_name)
+        role_arn = existing_role["Role"]["Arn"]
+        logger.info(f"IAM role '{role_name}' already exists ({role_arn})")
+        existing_trust_policy = existing_role["Role"]["AssumeRolePolicyDocument"]
+        if dict_to_sorted_json_str(existing_trust_policy) != dict_to_sorted_json_str(
+            trust_policy
+        ):
+            clients.iam_client.update_assume_role_policy(
+                RoleName=role_name,
+                PolicyDocument=json.dumps(trust_policy),
+            )
+        else:
+            logger.debug("Role trust policy is already up to date")
+    except clients.iam_client.exceptions.NoSuchEntityException as e:
+        existing_role = None
+        try:
+            response = clients.iam_client.create_role(
+                RoleName=role_name,
+                Description=role_description,
+                AssumeRolePolicyDocument=json.dumps(trust_policy),
+            )
+            role_arn = response["Role"]["Arn"]
+            logger.info(f"Created IAM role '{role_name}' ({role_arn})")
+        except ClientError as e:
+            logger.error(
+                f"Failed to create IAM role '{role_name}': {e.response['Error']['Message']}"
+            )
+            raise
+
+    # Update the role tags - this could be done during `create_role` but this way is easier,
+    # to update existing roles. Could add logic to skip if the tags are up to date
+    response = clients.iam_client.tag_role(
+        RoleName=role_name,
+        Tags=get_tags_for_cost_tracking(principal_id, role_owner=role_owner),
+    )
+
+    if existing_role:
+        try:
+            existing_role_policy = clients.iam_client.get_role_policy(
+                RoleName=role_name, PolicyName=role_policy_name
+            )["PolicyDocument"]
+        except clients.iam_client.exceptions.NoSuchEntityException as e:
+            existing_role_policy = None
+
+    if not existing_role or role_policy != existing_role_policy:
+        try:
+            clients.iam_client.put_role_policy(
+                RoleName=role_name,
+                PolicyName=role_policy_name,
+                PolicyDocument=json.dumps(role_policy),
+            )
+            return role_arn
+        except ClientError as e:
+            logger.error(
+                f"Failed to put IAM policy for role '{role_name}': {e.response['Error']['Message']}"
+            )
+            raise
+    else:
+        logger.debug("Role inline policy is already up to date")
+
+    return role_arn
 
 
 def get_tags_for_cost_tracking(

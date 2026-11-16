@@ -11,7 +11,7 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from gen3workflow import logger
 from gen3workflow.aws import clients
 from gen3workflow.aws.aws_utils import (
-    dict_to_sorted_json_str,
+    create_or_update_iam_role,
     get_bucket_name_from_principal_id,
     get_safe_name_from_hostname,
     get_tags_for_cost_tracking,
@@ -58,31 +58,30 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         raise
 
 
-def create_iam_role_for_funnel_bucket_access(principal_id: str) -> str:
+def get_or_create_funnel_bucket_role(principal_id: str) -> str:
     """
-    Create an IAM role that can be assumed by EC2 instances to access the specified S3 bucket and KMS keys (if enabled).
-    TODO do not update if not needed
+    Get or create an IAM role that can be assumed as an IRSA by EC2 instances to access the
+    specified S3 bucket and KMS keys (if enabled).
 
     Args:
         principal_id (str): The user or client's unique Gen3 ID
+
     Returns:
-        str: ARN of the created IAM role
-    Raises:
-        Exception: If there is an error during the creation or updating of the IAM role or policy
+        str: ARN of the (new or existing) IAM role
     """
-    # set up an IAM role that can be assumed as an IRSA by EC2 instances
     role_name_suffix = "-funnel-role"
     safe_name = get_safe_name_from_hostname(
         principal_id, reserved_length=len(role_name_suffix)
     )
     role_name = f"{safe_name}{role_name_suffix}"
+
     bucket_name = get_bucket_name_from_principal_id(principal_id)
     aws_account_id = clients.sts_client.get_caller_identity().get("Account")
     oidc_token_url = clients.eks_client.describe_cluster(
         name=config["EKS_CLUSTER_NAME"]
     )["cluster"]["identity"]["oidc"]["issuer"].replace("https://", "")
 
-    assume_role_policy_document = {
+    trust_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -106,33 +105,7 @@ def create_iam_role_for_funnel_bucket_access(principal_id: str) -> str:
         ],
     }
 
-    try:
-        worker_role = clients.iam_client.get_role(RoleName=role_name)
-        logger.info(f"IAM role '{role_name}' already exists")
-        current_policy = dict_to_sorted_json_str(
-            worker_role["Role"]["AssumeRolePolicyDocument"]
-        )
-        updated_policy = dict_to_sorted_json_str(assume_role_policy_document)
-
-        if current_policy != updated_policy:
-            logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
-            clients.iam_client.update_assume_role_policy(
-                RoleName=role_name,
-                PolicyDocument=json.dumps(assume_role_policy_document),
-            )
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") != "NoSuchEntity":
-            raise
-        logger.info(f"Creating IAM role '{role_name}'")
-        worker_role = clients.iam_client.create_role(
-            RoleName=role_name,
-            AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-            Tags=get_tags_for_cost_tracking(principal_id, role_owner="funnel"),
-        )
-        logger.info(f"Created IAM role '{role_name}'")
-
-    policy_name = f"{role_name}-s3-access"
-    policy_document = {
+    role_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -164,7 +137,7 @@ def create_iam_role_for_funnel_bucket_access(principal_id: str) -> str:
             )
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
         logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
-        policy_document["Statement"].append(
+        role_policy["Statement"].append(
             {
                 "Effect": "Allow",
                 "Action": [
@@ -176,14 +149,15 @@ def create_iam_role_for_funnel_bucket_access(principal_id: str) -> str:
             }
         )
 
-    clients.iam_client.put_role_policy(
-        RoleName=role_name,
-        PolicyName=policy_name,
-        PolicyDocument=json.dumps(policy_document),
+    return create_or_update_iam_role(
+        principal_id=principal_id,
+        role_name=f"{bucket_name}-funnel-role",
+        role_description=f"Role assumed by Funnel to upload to and download from bucket '{bucket_name}'",
+        role_owner="funnel",
+        trust_policy=trust_policy,
+        role_policy_name=f"{role_name}-s3-access",
+        role_policy=role_policy,
     )
-    logger.info(f"Updated IAM policy '{policy_name}' for role '{role_name}'")
-
-    return worker_role["Role"]["Arn"]
 
 
 def setup_kms_encryption_on_bucket(bucket_name: str, principal_id: str) -> None:

@@ -22,7 +22,7 @@ from starlette.status import (
 from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
-from gen3workflow.aws.bucket import create_iam_role_for_funnel_bucket_access
+from gen3workflow.aws.bucket import get_or_create_funnel_bucket_role
 from gen3workflow.config import config
 from gen3workflow.routes.utils import make_tes_server_request
 
@@ -193,8 +193,8 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     if config["EKS_CLUSTER_NAME"] and not config["ENABLE_S3_FILES"]:
         # Funnel only needs this SA when using Mountpoint S3 with "authenticationSource: pod".
         # We assume that's not the case when S3 Files is enabled.
-        body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
-            create_iam_role_for_funnel_bucket_access(principal_id)
+        body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = get_or_create_funnel_bucket_role(
+            principal_id
         )
         body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(principal_id)
 

@@ -6,7 +6,10 @@ from botocore.exceptions import ClientError
 
 from gen3workflow import logger
 from gen3workflow.aws import clients
-from gen3workflow.aws.aws_utils import get_tags_for_cost_tracking
+from gen3workflow.aws.aws_utils import (
+    create_or_update_iam_role,
+    get_tags_for_cost_tracking,
+)
 from gen3workflow.config import config
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
@@ -410,15 +413,12 @@ def _get_or_create_s3_files_bucket_role(
     Reference: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-files-prereq-policies.html#s3-files-prereq-iam
 
     Returns:
-        ARN of the (new or existing) IAM role.
+        str: ARN of the (new or existing) IAM role
     """
-    # TODO: Make it such that it is under 64 characters
-    role_name = f"{bucket_name}-s3files-role"
-    role_policy_name = "S3FilesBucketAccess"
     account_id = clients.sts_client.get_caller_identity()["Account"]
     bucket_arn = f"arn:aws:s3:::{bucket_name}"
 
-    new_trust_policy = {
+    trust_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -436,51 +436,9 @@ def _get_or_create_s3_files_bucket_role(
         ],
     }
 
-    try:
-        existing_role = clients.iam_client.get_role(RoleName=role_name)
-        role_arn = existing_role["Role"]["Arn"]
-        logger.info("IAM role '%s' already exists (%s)", role_name, role_arn)
-        existing_trust_policy = existing_role["Role"]["AssumeRolePolicyDocument"]
-        if existing_trust_policy != new_trust_policy:
-            clients.iam_client.update_assume_role_policy(
-                RoleName=role_name,
-                PolicyDocument=json.dumps(new_trust_policy),
-            )
-        else:
-            logger.debug("Role trust policy is already up to date")
-    except clients.iam_client.exceptions.NoSuchEntityException as e:
-        existing_role = None
-        try:
-            response = clients.iam_client.create_role(
-                RoleName=role_name,
-                AssumeRolePolicyDocument=json.dumps(new_trust_policy),
-                Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
-            )
-            role_arn = response["Role"]["Arn"]
-        except ClientError as e:
-            logger.error(
-                f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
-            )
-            raise
-
-    # Update the role tags - this could be done during `create_role` but this way is easier,
-    # to update existing roles. Could add logic to skip if the tags are up to date
-    response = clients.iam_client.tag_role(
-        RoleName=role_name,
-        Tags=get_tags_for_cost_tracking(principal_id, role_owner="s3files"),
-    )
-
-    if existing_role:
-        try:
-            existing_role_policy = clients.iam_client.get_role_policy(
-                RoleName=role_name, PolicyName=role_policy_name
-            )["PolicyDocument"]
-        except clients.iam_client.exceptions.NoSuchEntityException as e:
-            existing_role_policy = None
-
     # NOTE: includes the KMS statement unconditionally. If the kmsEncryptionEnabled is false,
     # this statement is simply unused -- harmless
-    new_role_policy = {
+    role_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -556,28 +514,16 @@ def _get_or_create_s3_files_bucket_role(
         ],
     }
 
-    if not existing_role or new_role_policy != existing_role_policy:
-        try:
-            clients.iam_client.put_role_policy(
-                RoleName=role_name,
-                PolicyName=role_policy_name,
-                PolicyDocument=json.dumps(new_role_policy),
-            )
-            logger.info(
-                "Created IAM role '%s' (%s) for S3 Files bucket access",
-                role_name,
-                role_arn,
-            )
-            return role_arn
-        except ClientError as e:
-            logger.error(
-                f"Failed to put IAM policy for role {role_arn} for bucket '{bucket_name}': {e.response['Error']['Message']}"
-            )
-            raise
-    else:
-        logger.debug("Role inline policy is already up to date")
-
-    return role_arn
+    return create_or_update_iam_role(
+        principal_id=principal_id,
+        # TODO: Make role_name such that it is under 64 characters
+        role_name=f"{bucket_name}-s3files-role",
+        role_description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
+        role_owner="s3files",
+        trust_policy=trust_policy,
+        role_policy_name="S3FilesBucketAccess",
+        role_policy=role_policy,
+    )
 
 
 # ---------

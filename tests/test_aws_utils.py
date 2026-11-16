@@ -34,24 +34,28 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
         clients.iam_client,
         "put_role_policy",
         wraps=clients.iam_client.put_role_policy,
-    ) as put_policy_spy:
+    ) as put_policy_spy, patch.object(
+        clients.iam_client,
+        "tag_role",
+        wraps=clients.iam_client.tag_role,
+    ) as tag_role_spy:
 
         # Act
-        bucket.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
+        bucket.get_or_create_funnel_bucket_role(TEST_USER_ID)
 
         # IAM role doesn't exist by default since the mocks are isolated per tests
         # Assert create_role was called
         create_role_spy.assert_called_once(), "Expected create_role to be called"
 
         # Inspect the actual call arguments
-        _, kwargs = create_role_spy.call_args
+        _, create_role_kwargs = create_role_spy.call_args
 
-        assert kwargs["RoleName"] == role_name
+        assert create_role_kwargs["RoleName"] == role_name
         assert isinstance(
-            kwargs["AssumeRolePolicyDocument"], str
+            create_role_kwargs["AssumeRolePolicyDocument"], str
         ), "Must be JSON string"
         actual_assume_role_policy = json.loads(
-            kwargs["AssumeRolePolicyDocument"]
+            create_role_kwargs["AssumeRolePolicyDocument"]
         )  # raises if invalid JSON
 
         actual_assume_role_json_string = aws_utils.dict_to_sorted_json_str(
@@ -95,11 +99,12 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
             f"ACTUAL:\n{json.dumps(actual_assume_role_policy, indent=2, sort_keys=True)}\n"
         )
 
-        assert "Tags" in kwargs
+        _, tag_role_spy_kwargs = tag_role_spy.call_args
+        assert "Tags" in tag_role_spy_kwargs
         assert {
             "Key": "Name",
             "Value": aws_utils.get_safe_name_from_hostname(principal_id=TEST_USER_ID),
-        } in kwargs["Tags"]
+        } in tag_role_spy_kwargs["Tags"]
 
         expected_policy_name = f"gen3wf-localhost-{TEST_USER_ID}-funnel-role-s3-access"
         expected_policy = {
@@ -133,15 +138,15 @@ def test_create_role_for_bucket_access_creates_role_when_missing(mock_aws_servic
                 },
             ],
         }
-        _, put_role_policy_spy_kwargs = put_policy_spy.call_args
-        assert put_role_policy_spy_kwargs["PolicyName"] == expected_policy_name
-        assert put_role_policy_spy_kwargs["RoleName"] == role_name
+        _, put_role_policy_kwargs = put_policy_spy.call_args
+        assert put_role_policy_kwargs["PolicyName"] == expected_policy_name
+        assert put_role_policy_kwargs["RoleName"] == role_name
         assert isinstance(
-            put_role_policy_spy_kwargs["PolicyDocument"], str
+            put_role_policy_kwargs["PolicyDocument"], str
         ), "Must be JSON string"
 
         actual_policy = json.loads(
-            put_role_policy_spy_kwargs["PolicyDocument"]
+            put_role_policy_kwargs["PolicyDocument"]
         )  # raises if invalid JSON
         actual_policy_json_string = aws_utils.dict_to_sorted_json_str(actual_policy)
 
@@ -177,7 +182,7 @@ def test_update_assume_role_policy_called_when_policy_updated(mock_aws_services)
     ) as update_assume_role_spy:
 
         # Act
-        bucket.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
+        bucket.get_or_create_funnel_bucket_role(TEST_USER_ID)
 
         # Assert it was called
         assert (
@@ -243,7 +248,7 @@ def test_does_not_update_assume_role_policy_when_unchanged(mock_aws_services):
     ) as update_assume_role_spy:
 
         # Act
-        bucket.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
+        bucket.get_or_create_funnel_bucket_role(TEST_USER_ID)
 
         # Assert it was NOT called
         assert (
@@ -275,7 +280,7 @@ def test_create_role_for_bucket_access_with_no_kms_enabled(
     ) as put_policy_spy:
 
         # Act
-        bucket.create_iam_role_for_funnel_bucket_access(TEST_USER_ID)
+        bucket.get_or_create_funnel_bucket_role(TEST_USER_ID)
 
         expected_policy = {
             "Version": "2012-10-17",
