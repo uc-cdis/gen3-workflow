@@ -174,7 +174,7 @@ async def stubbed_storage_setup(auth=Depends(Auth)) -> dict:
     call.
     """
     token_claims = await auth.get_token_claims()
-    user_id = token_claims.get("sub")
+    principal_id = token_claims.get("sub")
     username = token_claims.get("context", {}).get("user", {}).get("name")
     if not username:
         err_msg = "No context.user.name in token"
@@ -185,14 +185,14 @@ async def stubbed_storage_setup(auth=Depends(Auth)) -> dict:
 
     try:
         await auth.grant_user_access_to_their_own_data(
-            username=username, user_id=user_id
+            username=username, principal_id=principal_id
         )
     except ArboristError as e:
         logger.error(e.message)
         raise HTTPException(e.code, e.message)
 
     _log_stubbed_request("GET /storage/setup")
-    bucket_name = aws_utils.get_safe_name_from_hostname(user_id)
+    bucket_name = aws_utils.get_safe_name_from_hostname(principal_id)
     return {
         "bucket": bucket_name,
         "workdir": f"s3://{bucket_name}/ga4gh-tes",
@@ -208,11 +208,11 @@ async def stubbed_delete_user_bucket(auth=Depends(Auth)) -> dict:
     """
     Stubbed `DELETE /storage/user-bucket`: reports the deletion as initiated.
     """
-    user_id = await authorize_own_storage_deletion(auth)
+    principal_id = await authorize_own_storage_deletion(auth)
     _log_stubbed_request("DELETE /storage/user-bucket")
     return {
         "message": "Bucket deletion initiated.",
-        "bucket": aws_utils.get_safe_name_from_hostname(user_id),
+        "bucket": aws_utils.get_safe_name_from_hostname(principal_id),
     }
 
 
@@ -251,8 +251,8 @@ async def _get_task_authz_path(auth: Auth, task_id: str) -> str:
     Returns:
         str: the task's authz resource path
     """
-    user_id = (await auth.get_token_claims()).get("sub")
-    return f"/services/workflow/gen3-workflow/tasks/{user_id}/{task_id}"
+    principal_id = (await auth.get_token_claims()).get("sub")
+    return f"/services/workflow/gen3-workflow/tasks/{principal_id}/{task_id}"
 
 
 def _log_stubbed_request(endpoint: str) -> None:

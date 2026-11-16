@@ -219,7 +219,7 @@ def test_get_or_create_file_system_success(mock_aws_services):
     result = s3_files._get_or_create_file_system(
         bucket_name="test-bucket",
         role_arn="arn:aws:iam::123456789012:role/s3files-role",
-        user_id=TEST_USER_ID,
+        principal_id=TEST_USER_ID,
     )
 
     assert result == "fs-new"
@@ -241,7 +241,7 @@ def test_get_or_create_file_system_client_error_reraises(mock_aws_services):
         s3_files._get_or_create_file_system(
             bucket_name="test-bucket",
             role_arn="arn:aws:iam::123456789012:role/s3files-role",
-            user_id=TEST_USER_ID,
+            principal_id=TEST_USER_ID,
         )
 
 
@@ -632,7 +632,7 @@ def test_get_or_create_s3_files_bucket_role_creates_new_role(mock_aws_services):
         wraps=clients.iam_client.put_role_policy,
     ) as put_policy_spy:
         role_arn = s3_files._get_or_create_s3_files_bucket_role(
-            bucket_name=bucket_name, region=region, user_id=TEST_USER_ID
+            bucket_name=bucket_name, region=region, principal_id=TEST_USER_ID
         )
 
     assert role_arn.endswith(f"role/{bucket_name}-s3files-role")
@@ -682,7 +682,7 @@ def test_get_or_create_s3_files_bucket_role_returns_existing_role(mock_aws_servi
         wraps=clients.iam_client.put_role_policy,
     ) as put_policy_spy:
         role_arn = s3_files._get_or_create_s3_files_bucket_role(
-            bucket_name=bucket_name, region="us-east-1", user_id=TEST_USER_ID
+            bucket_name=bucket_name, region="us-east-1", principal_id=TEST_USER_ID
         )
 
     assert role_arn == expected_arn
@@ -705,7 +705,7 @@ def test_get_or_create_s3_files_bucket_role_client_error_reraises(
     ):
         with pytest.raises(ClientError):
             s3_files._get_or_create_s3_files_bucket_role(
-                bucket_name="test-bucket", region="us-east-1", user_id=TEST_USER_ID
+                bucket_name="test-bucket", region="us-east-1", principal_id=TEST_USER_ID
             )
 
 
@@ -868,12 +868,12 @@ def test_setup_s3_filesystem_orchestrates_role_and_filesystem_creation():
     get_role_mock.assert_called_once_with(
         bucket_name="test-bucket",
         region=config["USER_BUCKETS_REGION"],
-        user_id=TEST_USER_ID,
+        principal_id=TEST_USER_ID,
     )
     create_fs_mock.assert_called_once_with(
         "test-bucket",
         role_arn="arn:aws:iam::123456789012:role/test-bucket-s3files-role",
-        user_id=TEST_USER_ID,
+        principal_id=TEST_USER_ID,
     )
 
 

@@ -125,7 +125,9 @@ def get_s3files_setup_status(filesystem_id):
     return "Not ready"
 
 
-def _get_or_create_file_system(bucket_name: str, role_arn: str, user_id: str) -> str:
+def _get_or_create_file_system(
+    bucket_name: str, role_arn: str, principal_id: str
+) -> str:
     """
     Create or return an existing S3 Files file system for the given bucket.
 
@@ -159,7 +161,7 @@ def _get_or_create_file_system(bucket_name: str, role_arn: str, user_id: str) ->
     clients.s3files_client.tag_resource(
         resourceId=file_system_id,
         tags=get_tags_for_cost_tracking(
-            user_id, role_owner="s3files", format="lowercase"
+            principal_id, role_owner="s3files", format="lowercase"
         ),
     )
 
@@ -392,7 +394,7 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
 
 
 def _get_or_create_s3_files_bucket_role(
-    bucket_name: str, region: str, user_id: str
+    bucket_name: str, region: str, principal_id: str
 ) -> str:
     """
     Get or create the IAM role that S3 Files itself assumes to read from / write to
@@ -462,7 +464,7 @@ def _get_or_create_s3_files_bucket_role(
     # to update existing roles. Could add logic to skip if the tags are up to date
     response = clients.iam_client.tag_role(
         RoleName=role_name,
-        Tags=get_tags_for_cost_tracking(user_id, role_owner="s3files"),
+        Tags=get_tags_for_cost_tracking(principal_id, role_owner="s3files"),
     )
 
     if existing_role:
@@ -639,7 +641,7 @@ def wait_for_file_system_ready(
 # --------------------------------------------------------------------------- #
 
 
-def setup_s3_filesystem(bucket_name: str, user_id: str) -> str:
+def setup_s3_filesystem(bucket_name: str, principal_id: str) -> str:
     """
     Ensure an S3 Files file system exists for `bucket_name`
 
@@ -651,11 +653,11 @@ def setup_s3_filesystem(bucket_name: str, user_id: str) -> str:
 
     region = config["USER_BUCKETS_REGION"]
     role_arn = _get_or_create_s3_files_bucket_role(
-        bucket_name=bucket_name, region=region, user_id=user_id
+        bucket_name=bucket_name, region=region, principal_id=principal_id
     )
 
     file_system_id = _get_or_create_file_system(
-        bucket_name, role_arn=role_arn, user_id=user_id
+        bucket_name, role_arn=role_arn, principal_id=principal_id
     )
     UP_TO_DATE_FILE_SYSTEM_CACHE[bucket_name] = file_system_id
     return file_system_id

@@ -4,7 +4,7 @@
 </head>
 <body>
     {% if username %}
-        <p>Logged in as: {{ username }} (ID {{ user_id }})</p>
+        <p>Logged in as: {{ username }} (ID {{ principal_id }})</p>
         <form action="{{ proxy_prefix }}/ui" method="get">
             {% if show_all %}
                 Viewing: all the tasks I have access to

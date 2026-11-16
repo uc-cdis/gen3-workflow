@@ -125,7 +125,7 @@ async def _dechunk_stream(stream):
         yield output_buffer
 
 
-async def set_access_token_and_get_user_id(
+async def set_access_token_and_get_principal_id(
     auth: Auth,
     headers: Headers,
     method: str | None = None,
@@ -225,14 +225,14 @@ async def set_access_token_and_get_user_id(
 
     # tokens obtained through a `client_credentials` flow are not linked to a user and have
     # no `sub`: the client itself is the principal, identified by `azp` (client ID)
-    user_id = token_claims.get("sub") or token_claims.get("azp")
+    principal_id = token_claims.get("sub") or token_claims.get("azp")
     client_id = token_claims.get("azp")
-    if not user_id:
+    if not principal_id:
         err_msg = "No user or client ID in token"
         logger.error(f"{err_msg}. Debug: {token_claims=}")
         raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
 
-    return user_id, client_id
+    return principal_id, client_id
 
 
 def get_s3_access_key_id_from_auth_header(auth_header: str) -> str:
@@ -244,7 +244,7 @@ def get_s3_access_key_id_from_auth_header(auth_header: str) -> str:
 
     Args:
         auth_header (str): value of the Authorization header. See
-            `set_access_token_and_get_user_id` for the 2 expected formats.
+            `set_access_token_and_get_principal_id` for the 2 expected formats.
 
     Returns:
         str: the access key ID
@@ -283,7 +283,7 @@ async def authorize_s3_request(request: Request, path: str) -> str:
     """
     auth = Auth(api_request=request)
     dpop_validated = getattr(request.state, "dpop_validated", False)
-    user_id, client_id = await set_access_token_and_get_user_id(
+    principal_id, client_id = await set_access_token_and_get_principal_id(
         auth,
         request.headers,
         method=request.method,
@@ -306,13 +306,13 @@ async def authorize_s3_request(request: Request, path: str) -> str:
         request.method, "create"
     )
     await auth.authorize(
-        auth_verb, [f"/services/workflow/gen3-workflow/storage/{user_id}"]
+        auth_verb, [f"/services/workflow/gen3-workflow/storage/{principal_id}"]
     )
 
     logger.info(
-        f"Incoming S3 request from user '{user_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {request.url}'"
+        f"Incoming S3 request from user '{principal_id}'{f', client \'{client_id}\'' if client_id else ''}: '{request.method} {request.url}'"
     )
-    user_bucket = aws_utils.get_safe_name_from_hostname(user_id)
+    user_bucket = aws_utils.get_safe_name_from_hostname(principal_id)
 
     if not is_list_buckets_request(request.method, path):
         request_bucket = path.split("?")[0].split("/")[0]

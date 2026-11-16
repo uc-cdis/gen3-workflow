@@ -22,7 +22,7 @@ def dict_to_sorted_json_str(obj: dict) -> str:
 
 
 def get_safe_name_from_hostname(
-    user_id: Union[str, None], reserved_length: int = 0
+    principal_id: Union[str, None], reserved_length: int = 0
 ) -> str:
     """
     Generate a valid and length-safe name (for IAM user, S3 bucket, or IAM role)
@@ -34,7 +34,7 @@ def get_safe_name_from_hostname(
         (assumes HOSTNAME and user IDs are already compliant).
 
     Args:
-        user_id (str | None): The user's unique Gen3 ID. If None, will not be included in the safe name.
+        principal_id (str | None): The user or client's unique Gen3 ID. If None, will not be included in the safe name.
         reserved_length (int): Number of characters to reserve for prefixes/suffixes.
 
     Returns:
@@ -43,45 +43,47 @@ def get_safe_name_from_hostname(
     escaped_hostname = config["HOSTNAME"].replace(".", "-")
     safe_name = f"gen3wf-{escaped_hostname}"
     max_chars = 63 - reserved_length
-    if user_id:
+    if principal_id:
         # client IDs (used as the user ID for `client_credentials` tokens) may contain uppercase
         # characters, which are not allowed in S3 bucket or k8s service account names
-        user_id = user_id.lower()
-        max_chars = max_chars - len(f"-{user_id}")
+        principal_id = principal_id.lower()
+        max_chars = max_chars - len(f"-{principal_id}")
     if len(safe_name) > max_chars:
         safe_name = safe_name[:max_chars]
-    if user_id:
-        safe_name = f"{safe_name}-{user_id}"
+    if principal_id:
+        safe_name = f"{safe_name}-{principal_id}"
     return safe_name
 
 
-def get_worker_sa_name(user_id: str) -> str:
+def get_worker_sa_name(principal_id: str) -> str:
     """
     Generate the name of the Kubernetes service account used by worker pods for the specified user.
 
     Args:
-        user_id (str): The user's unique Gen3 ID
+        principal_id (str): The user or client's unique Gen3 ID
     Returns:
         str: service account name
     """
-    safe_name = get_safe_name_from_hostname(user_id, reserved_length=len("-worker-sa"))
+    safe_name = get_safe_name_from_hostname(
+        principal_id, reserved_length=len("-worker-sa")
+    )
     return f"{safe_name}-worker-sa"
 
 
-def get_bucket_name_from_user_id(user_id: str) -> str:
+def get_bucket_name_from_principal_id(principal_id: str) -> str:
     """
-    Generate the S3 bucket name for the specified user.
+    Generate the S3 bucket name for the specified user or client.
 
     Args:
-        user_id (str): The user's unique Gen3 ID
+        principal_id (str): The user or client's unique Gen3 ID
     Returns:
         str: S3 bucket name
     """
     # Abstracted for future flexibility — currently same as safe name.
-    return get_safe_name_from_hostname(user_id)
+    return get_safe_name_from_hostname(principal_id)
 
 
-def are_outputs_ready(user_id: str, task_id, outputs: list):
+def are_outputs_ready(principal_id: str, task_id, outputs: list):
     """
     Check if all the files in the provided list of outputs are up to date in the user's bucket.
     Once all the outputs are ready, the result is cached to avoid unnecessary S3 requests.
@@ -93,7 +95,7 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
     if task_id in OUTPUTS_ARE_READY_CACHE:
         return True, []
 
-    user_bucket_name = get_bucket_name_from_user_id(user_id)
+    user_bucket_name = get_bucket_name_from_principal_id(principal_id)
     all_ready = True
     logs = []
     for output in outputs:
@@ -155,13 +157,13 @@ def are_outputs_ready(user_id: str, task_id, outputs: list):
 
 
 def get_tags_for_cost_tracking(
-    user_id: str, role_owner: str = "", format: str = "standard"
+    principal_id: str, role_owner: str = "", format: str = "standard"
 ):
     """
     Generate AWS resource tags that support cost tracking by including the user ID.
 
     Args:
-        user_id (str): The user's unique Gen3 ID
+        principal_id (str): The user or client's unique Gen3 ID
         role_owner (str): A name for the entity using the associated IAM role, if relevant
         format (str):
             One of ["standard" (default), "lowercase", "pascalcase"].
@@ -170,11 +172,11 @@ def get_tags_for_cost_tracking(
     tags = [
         {
             "Key": "Name",
-            "Value": get_safe_name_from_hostname(user_id=user_id),
+            "Value": get_safe_name_from_hostname(principal_id=principal_id),
         },
         {
-            "Key": "user_id",
-            "Value": user_id,
+            "Key": "principal_id",
+            "Value": principal_id,
         },
         {
             "Key": "hostname",
