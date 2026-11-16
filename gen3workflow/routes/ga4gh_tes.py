@@ -190,8 +190,9 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
             logger.error(err_msg)
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
-    if config["EKS_CLUSTER_NAME"]:
-        # TODO check if funnel still needs this role; AWS console says it's not used
+    if config["EKS_CLUSTER_NAME"] and not config["ENABLE_S3_FILES"]:
+        # Funnel only needs this SA when using Mountpoint S3 with "authenticationSource: pod".
+        # We assume that's not the case when S3 Files is enabled.
         body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
             create_iam_role_for_funnel_bucket_access(principal_id)
         )

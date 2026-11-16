@@ -222,7 +222,7 @@ def test_get_or_create_file_system_success(mock_aws_services):
         principal_id=TEST_USER_ID,
     )
 
-    assert result == "fs-new"
+    assert result == ("fs-new", True)
     clients.s3files_client.create_file_system.assert_called_once_with(
         bucket="arn:aws:s3:::test-bucket",
         roleArn="arn:aws:iam::123456789012:role/s3files-role",
@@ -860,11 +860,11 @@ def test_setup_s3_filesystem_orchestrates_role_and_filesystem_creation():
         "_get_or_create_s3_files_bucket_role",
         return_value="arn:aws:iam::123456789012:role/test-bucket-s3files-role",
     ) as get_role_mock, patch.object(
-        s3_files, "_get_or_create_file_system", return_value="fs-new"
+        s3_files, "_get_or_create_file_system", return_value=("fs-new", True)
     ) as create_fs_mock:
         result = s3_files.setup_s3_filesystem("test-bucket", TEST_USER_ID)
 
-    assert result == "fs-new"
+    assert result == ("fs-new", True)
     get_role_mock.assert_called_once_with(
         bucket_name="test-bucket",
         region=config["USER_BUCKETS_REGION"],

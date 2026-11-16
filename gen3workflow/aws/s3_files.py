@@ -1,6 +1,6 @@
 import json
 import time
-from typing import List
+from typing import List, Tuple
 
 from botocore.exceptions import ClientError
 
@@ -127,7 +127,7 @@ def get_s3files_setup_status(filesystem_id):
 
 def _get_or_create_file_system(
     bucket_name: str, role_arn: str, principal_id: str
-) -> str:
+) -> Tuple[str, bool]:
     """
     Create or return an existing S3 Files file system for the given bucket.
 
@@ -136,9 +136,11 @@ def _get_or_create_file_system(
         role_arn: ARN of the IAM role S3 Files assumes to sync with the bucket.
 
     Returns:
-        The file system ID.
+        Tuple (str, bool): The file system ID and whether it was just created (true if new, false
+            if it already existed).
     """
     file_system_id = get_s3_files_system(bucket_name)
+    is_new = False
     if not file_system_id:
         bucket_arn = f"arn:aws:s3:::{bucket_name}"
         try:
@@ -146,6 +148,7 @@ def _get_or_create_file_system(
                 bucket=bucket_arn, roleArn=role_arn
             )
             file_system_id = response["fileSystemId"]
+            is_new = True
             logger.debug(
                 f"Created new S3 Files file system '{file_system_id}' for bucket '{bucket_name}'"
             )
@@ -165,7 +168,7 @@ def _get_or_create_file_system(
         ),
     )
 
-    return file_system_id
+    return file_system_id, is_new
 
 
 # --------------------------------------------------------------------------- #
@@ -574,6 +577,8 @@ def _get_or_create_s3_files_bucket_role(
     else:
         logger.debug("Role inline policy is already up to date")
 
+    return role_arn
+
 
 # ---------
 # Wait for resource creation
@@ -641,26 +646,27 @@ def wait_for_file_system_ready(
 # --------------------------------------------------------------------------- #
 
 
-def setup_s3_filesystem(bucket_name: str, principal_id: str) -> str:
+def setup_s3_filesystem(bucket_name: str, principal_id: str) -> Tuple[str, bool]:
     """
     Ensure an S3 Files file system exists for `bucket_name`
 
     Returns:
-        The file system ID.
+        Tuple (str, bool): The file system ID and whether it was just created (true if new, false
+            if it already existed).
     """
     if bucket_name in UP_TO_DATE_FILE_SYSTEM_CACHE:
-        return UP_TO_DATE_FILE_SYSTEM_CACHE[bucket_name]
+        return UP_TO_DATE_FILE_SYSTEM_CACHE[bucket_name], False
 
     region = config["USER_BUCKETS_REGION"]
     role_arn = _get_or_create_s3_files_bucket_role(
         bucket_name=bucket_name, region=region, principal_id=principal_id
     )
 
-    file_system_id = _get_or_create_file_system(
+    file_system_id, is_new = _get_or_create_file_system(
         bucket_name, role_arn=role_arn, principal_id=principal_id
     )
     UP_TO_DATE_FILE_SYSTEM_CACHE[bucket_name] = file_system_id
-    return file_system_id
+    return file_system_id, is_new
 
 
 def provision_mount_targets(file_system_id: str):
