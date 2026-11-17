@@ -38,7 +38,7 @@ SECRET_ENV_VAR_NAME = re.compile(
 ENV_SECRETS_TAG = "_ENV_SECRETS"
 
 
-def shannon_entropy(s: str) -> float:
+def _shannon_entropy(s: str) -> float:
     """
     Shannon entropy of a string, in bits per character
     """
@@ -63,7 +63,7 @@ def _is_high_entropy_secret(s: str) -> bool:
     has_digit = any(c.isdigit() for c in s)
     if not (has_lower and has_upper and has_digit):
         return False
-    return shannon_entropy(s) >= HIGH_ENTROPY_MIN_BITS_PER_CHAR
+    return _shannon_entropy(s) >= HIGH_ENTROPY_MIN_BITS_PER_CHAR
 
 
 def _redact_token_keeping_prefix(match: re.Match) -> str:
@@ -78,10 +78,15 @@ def _redact_auth_scheme_token(match: re.Match) -> str:
     return match.group(0)
 
 
-# (pattern, replacement): where replacement is either a string or a callable that takes a regex match and returns a string
+# (hint, pattern, replacement), where:
+# - hint is a lowercase literal the pattern cannot match without, so a string that does not
+#   contain it can skip the pattern entirely. This roughly halves the time spent here, because
+#   most strings in a task hold none of these literals
+# - replacement is either a string or a callable that takes a regex match and returns a string
 SECRET_PATTERNS = [
     # PEM
     (
+        "private key",
         re.compile(
             r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)",
             re.DOTALL,
@@ -90,13 +95,17 @@ SECRET_PATTERNS = [
     ),
     # JWT
     (
+        "eyj",
         re.compile(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
         REDACTED_PLACEHOLDER,
     ),
-    # AWS
-    (re.compile(r"\b(AKIA|ASIA)[A-Z0-9]{16}\b"), REDACTED_PLACEHOLDER),
+    # AWS long-term key ID
+    ("akia", re.compile(r"\bAKIA[A-Z0-9]{16}\b"), REDACTED_PLACEHOLDER),
+    # AWS temporary key ID
+    ("asia", re.compile(r"\bASIA[A-Z0-9]{16}\b"), REDACTED_PLACEHOLDER),
     # AWS signature
     (
+        "signature=",
         re.compile(
             r"(?P<prefix>\b(?:X-Amz-)?Signature=)(?P<token>[^&\s\"']+)", re.IGNORECASE
         ),
@@ -104,6 +113,7 @@ SECRET_PATTERNS = [
     ),
     # Authorization
     (
+        "authorization",
         re.compile(
             r"(?P<prefix>\bauthorization[\"']?\s*[:=]\s*[\"']?(?:bearer|basic)\s+)(?P<token>[^\s\"']+)",
             re.IGNORECASE,
@@ -112,6 +122,7 @@ SECRET_PATTERNS = [
     ),
     # bearer
     (
+        "bearer",
         re.compile(
             r"(?P<prefix>\bbearer\s+)(?P<token>[A-Za-z0-9._~+/=-]{8,})", re.IGNORECASE
         ),
@@ -119,13 +130,15 @@ SECRET_PATTERNS = [
     ),
     # basic
     (
+        "basic",
         re.compile(
             r"(?P<prefix>\bbasic\s+)(?P<token>[A-Za-z0-9+/]{8,}={0,2})", re.IGNORECASE
         ),
         _redact_auth_scheme_token,
     ),
-    # DB URL
+    # DB URL: "@" is rarer than "://", so it rules out more strings
     (
+        "@",
         re.compile(
             r"(?P<prefix>\b[a-z][a-z0-9+.-]*://[^\s/:@]+:)(?P<token>[^\s/]+)(?=@)",
             re.IGNORECASE,
@@ -145,8 +158,10 @@ def redact_string(value: str) -> str:
     Returns:
         str: the string, with secrets replaced by `REDACTED_PLACEHOLDER`
     """
-    for pattern, replacement in SECRET_PATTERNS:
-        value = pattern.sub(replacement, value)
+    lowered = value.lower()
+    for hint, pattern, replacement in SECRET_PATTERNS:
+        if hint in lowered:
+            value = pattern.sub(replacement, value)
     value = HIGH_ENTROPY_CANDIDATE.sub(
         lambda m: (
             REDACTED_PLACEHOLDER if _is_high_entropy_secret(m.group(0)) else m.group(0)
