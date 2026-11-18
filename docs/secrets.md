@@ -24,6 +24,12 @@ whose name contains `credential`, `key`, `passphrase`, `passwd`, `password`, `pw
 `token`. So `GEN3_TOKEN`, `GEN3_API_KEY` and `DB_PASSWORD` are all covered even when their values
 are too short or too predictable to be recognised on their own.
 
+The *values* of those variables are then looked for in the rest of the task. If the value of
+`DB_PASSWORD` appears in the task's `command`, `stdout`, `stderr` or system logs — for example
+because a command echoed it, or a tool printed it in an error message — it is redacted there too,
+even when it does not look like a secret. See [Secret values in commands and
+logs](#secret-values-in-commands-and-logs).
+
 ## Declaring your own secret env vars
 
 Some credentials look like ordinary text — a short license key, a username, an account number —
@@ -49,7 +55,8 @@ special `_ENV_SECRETS` tag, as a comma-separated list, and they will be redacted
 ```
 
 Reading that task back returns `MY_LICENSE` and `ACCOUNT_NUMBER` as `[REDACTED]`, while
-`SAMPLE_ID` is returned unchanged.
+`SAMPLE_ID` is returned unchanged. If `ABC-123` or `40041` appears in the task's `command`,
+`stdout`, `stderr` or system logs, it is redacted there as well.
 
 Notes:
 
@@ -63,14 +70,42 @@ Notes:
 * The tag itself is returned as you wrote it, so you can always see what you declared. It holds
   variable *names*, not their values.
 
+## Secret values in commands and logs
+
+The value of every secret environment variable of a task — one whose name matches the list above,
+or one you declared in `_ENV_SECRETS` — is also redacted wherever it appears in these fields of
+the same task:
+
+* an executor's `command`
+* the `stdout` and `stderr` of the executor logs
+* the task's `system_logs`
+
+So with the task above, the log line `Connecting with license ABC-123` is returned as
+`Connecting with license [REDACTED]`.
+
+This is an exact text match, and it has limits:
+
+* Only the fields listed above are checked. The task's `name`, `description`, `image`, `inputs`
+  and other fields are not, so do not put a credential there.
+* A value that has been changed before it is printed — encoded (for example base64), hashed,
+  truncated, or split over several lines or log entries — no longer matches. Only the original
+  value is recognised.
+* A short or common value is redacted everywhere it appears in those fields, including inside
+  unrelated text. A value of `40041` also redacts the `40041` in `1400412`. Empty values are
+  ignored.
+* The values are only collected from the task's own executors. Another task's values are never
+  used, including tasks in the same list response.
+
 ## Be careful what your commands print
 
 **Anything your executor prints is stored as part of the task record, and stays there.** Running
 the task again or cancelling it does not remove it.
 
 Executor output is returned when a task is requested with `view=FULL`, and redaction is applied
-to those responses the same way. But redaction is a safety net, not a guarantee — the only
-reliable way to keep a credential out of the task record is to not print it.
+to those responses the same way, including the exact values of your secret environment variables.
+But redaction is a safety net, not a guarantee — a credential that is not one of your environment
+variables, or that is transformed before it is printed, is only caught if it looks like a secret.
+The only reliable way to keep a credential out of the task record is to not print it.
 
 In particular:
 
@@ -86,8 +121,12 @@ In particular:
 * Detection is heuristic. It can miss a credential whose value and variable name both look
   ordinary — which is what `_ENV_SECRETS` is for — and it can over-redact a value that merely
   looks random, such as a long checksum.
-* `_ENV_SECRETS` covers an executor's environment variables only. It has no effect on what your
-  command writes to stdout or stderr.
+* `_ENV_SECRETS` declares which environment variables are secret. Their values are redacted from
+  an executor's `command`, the `stdout` and `stderr` of its logs, and the task's system logs, but
+  only as an exact match: a transformed value (encoded, truncated, split over several lines) is
+  not recognised, and other fields of the task are not checked.
+  A credential your command generates or reads from somewhere other than an environment variable
+  is not covered unless it looks like a secret.
 * Redaction protects what the API returns and what Gen3-Workflow logs. The backing task database
   holds the task as you submitted it.
 
