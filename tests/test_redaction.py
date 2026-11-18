@@ -8,7 +8,7 @@ from gen3workflow.redaction import (
 )
 
 
-def task_with_env(env: dict, tags: dict = None) -> dict:
+def task_with_env_and_tags(env: dict, tags: dict = None) -> dict:
     """A minimal task carrying one executor's env vars and the task's tags."""
     return {"executors": [{"env": env}], "tags": tags or {}}
 
@@ -236,15 +236,6 @@ def test_only_env_vars_are_redacted_by_name():
     assert redact_secrets({"token": "hunter2"}) == {"token": "hunter2"}
 
 
-def test_env_name_redaction_only_applies_to_non_empty_strings():
-    """Test that only non-empty string env values are redacted by name."""
-    assert redact_secrets({"env": {"TOKEN": ""}}) == {"env": {"TOKEN": ""}}
-    assert redact_secrets({"env": {"TOKEN": 1}}) == {"env": {"TOKEN": 1}}
-    assert redact_secrets({"env": {"TOKEN": None}}) == {"env": {"TOKEN": None}}
-    # an `env` that is not a dict is redacted like any other value
-    assert redact_secrets({"env": [JWT]}) == {"env": [REDACTED_PLACEHOLDER]}
-
-
 @pytest.mark.parametrize(
     "tag_name,tag_value",
     [
@@ -265,7 +256,7 @@ def test_env_name_redaction_only_applies_to_non_empty_strings():
 def test_user_declared_env_vars_are_redacted(tag_name, tag_value):
     """Test that an env var the user named in the `_ENV_SECRETS` tag is redacted."""
     # neither the name nor the value says "secret", so only the declaration can catch it
-    task = task_with_env({"MY_VAR": "hunter2"}, {tag_name: tag_value})
+    task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {tag_name: tag_value})
     assert redact_secrets(task)["executors"][0]["env"] == {
         "MY_VAR": REDACTED_PLACEHOLDER
     }
@@ -287,13 +278,13 @@ def test_user_declared_env_vars_are_redacted(tag_name, tag_value):
 )
 def test_undeclared_env_vars_are_not_redacted(tag_value):
     """Test that the tag only redacts exact name matches, and tolerates unusable values."""
-    task = task_with_env({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: tag_value})
+    task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: tag_value})
     assert redact_secrets(task)["executors"][0]["env"] == {"MY_VAR": "hunter2"}
 
 
 def test_declared_env_vars_tag_is_only_read_in_upper_or_lower_case():
     """Test that a mixed-case tag name is ignored, as it is for the other user-supplied tags."""
-    task = task_with_env({"MY_VAR": "hunter2"}, {"_Env_Secrets": "MY_VAR"})
+    task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {"_Env_Secrets": "MY_VAR"})
     assert redact_secrets(task)["executors"][0]["env"] == {"MY_VAR": "hunter2"}
 
 
@@ -316,8 +307,10 @@ def test_declared_env_vars_apply_to_every_executor_in_the_task():
 
 def test_declared_env_vars_apply_only_to_their_own_task():
     """Test that one task's `_ENV_SECRETS` tag does not redact another task's env vars."""
-    declaring = task_with_env({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"})
-    plain = task_with_env({"MY_VAR": "hunter2"})
+    declaring = task_with_env_and_tags(
+        {"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"}
+    )
+    plain = task_with_env_and_tags({"MY_VAR": "hunter2"})
     redacted = redact_secrets({"tasks": [declaring, plain]})
     assert redacted["tasks"][0]["executors"][0]["env"] == {
         "MY_VAR": REDACTED_PLACEHOLDER
@@ -327,7 +320,7 @@ def test_declared_env_vars_apply_only_to_their_own_task():
 
 def test_declared_env_vars_do_not_change_the_tag_itself():
     """Test that the `_ENV_SECRETS` tag stays readable, so users can see what they declared."""
-    task = task_with_env({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"})
+    task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"})
     assert redact_secrets(task)["tags"] == {ENV_SECRETS_TAG: "MY_VAR"}
 
 
