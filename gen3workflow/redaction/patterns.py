@@ -5,7 +5,7 @@ Value-based detection of secrets in strings: the patterns, and `redact_string`, 
 import math
 import re
 from collections import Counter
-from typing import Callable, NamedTuple, Union
+from typing import Callable, NamedTuple, Sequence, Union
 
 REDACTED_PLACEHOLDER = "[REDACTED]"
 
@@ -154,16 +154,24 @@ SECRET_PATTERNS = [
 ]
 
 
-def redact_string(value: str) -> str:
+def redact_string(value: str, known_secret_values: Sequence[str] = ()) -> str:
     """
     Redact any secret-looking substrings from a string.
 
     Args:
         value (str): string to redact
+        known_secret_values (Sequence[str]): exact non-empty values known to be secret (for
+            example the values of a task's secret env vars), redacted wherever they appear in
+            the string, in the given order. Callers should sort them longest first, so that a
+            value containing another is fully redacted; this is not done here because this
+            function is called once per string, and sorting once per task is cheaper.
 
     Returns:
         str: the string, with secrets replaced by `REDACTED_PLACEHOLDER`
     """
+    for secret in known_secret_values:
+        if secret in value:
+            value = value.replace(secret, REDACTED_PLACEHOLDER)
     lowered = value.lower()
     for pattern in SECRET_PATTERNS:
         if pattern.hint in lowered:

@@ -364,3 +364,106 @@ def test_redact_secrets_in_task():
     }
     # the original task is not modified
     assert task["executors"][0]["env"]["GEN3_TOKEN"] == JWT
+
+
+def test_secret_env_var_values_are_redacted_from_command_and_logs():
+    """
+    The value of an env var that is secret by name, or declared in `_ENV_SECRETS`, is redacted
+    from the executors' command and the task's stdout, stderr and system logs, even when it does
+    not look like a secret.
+    """
+    task = {
+        "tags": {"_ENV_SECRETS": "MY_VAR"},
+        "executors": [
+            {
+                "command": ["echo hunter2 and plainvalue and other"],
+                "env": {"DB_PASSWORD": "hunter2", "MY_VAR": "plainvalue", "X": "other"},
+            }
+        ],
+        "logs": [
+            {
+                "system_logs": ["pulled image, hunter2 leaked"],
+                "logs": [
+                    {"stdout": "hunter2 plainvalue other", "stderr": "bad plainvalue"}
+                ],
+            }
+        ],
+    }
+    redacted = redact_secrets(task)
+    log = redacted["logs"][0]
+    assert (
+        log["logs"][0]["stdout"]
+        == f"{REDACTED_PLACEHOLDER} {REDACTED_PLACEHOLDER} other"
+    )
+    assert log["logs"][0]["stderr"] == f"bad {REDACTED_PLACEHOLDER}"
+    assert log["system_logs"] == [f"pulled image, {REDACTED_PLACEHOLDER} leaked"]
+    assert redacted["executors"][0]["env"]["X"] == "other"
+    assert redacted["executors"][0]["command"] == [
+        f"echo {REDACTED_PLACEHOLDER} and {REDACTED_PLACEHOLDER} and other"
+    ]
+
+
+def test_secret_env_var_values_are_scoped_to_their_own_task():
+    """
+    Test that in a list of tasks that declare the same env var as secret but with different values, each task
+    only redacts its own value, even though both values are printed in both tasks' stdout.
+    """
+
+    def make_task(value):
+        return {
+            "tags": {"_ENV_SECRETS": "MY_VAR"},
+            "executors": [{"env": {"MY_VAR": value}}],
+            "logs": [{"logs": [{"stdout": "first-value second-value"}]}],
+        }
+
+    redacted_first, redacted_second = redact_secrets(
+        [make_task("first-value"), make_task("second-value")]
+    )
+    assert (
+        redacted_first["logs"][0]["logs"][0]["stdout"]
+        == f"{REDACTED_PLACEHOLDER} second-value"
+    )
+    assert (
+        redacted_second["logs"][0]["logs"][0]["stdout"]
+        == f"first-value {REDACTED_PLACEHOLDER}"
+    )
+
+
+def test_secret_env_var_values_are_not_redacted_from_other_fields():
+    """Test that the values are only looked for in the fields that may echo them."""
+    task = {
+        "name": "run with hunter2",
+        "description": "hunter2",
+        "executors": [{"image": "hunter2", "env": {"DB_PASSWORD": "hunter2"}}],
+    }
+    redacted = redact_secrets(task)
+    assert redacted["name"] == task["name"]
+    assert redacted["description"] == task["description"]
+    assert redacted["executors"][0]["image"] == "hunter2"
+
+
+@pytest.mark.parametrize(
+    "executors", [None, "not a list", [None, "x", {"env": "not a dict"}]]
+)
+def test_secret_env_var_values_ignore_malformed_executors(executors):
+    """Test that a malformed `executors` does not break collecting the secret env var values."""
+    task = {"executors": executors, "logs": [{"stdout": "hunter2"}]}
+    assert redact_secrets(task) == task
+
+
+def test_secret_env_var_values_are_read_from_executors_only():
+    """
+    Test that only `executors[*].env` is read for the values to redact from the strings that may echo them.
+    The TES spec has no `env` outside of executors, but a request body is redacted before it is validated: a
+    stray `env` is still redacted by name, but its values are not tracked.
+    """
+    task = {
+        "env": {"API_KEY": "plainvalue"},
+        "executors": [{"env": {"DB_PASSWORD": "hunter2"}}],
+        "logs": [{"logs": [{"stdout": "hunter2 plainvalue"}]}],
+    }
+    redacted = redact_secrets(task)
+    assert redacted["env"] == {"API_KEY": REDACTED_PLACEHOLDER}
+    assert (
+        redacted["logs"][0]["logs"][0]["stdout"] == f"{REDACTED_PLACEHOLDER} plainvalue"
+    )
