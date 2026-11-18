@@ -15,6 +15,7 @@ real auth service and Arborist (or `MOCK_AUTH`), so stub mode exercises the real
 the calls to the TES server, AWS and S3 are replaced: no task runs and no object is stored.
 """
 
+# Dummy comment
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
