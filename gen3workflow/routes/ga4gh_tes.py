@@ -22,7 +22,7 @@ from starlette.status import (
 from gen3workflow import logger
 from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
-from gen3workflow.aws.bucket import create_iam_role_for_funnel_bucket_access
+from gen3workflow.aws.bucket import get_or_create_funnel_bucket_role
 from gen3workflow.config import config
 from gen3workflow.redaction import redact_secrets
 from gen3workflow.routes.utils import make_tes_server_request
@@ -46,11 +46,11 @@ TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
 TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
 
 
-def get_authz_string_for_user(user_id: str) -> str:
+def get_authz_string_for_user(principal_id: str) -> str:
     """
     Get the authz_resource string for a user
     """
-    return f"/services/workflow/gen3-workflow/tasks/{user_id}/TASK_ID_PLACEHOLDER"
+    return f"/services/workflow/gen3-workflow/tasks/{principal_id}/TASK_ID_PLACEHOLDER"
 
 
 async def get_request_body(request: Request) -> dict:
@@ -78,8 +78,8 @@ async def service_info(request: Request, auth=Depends(Auth)) -> dict:
     """
     Get details about the GA4GH TES server
     """
-    user_id = await auth.get_user_id()
-    logger.info(f"User '{user_id}' getting TES service info")
+    principal_id = await auth.get_principal_id()
+    logger.info(f"User/client '{principal_id}' getting TES service info")
 
     url = f"{config['TES_SERVER_URL']}/service-info"
     res = await make_tes_server_request(request.app.async_client, "get", url)
@@ -194,9 +194,11 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
             logger.error(err_msg)
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
 
-    if config["EKS_CLUSTER_NAME"]:
-        body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = (
-            create_iam_role_for_funnel_bucket_access(principal_id)
+    if config["EKS_CLUSTER_NAME"] and not config["ENABLE_S3_FILES"]:
+        # Funnel only needs this SA when using Mountpoint S3 with "authenticationSource: pod".
+        # We assume that's not the case when S3 Files is enabled.
+        body["tags"]["_FUNNEL_WORKER_ROLE_ARN"] = get_or_create_funnel_bucket_role(
+            principal_id
         )
         body["tags"]["_WORKER_SA"] = aws_utils.get_worker_sa_name(principal_id)
 
@@ -235,7 +237,7 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     return res.json()
 
 
-def process_task_outputs(user_id, body: dict) -> dict:
+def process_task_outputs(principal_id, body: dict) -> dict:
     """
     Call `are_outputs_ready` and process the result: update the task's `state` if needed, and add
     any detailed logs to the `system_logs` returned to the user.
@@ -256,12 +258,12 @@ def process_task_outputs(user_id, body: dict) -> dict:
     )
     if task_len > timedelta(hours=config["SKIP_CHECK_TASK_OUTPUTS_HOURS"]):
         logger.debug(
-            f"Task completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
+            f"Task '{body.get('id')}' completed more than {config['SKIP_CHECK_TASK_OUTPUTS_HOURS']} hours ago: assuming outputs are ready"
         )
         return body
 
     ready, logs = aws_utils.are_outputs_ready(
-        user_id, body.get("id"), task_logs["outputs"]
+        principal_id, body.get("id"), task_logs["outputs"]
     )
     if not ready:
         if task_len > timedelta(hours=config["GIVE_UP_CHECK_TASK_OUTPUTS_HOURS"]):
@@ -389,8 +391,8 @@ async def list_tasks(
     Pages may contain fewer tasks than `page_size`. Use `next_page_token`, when present, to get
     the next page.
     """
-    user_id = await auth.get_user_id()
-    logger.info(f"User '{user_id}' listing TES tasks")
+    principal_id = await auth.get_principal_id()
+    logger.info(f"User/client '{principal_id}' listing TES tasks")
 
     supported_params = {
         "name_prefix",
@@ -421,11 +423,11 @@ async def list_tasks(
 
     if all is None:
         query_params.append(("tag_key", "_AUTHZ"))
-        if not user_id:
+        if not principal_id:
             err_msg = "Login required when parameter 'all' is not used"
             logger.error(err_msg)
             raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-        authz_resource = get_authz_string_for_user(user_id)
+        authz_resource = get_authz_string_for_user(principal_id)
         query_params.append(("tag_value", authz_resource))
 
     listed_tasks = await list_tes_server_tasks(request.app.async_client, query_params)
@@ -457,7 +459,7 @@ async def list_tasks(
     # filter out tasks the current user does not have access to
     # this should be redundant if all is None but is included in case server-side filtering fails
     listed_tasks["tasks"] = [
-        apply_view_to_task(requested_view, process_task_outputs(user_id, task))
+        apply_view_to_task(requested_view, process_task_outputs(principal_id, task))
         for task in listed_tasks.get("tasks", [])
         if user_access.get(task.get("tags", {}).get("_AUTHZ"))
     ]
@@ -471,8 +473,8 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     """
     Get a GA4GH TES task
     """
-    user_id = await auth.get_user_id()
-    logger.info(f"User '{user_id}' getting TES task '{task_id}'")
+    principal_id = await auth.get_principal_id()
+    logger.info(f"User/client '{principal_id}' getting TES task '{task_id}'")
 
     supported_params = {"view"}
     query_params = {
@@ -498,7 +500,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
 
     return redact_secrets(
-        apply_view_to_task(requested_view, process_task_outputs(user_id, body))
+      apply_view_to_task(requested_view, process_task_outputs(principal_id, body))
     )
 
 
@@ -510,8 +512,8 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     """
     Cancel a GA4GH TES task
     """
-    user_id = await auth.get_user_id()
-    logger.info(f"User '{user_id}' canceling TES task '{task_id}'")
+    principal_id = await auth.get_principal_id()
+    logger.info(f"User/client '{principal_id}' canceling TES task '{task_id}'")
 
     # check if this user has access to delete this task
     url = f"{config['TES_SERVER_URL']}/tasks/{task_id}?view=FULL"

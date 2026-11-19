@@ -12,7 +12,7 @@ from gen3workflow.aws import bucket
 from gen3workflow.config import config
 from gen3workflow.routes.s3 import (
     _dechunk_stream,
-    set_access_token_and_get_user_id,
+    set_access_token_and_get_principal_id,
 )
 from tests.conftest import (
     MOCKED_S3_RESPONSE_DICT,
@@ -260,15 +260,15 @@ async def test_s3_endpoint_with_bearer_token(client, path):
 @pytest.mark.parametrize(
     "auth_header_format", [1, 2], ids=["auth format 1", "auth format 2"]
 )
-async def test_set_access_token_and_get_user_id(
+async def test_set_access_token_and_get_principal_id(
     auth_header_format, token_claims_sub, token_claims_azp
 ):
     """
-    Test `set_access_token_and_get_user_id` behavior with various access token claims.
+    Test `set_access_token_and_get_principal_id` behavior with various access token claims.
 
     Testing:
     - Authorization header ID format 1 and 2, as documented in the
-      `set_access_token_and_get_user_id` docstring
+      `set_access_token_and_get_principal_id` docstring
     - Access token claims with or without the `sub` field (user ID)
     - Access token claims with or without the `azp` field (client ID)
     """
@@ -291,29 +291,31 @@ async def test_set_access_token_and_get_user_id(
     # no user or client ID in the token claims: error
     if not token_claims_sub and not token_claims_azp:
         with pytest.raises(HTTPException, match="401: No user or client ID in token"):
-            await set_access_token_and_get_user_id(auth, {"authorization": auth_header})
+            await set_access_token_and_get_principal_id(
+                auth, {"authorization": auth_header}
+            )
     # every other case is supported: success
     else:
-        user_id, _ = await set_access_token_and_get_user_id(
+        principal_id, _ = await set_access_token_and_get_principal_id(
             auth, {"authorization": auth_header}
         )
         if token_claims_sub:
-            assert user_id == TEST_USER_ID
+            assert principal_id == TEST_USER_ID
         else:
             # a client token (no `sub`): the client itself is the principal
-            assert user_id == TEST_CLIENT_ID
+            assert principal_id == TEST_CLIENT_ID
         assert auth.bearer_token.credentials == TEST_USER_TOKEN
 
 
 @pytest.mark.asyncio
-async def test_set_access_token_and_get_user_id_invalid_auth():
+async def test_set_access_token_and_get_principal_id_invalid_auth():
     """
-    Test `set_access_token_and_get_user_id` behavior when no authorization header is provided,
+    Test `set_access_token_and_get_principal_id` behavior when no authorization header is provided,
     when a bearer token is used, or when the authorization header format is invalid.
     """
     # anonymous call (no authorization header): error
     with pytest.raises(HTTPException, match="401: No Authorization header"):
-        await set_access_token_and_get_user_id(None, {})
+        await set_access_token_and_get_principal_id(None, {})
 
     # unsupported bearer token: error.
     # similar test case as `test_s3_endpoint_with_bearer_token`
@@ -321,14 +323,16 @@ async def test_set_access_token_and_get_user_id_invalid_auth():
         HTTPException,
         match="401: Bearer tokens in the authorization header are not supported by this endpoint, which expects signed S3 requests. The recommended way to use this endpoint is to use an AWS library, SDK or CLI",
     ):
-        await set_access_token_and_get_user_id(None, {"authorization": "bearer token"})
+        await set_access_token_and_get_principal_id(
+            None, {"authorization": "bearer token"}
+        )
 
     # auth header does not match format 1 or 2: error
     with pytest.raises(
         HTTPException,
         match="401: Unexpected format; unable to extract access token from authorization header",
     ):
-        await set_access_token_and_get_user_id(None, {"authorization": "blah"})
+        await set_access_token_and_get_principal_id(None, {"authorization": "blah"})
 
 
 @pytest.mark.parametrize("multipart", [True, False])

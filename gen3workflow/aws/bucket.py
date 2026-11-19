@@ -11,9 +11,10 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from gen3workflow import logger
 from gen3workflow.aws import clients
 from gen3workflow.aws.aws_utils import (
-    dict_to_sorted_json_str,
-    get_bucket_name_from_user_id,
+    create_or_update_iam_role,
+    get_bucket_name_from_principal_id,
     get_safe_name_from_hostname,
+    get_tags_for_cost_tracking,
     get_worker_sa_name,
 )
 from gen3workflow.config import config
@@ -28,7 +29,7 @@ NONCURRENT_VERSION_EXPIRATION_DAYS = 3
 # KMS key ARNs are stable for the lifetime of the key. Cache them in-process to avoid
 # a synchronous botocore call on every PUT/POST that initiates an upload — those calls
 # block the asyncio event loop and stall all concurrent requests.
-_KMS_KEY_ARN_CACHE: dict[str, str] = {}
+KMS_KEY_ARN_CACHE: dict[str, str] = {}
 
 
 def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
@@ -38,18 +39,18 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
 
     Args:
         bucket_name (str): name of the bucket to get the KMS key alias and ARN for
-        user_id (str): The user's unique Gen3 ID
+        principal_id (str): The user or client's unique Gen3 ID
 
     Returns:
         Tuple (str, str): KMS key alias, and KMS key ARN if the key exists, empty string otherwise
     """
     kms_key_alias = f"alias/{bucket_name}"
-    if kms_key_alias in _KMS_KEY_ARN_CACHE:
-        return kms_key_alias, _KMS_KEY_ARN_CACHE[kms_key_alias]
+    if kms_key_alias in KMS_KEY_ARN_CACHE:
+        return kms_key_alias, KMS_KEY_ARN_CACHE[kms_key_alias]
     try:
         output = clients.kms_client.describe_key(KeyId=kms_key_alias)
         arn = output["KeyMetadata"]["Arn"]
-        _KMS_KEY_ARN_CACHE[kms_key_alias] = arn
+        KMS_KEY_ARN_CACHE[kms_key_alias] = arn
         return kms_key_alias, arn
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "NotFoundException":
@@ -57,31 +58,30 @@ def get_existing_kms_key_for_bucket(bucket_name: str) -> Tuple[str, str]:
         raise
 
 
-def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
+def get_or_create_funnel_bucket_role(principal_id: str) -> str:
     """
-    Create an IAM role that can be assumed by EC2 instances to access the specified S3 bucket and KMS keys (if enabled).
-    TODO do not update if not needed
+    Get or create an IAM role that can be assumed as an IRSA by EC2 instances to access the
+    specified S3 bucket and KMS keys (if enabled).
 
     Args:
-        user_id (str): The user's unique Gen3 ID
+        principal_id (str): The user or client's unique Gen3 ID
+
     Returns:
-        str: ARN of the created IAM role
-    Raises:
-        Exception: If there is an error during the creation or updating of the IAM role or policy
+        str: ARN of the (new or existing) IAM role
     """
-    # set up an IAM role that can be assumed as an IRSA by EC2 instances
     role_name_suffix = "-funnel-role"
     safe_name = get_safe_name_from_hostname(
-        user_id, reserved_length=len(role_name_suffix)
+        principal_id, reserved_length=len(role_name_suffix)
     )
     role_name = f"{safe_name}{role_name_suffix}"
-    bucket_name = get_bucket_name_from_user_id(user_id)
+
+    bucket_name = get_bucket_name_from_principal_id(principal_id)
     aws_account_id = clients.sts_client.get_caller_identity().get("Account")
     oidc_token_url = clients.eks_client.describe_cluster(
         name=config["EKS_CLUSTER_NAME"]
     )["cluster"]["identity"]["oidc"]["issuer"].replace("https://", "")
 
-    assume_role_policy_document = {
+    trust_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -97,7 +97,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
                     "StringEquals": {
-                        f"{oidc_token_url}:sub": f"system:serviceaccount:{config["WORKER_PODS_NAMESPACE"]}:{get_worker_sa_name(user_id)}",
+                        f"{oidc_token_url}:sub": f"system:serviceaccount:{config["WORKER_PODS_NAMESPACE"]}:{get_worker_sa_name(principal_id)}",
                         f"{oidc_token_url}:aud": "sts.amazonaws.com",
                     }
                 },
@@ -105,38 +105,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
         ],
     }
 
-    try:
-        worker_role = clients.iam_client.get_role(RoleName=role_name)
-        logger.info(f"IAM role '{role_name}' already exists")
-        current_policy = dict_to_sorted_json_str(
-            worker_role["Role"]["AssumeRolePolicyDocument"]
-        )
-        updated_policy = dict_to_sorted_json_str(assume_role_policy_document)
-
-        if current_policy != updated_policy:
-            logger.debug(f"Updating Assume role Policy changed for '{role_name}'.")
-            clients.iam_client.update_assume_role_policy(
-                RoleName=role_name,
-                PolicyDocument=json.dumps(assume_role_policy_document),
-            )
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") != "NoSuchEntity":
-            raise
-        logger.info(f"Creating IAM role '{role_name}'")
-        worker_role = clients.iam_client.create_role(
-            RoleName=role_name,
-            AssumeRolePolicyDocument=json.dumps(assume_role_policy_document),
-            Tags=[
-                {
-                    "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=None),
-                }
-            ],
-        )
-        logger.info(f"Created IAM role '{role_name}'")
-
-    policy_name = f"{role_name}-s3-access"
-    policy_document = {
+    role_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -168,7 +137,7 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
             )
             raise HTTPException(HTTP_400_BAD_REQUEST, err_msg)
         logger.debug(f"Adding KMS permissions to IAM policy for role '{role_name}'")
-        policy_document["Statement"].append(
+        role_policy["Statement"].append(
             {
                 "Effect": "Allow",
                 "Action": [
@@ -180,17 +149,18 @@ def create_iam_role_for_funnel_bucket_access(user_id: str) -> str:
             }
         )
 
-    clients.iam_client.put_role_policy(
-        RoleName=role_name,
-        PolicyName=policy_name,
-        PolicyDocument=json.dumps(policy_document),
+    return create_or_update_iam_role(
+        principal_id=principal_id,
+        role_name=role_name,
+        role_description=f"Role assumed by Funnel to upload to and download from bucket '{bucket_name}'",
+        role_owner="funnel",
+        trust_policy=trust_policy,
+        role_policy_name=f"{role_name}-s3-access",
+        role_policy=role_policy,
     )
-    logger.info(f"Updated IAM policy '{policy_name}' for role '{role_name}'")
-
-    return worker_role["Role"]["Arn"]
 
 
-def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
+def setup_kms_encryption_on_bucket(bucket_name: str, principal_id: str) -> None:
     """
     Set up KMS encryption on the bucket.
 
@@ -202,17 +172,10 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
     # the only way to check if the KMS key has already been created is to use an alias
     kms_key_alias, kms_key_arn = get_existing_kms_key_for_bucket(bucket_name)
     if kms_key_arn:
-        logger.debug(f"Existing KMS key '{kms_key_alias}' - '{kms_key_arn}'")
+        logger.debug(f"Existing KMS key '{kms_key_alias}' ({kms_key_arn})")
     else:
         # the KMS key doesn't exist: create it
-        output = clients.kms_client.create_key(
-            Tags=[
-                {
-                    "TagKey": "Name",
-                    "TagValue": get_safe_name_from_hostname(user_id=None),
-                }
-            ]
-        )
+        output = clients.kms_client.create_key()
         kms_key_arn = output["KeyMetadata"]["Arn"]
         logger.debug(f"Created KMS key '{kms_key_arn}'")
 
@@ -220,6 +183,13 @@ def setup_kms_encryption_on_bucket(bucket_name: str) -> None:
             AliasName=kms_key_alias, TargetKeyId=kms_key_arn
         )
         logger.debug(f"Created KMS key alias '{kms_key_alias}'")
+
+    # Update the KMS key tags - this could be done during `create_key` but this way is easier,
+    # to update existing keys. Could add logic to skip if the tags are up to date
+    clients.kms_client.tag_resource(
+        KeyId=kms_key_arn,
+        Tags=get_tags_for_cost_tracking(principal_id, format="pascalcase"),
+    )
 
     logger.debug(f"Setting KMS encryption on bucket '{bucket_name}'")
     try:
@@ -335,41 +305,44 @@ def enable_bucket_versioning(bucket_name: str) -> None:
         raise
 
 
-async def _create_user_bucket(user_id: str) -> str:
+async def _create_user_bucket(principal_id: str) -> str:
     """
     Create an S3 bucket for the specified user and return information about the bucket.
 
     Args:
-        user_id (str): The user's unique Gen3 ID
+        principal_id (str): The user or client's unique Gen3 ID
 
     Returns:
         (str) bucket name
     """
-    user_bucket_name = get_bucket_name_from_user_id(user_id)
+    user_bucket_name = get_bucket_name_from_principal_id(principal_id)
     try:
         clients.s3_client.head_bucket(Bucket=user_bucket_name)
-        logger.info(f"Bucket '{user_bucket_name}' already exists for user '{user_id}'")
+        logger.info(
+            f"Bucket '{user_bucket_name}' already exists for user/client '{principal_id}'"
+        )
     except ClientError as e:
         error_code = e.response.get("Error", {}).get("Code")
         if error_code != "404":
             logger.error(
-                f"Error checking existence of bucket '{user_bucket_name}' for user '{user_id}': {e}"
+                f"Error checking existence of bucket '{user_bucket_name}' for user/client '{principal_id}': {e}"
             )
             raise
         logger.info(
-            f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user '{user_id}'"
+            f"Bucket does not exist. Creating S3 bucket '{user_bucket_name}' for user/client '{principal_id}'"
         )
         try:
-            if config["USER_BUCKETS_REGION"] == "us-east-1":
-                # it's the default region and cannot be specified in `LocationConstraint`
-                clients.s3_client.create_bucket(Bucket=user_bucket_name)
-            else:
-                clients.s3_client.create_bucket(
-                    Bucket=user_bucket_name,
-                    CreateBucketConfiguration={
-                        "LocationConstraint": config["USER_BUCKETS_REGION"]
-                    },
-                )
+            clients.s3_client.create_bucket(
+                Bucket=user_bucket_name,
+                CreateBucketConfiguration={
+                    **(
+                        # us-east-1 is the default region and cannot be specified in `LocationConstraint`
+                        {"LocationConstraint": config["USER_BUCKETS_REGION"]}
+                        if config["USER_BUCKETS_REGION"] != "us-east-1"
+                        else {}
+                    ),
+                },
+            )
         except clients.s3_client.exceptions.BucketAlreadyOwnedByYou:
             # `An error occurred (BucketAlreadyOwnedByYou) when calling the CreateBucket operation:
             # Your previous request to create the named bucket succeeded and you already own it.`
@@ -380,10 +353,19 @@ async def _create_user_bucket(user_id: str) -> str:
         else:
             waiter = clients.s3_client.get_waiter("bucket_exists")
             waiter.wait(Bucket=user_bucket_name)
-            logger.info(f"Created S3 bucket '{user_bucket_name}' for user '{user_id}'")
+            logger.info(
+                f"Created S3 bucket '{user_bucket_name}' for user/client '{principal_id}'"
+            )
+
+    # Update the bucket tags - this could be done during `create_bucket` but this way is easier,
+    # to update existing buckets. Not checking whether tags need to be updated since
+    # `USER_BUCKET_CACHE` already avoids making excessive AWS calls.
+    clients.s3_client.put_bucket_tagging(
+        Bucket=user_bucket_name,
+        Tagging={"TagSet": get_tags_for_cost_tracking(principal_id)},
+    )
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
-
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")
     clients.s3_client.put_bucket_lifecycle_configuration(
         Bucket=user_bucket_name,
@@ -422,7 +404,7 @@ async def _create_user_bucket(user_id: str) -> str:
     )
 
     if config["KMS_ENCRYPTION_ENABLED"]:
-        setup_kms_encryption_on_bucket(user_bucket_name)
+        setup_kms_encryption_on_bucket(user_bucket_name, principal_id)
     else:
         logger.warning(f"Disabling KMS encryption on bucket '{user_bucket_name}'")
         clients.s3_client.delete_bucket_encryption(Bucket=user_bucket_name)
@@ -435,7 +417,7 @@ async def _create_user_bucket(user_id: str) -> str:
     return user_bucket_name
 
 
-async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
+async def create_user_bucket(principal_id: str) -> Tuple[str, str, str]:
     """
     Wrapper for `_create_user_bucket` that handles caching and retries.
 
@@ -445,16 +427,16 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
     - `An error occurred (AlreadyExistsException) when calling the CreateAlias operation:
       An alias with the name XYZ already exists`
     """
-    if USER_BUCKET_CACHE.has(user_id):
-        return USER_BUCKET_CACHE.get(user_id)
+    if USER_BUCKET_CACHE.has(principal_id):
+        return USER_BUCKET_CACHE.get(principal_id)
 
     max_tries = 3
     retry_delay = 1
     retry_backoff_factor = 2
     for attempt in range(1, max_tries + 1):
         try:
-            bucket_name = await _create_user_bucket(user_id)
-            USER_BUCKET_CACHE.set(user_id, bucket_name)
+            bucket_name = await _create_user_bucket(principal_id)
+            USER_BUCKET_CACHE.set(principal_id, bucket_name)
             return bucket_name
         except ClientError as e:
             if (
@@ -472,16 +454,16 @@ async def create_user_bucket(user_id: str) -> Tuple[str, str, str]:
             await asyncio.sleep(delay)
 
 
-def _delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
+def _delete_all_bucket_objects(principal_id: str, user_bucket_name: str) -> None:
     """
     Deletes all objects from the specified S3 bucket.
 
     Args:
-        user_id (str): The user's unique Gen3 ID.
+        principal_id (str): The user or client's unique Gen3 ID.
         user_bucket_name (str): The name of the S3 bucket.
     """
     logger.debug(
-        f"Deleting all contents from '{user_bucket_name}' for user '{user_id}' before deleting the bucket"
+        f"Deleting all contents from '{user_bucket_name}' for user/client '{principal_id}' before deleting the bucket"
     )
     bucket = clients.s3_resource.Bucket(user_bucket_name)
 
@@ -503,12 +485,12 @@ def _delete_all_bucket_objects(user_id: str, user_bucket_name: str) -> None:
             )
 
 
-def cleanup_user_bucket(user_id: str, delete_bucket: bool) -> Union[str, None]:
+def cleanup_user_bucket(principal_id: str, delete_bucket: bool) -> Union[str, None]:
     """
     Empty a user's S3 bucket and optionally delete the bucket.
 
     Args:
-        user_id: User identifier used to derive the bucket name.
+        principal_id: User identifier used to derive the bucket name.
         delete_bucket:  If True, delete the bucket after removing all objects.
 
     Returns:
@@ -518,7 +500,7 @@ def cleanup_user_bucket(user_id: str, delete_bucket: bool) -> Union[str, None]:
     Raises:
         Exception: Propagates unexpected errors during cleanup or deletion.
     """
-    user_bucket_name = get_bucket_name_from_user_id(user_id)
+    user_bucket_name = get_bucket_name_from_principal_id(principal_id)
 
     try:
         clients.s3_client.head_bucket(Bucket=user_bucket_name)
@@ -526,20 +508,20 @@ def cleanup_user_bucket(user_id: str, delete_bucket: bool) -> Union[str, None]:
         error_code = e.response.get("Error", {}).get("Code")
         if error_code == "404":
             logger.warning(
-                f"Bucket '{user_bucket_name}' not found for user '{user_id}'."
+                f"Bucket '{user_bucket_name}' not found for user/client '{principal_id}'."
             )
             return None
     try:
-        _delete_all_bucket_objects(user_id, user_bucket_name)
+        _delete_all_bucket_objects(principal_id, user_bucket_name)
         if delete_bucket:
             logger.info(
-                f"Initializing delete for bucket '{user_bucket_name}' for user '{user_id}'"
+                f"Initializing delete for bucket '{user_bucket_name}' for user/client '{principal_id}'"
             )
             clients.s3_client.delete_bucket(Bucket=user_bucket_name)
         return user_bucket_name
 
     except Exception as e:
         logger.error(
-            f"Failed to cleanup bucket '{user_bucket_name}' for user '{user_id}': {e}"
+            f"Failed to cleanup bucket '{user_bucket_name}' for user/client '{principal_id}': {e}"
         )
         raise

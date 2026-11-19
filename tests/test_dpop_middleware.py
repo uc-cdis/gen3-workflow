@@ -20,7 +20,7 @@ from gen3workflow.config import config, get_dpop_allowed_issuers
 from gen3workflow.routes.s3 import (
     authorize_s3_request,
     s3_request_accepts_bearer_token,
-    set_access_token_and_get_user_id,
+    set_access_token_and_get_principal_id,
 )
 from tests.conftest import (
     MOCKED_S3_RESPONSE_XML,
@@ -1162,7 +1162,7 @@ async def test_s3_endpoint_rejects_token_requiring_a_proof_without_a_validated_o
     auth = MagicMock()
     auth.get_token_claims = AsyncMock(return_value={"sub": TEST_USER_ID, **claims})
     with pytest.raises(HTTPException) as e:
-        await set_access_token_and_get_user_id(
+        await set_access_token_and_get_principal_id(
             auth,
             {"authorization": aws_auth_header("some-token")},
             dpop_validated=False,
@@ -1182,12 +1182,12 @@ async def test_s3_endpoint_accepts_token_requiring_a_proof_with_a_validated_one(
     """The S3 endpoint accepts a token that requires a proof once the middleware validated one."""
     auth = MagicMock()
     auth.get_token_claims = AsyncMock(return_value={"sub": TEST_USER_ID, **claims})
-    user_id, _ = await set_access_token_and_get_user_id(
+    principal_id, _ = await set_access_token_and_get_principal_id(
         auth,
         {"authorization": aws_auth_header("some-token")},
         dpop_validated=True,
     )
-    assert user_id == TEST_USER_ID
+    assert principal_id == TEST_USER_ID
 
 
 @pytest.mark.asyncio

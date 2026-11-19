@@ -81,7 +81,7 @@ class Auth:
 
         return token_claims
 
-    async def get_user_id(self) -> Union[str, None]:
+    async def get_principal_id(self) -> Union[str, None]:
         """
         Parse the user ID from the access token claims. For tokens obtained through a
         `client_credentials` flow (not linked to a user), fall back to the client ID.
@@ -186,7 +186,7 @@ class Auth:
         return authorized
 
     async def grant_user_access_to_their_own_data(
-        self, username: str, user_id: str, is_client: bool = False
+        self, username: str, principal_id: str, is_client: bool = False
     ) -> None:
         """
         Ensure the specified user (or client, for tokens obtained through a
@@ -194,21 +194,21 @@ class Auth:
         their own Gen3Workflow tasks and bucket storage.
         Args:
             username (str): The user's Gen3 username, or the client ID for clients
-            user_id (str): The user's unique Gen3 ID, or the client ID for clients
+            principal_id (str): The user or client's unique Gen3 ID, or the client ID for clients
             is_client (bool): whether the principal is a client rather than a user
         """
         logger.info(
-            f"Ensuring {'client' if is_client else 'user'} '{user_id}' has access to their own tasks and storage"
+            f"Ensuring {'client' if is_client else 'user'} '{principal_id}' has access to their own tasks and storage"
         )
-        resource_path1 = f"/services/workflow/gen3-workflow/tasks/{user_id}"
+        resource_path1 = f"/services/workflow/gen3-workflow/tasks/{principal_id}"
         resource1 = {
-            "name": user_id,
+            "name": principal_id,
             "description": f"Represents workflow tasks owned by user '{username}'",
         }
 
-        resource_path2 = f"/services/workflow/gen3-workflow/storage/{user_id}"
+        resource_path2 = f"/services/workflow/gen3-workflow/storage/{principal_id}"
         resource2 = {
-            "name": user_id,
+            "name": principal_id,
             "description": f"Represents task storage owned by user '{username}'",
         }
 
@@ -223,7 +223,7 @@ class Auth:
             ],
         }
 
-        policy_id = f"gen3_workflow_user_sub_{user_id}"
+        policy_id = f"gen3_workflow_user_sub_{principal_id}"
         policy = {
             "id": policy_id,
             "role_ids": [role_id],
@@ -250,11 +250,13 @@ class Auth:
 
         grant_policy = True
         if is_client:
-            client = await self.arborist_client.get_client(user_id)
+            client = await self.arborist_client.get_client(principal_id)
             if client is None:
                 # the client doesn't exist: create it
-                logger.debug(f"Attempting to create client '{user_id}' in Arborist")
-                await self.arborist_client.create_client(user_id, [])
+                logger.debug(
+                    f"Attempting to create client '{principal_id}' in Arborist"
+                )
+                await self.arborist_client.create_client(principal_id, [])
             elif policy_id in client["policies"]:
                 # the client already has this policy
                 grant_policy = False
@@ -303,10 +305,10 @@ class Auth:
         if grant_policy:
             if is_client:
                 logger.debug(
-                    f"Attempting to grant client '{user_id}' access to '{policy_id}'"
+                    f"Attempting to grant client '{principal_id}' access to '{policy_id}'"
                 )
                 # raises `ArboristError` if the policy could not be granted
-                await self.arborist_client.grant_client_policy(user_id, policy_id)
+                await self.arborist_client.grant_client_policy(principal_id, policy_id)
             else:
                 logger.debug(
                     f"Attempting to grant '{username}' access to '{policy_id}'"
