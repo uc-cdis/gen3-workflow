@@ -151,7 +151,7 @@ def get_or_create_funnel_bucket_role(principal_id: str) -> str:
 
     return create_or_update_iam_role(
         principal_id=principal_id,
-        role_name=f"{bucket_name}-funnel-role",
+        role_name=role_name,
         role_description=f"Role assumed by Funnel to upload to and download from bucket '{bucket_name}'",
         role_owner="funnel",
         trust_policy=trust_policy,
