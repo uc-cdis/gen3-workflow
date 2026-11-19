@@ -93,7 +93,7 @@ SECRET_PATTERNS = [
     SecretPattern(
         name="JWT",
         hint="ey",
-        regex=re.compile(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
+        regex=re.compile(r"ey[A-Za-z0-9_-]+\.ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
         replacement=REDACTED_PLACEHOLDER,
     ),
     SecretPattern(
