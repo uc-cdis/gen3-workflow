@@ -185,7 +185,7 @@ async def stubbed_storage_setup(auth=Depends(Auth)) -> dict:
 
     try:
         await auth.grant_user_access_to_their_own_data(
-            username=username, user_id=user_id
+            username=username, principal_id=user_id
         )
     except ArboristError as e:
         logger.error(e.message)
@@ -208,11 +208,11 @@ async def stubbed_delete_user_bucket(auth=Depends(Auth)) -> dict:
     """
     Stubbed `DELETE /storage/user-bucket`: reports the deletion as initiated.
     """
-    user_id = await authorize_own_storage_deletion(auth)
+    principal_id = await authorize_own_storage_deletion(auth)
     _log_stubbed_request("DELETE /storage/user-bucket")
     return {
         "message": "Bucket deletion initiated.",
-        "bucket": aws_utils.get_safe_name_from_hostname(user_id),
+        "bucket": aws_utils.get_safe_name_from_hostname(principal_id),
     }
 
 

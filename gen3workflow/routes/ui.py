@@ -27,12 +27,12 @@ async def tasks_ui(
     """
     A UI which allows for basic TES task management
     """
-    user_id = await auth.get_user_id()
+    principal_id = await auth.get_principal_id()
     username = None
     tasks = []
     next_page_token = ""
 
-    if user_id:  # only get the tasks if the user is logged in
+    if principal_id:  # only get the tasks if the user is logged in
         token_claims = await auth.get_token_claims()
         username = token_claims.get("context", {}).get("user", {}).get("name")
         query_params = {"view": "BASIC", "page_size": UI_PAGE_SIZE}
@@ -75,7 +75,7 @@ async def tasks_ui(
         context={
             "hostname": f'https://{config["HOSTNAME"]}',
             "proxy_prefix": config["PROXY_PREFIX"],
-            "user_id": user_id,
+            "principal_id": principal_id,
             "username": username,
             "tasks": tasks,
             "next_page_token": next_page_token,

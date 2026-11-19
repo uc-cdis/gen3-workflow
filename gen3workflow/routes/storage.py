@@ -18,9 +18,7 @@ router = APIRouter(prefix="/storage")
 
 @router.get("/setup", status_code=HTTP_200_OK)
 @router.get("/setup/", status_code=HTTP_200_OK, include_in_schema=False)
-async def storage_setup(
-    request: Request, background_tasks: BackgroundTasks, auth=Depends(Auth)
-) -> dict:
+async def storage_setup(background_tasks: BackgroundTasks, auth=Depends(Auth)) -> dict:
     """
     Return details about the current user's storage setup.
     This endpoint also serves as a mandatory "first time setup" for the user's bucket
@@ -45,10 +43,10 @@ async def storage_setup(
     }
 
     if config["ENABLE_S3_FILES"]:
-        fs_id = s3_files.get_s3_files_system(bucket_name)
-        if not fs_id:
-            # Create S3 Files Filesystem ID if not exists
-            fs_id = s3_files.setup_s3_filesystem(bucket_name)
+        # Create S3 Files Filesystem if not exists
+        fs_id, is_new = s3_files.setup_s3_filesystem(bucket_name, principal_id)
+
+        if is_new:
             # NOTE: To avoid blocking `/storage/setup` call, setting s3 filesystem just returns
             # the filesystem id and continues with the rest of the steps asynchronously
             background_tasks.add_task(s3_files.provision_mount_targets, fs_id)
@@ -60,7 +58,7 @@ async def storage_setup(
 
     try:
         await auth.grant_user_access_to_their_own_data(
-            username=username, user_id=principal_id, is_client=is_client
+            username=username, principal_id=principal_id, is_client=is_client
         )
     except ArboristError as e:
         logger.error(e.message)
@@ -71,7 +69,7 @@ async def storage_setup(
 
 @router.delete("/user-bucket", status_code=HTTP_202_ACCEPTED)
 @router.delete("/user-bucket/", status_code=HTTP_202_ACCEPTED, include_in_schema=False)
-async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
+async def delete_user_bucket(auth=Depends(Auth)) -> None:
     """
     Delete the current user's S3 bucket
 
@@ -79,9 +77,9 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
     Amazon S3 processes bucket deletion asynchronously. The bucket may
     remain visible for a short period until deletion fully propagates.
     """
-    user_id = await authorize_own_storage_deletion(auth)
-    logger.info(f"User '{user_id}' deleting their storage bucket")
-    deleted_bucket_name = cleanup_user_bucket(user_id, delete_bucket=True)
+    principal_id = await authorize_own_storage_deletion(auth)
+    logger.info(f"User/client '{principal_id}' deleting their storage bucket")
+    deleted_bucket_name = cleanup_user_bucket(principal_id, delete_bucket=True)
 
     if not deleted_bucket_name:
         raise HTTPException(
@@ -89,7 +87,7 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         )
 
     logger.info(
-        f"Bucket '{deleted_bucket_name}' for user '{user_id}' scheduled for deletion"
+        f"Bucket '{deleted_bucket_name}' for user/client '{principal_id}' scheduled for deletion"
     )
 
     return {
@@ -107,13 +105,13 @@ async def delete_user_bucket(request: Request, auth=Depends(Auth)) -> None:
 @router.delete(
     "/user-bucket/objects/", status_code=HTTP_204_NO_CONTENT, include_in_schema=False
 )
-async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
+async def empty_user_bucket(auth=Depends(Auth)) -> None:
     """
     Deletes all the objects from current user's S3 bucket
     """
-    user_id = await authorize_own_storage_deletion(auth)
-    logger.info(f"User '{user_id}' emptying their storage bucket")
-    deleted_bucket_name = cleanup_user_bucket(user_id, delete_bucket=False)
+    principal_id = await authorize_own_storage_deletion(auth)
+    logger.info(f"User/client '{principal_id}' emptying their storage bucket")
+    deleted_bucket_name = cleanup_user_bucket(principal_id, delete_bucket=False)
 
     if not deleted_bucket_name:
         raise HTTPException(
@@ -121,7 +119,7 @@ async def empty_user_bucket(request: Request, auth=Depends(Auth)) -> None:
         )
 
     logger.info(
-        f"All objects removed from bucket '{deleted_bucket_name}' for user '{user_id}'"
+        f"All objects removed from bucket '{deleted_bucket_name}' for user/client '{principal_id}'"
     )
 
 
@@ -135,8 +133,8 @@ async def authorize_own_storage_deletion(auth: Auth) -> str:
     Returns:
         str: the caller's user ID
     """
-    user_id = (await auth.get_token_claims()).get("sub")
+    principal_id, _, _ = await auth.get_principal()
     await auth.authorize(
-        "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
+        "delete", [f"/services/workflow/gen3-workflow/storage/{principal_id}"]
     )
-    return user_id
+    return principal_id

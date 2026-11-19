@@ -1,16 +1,25 @@
-import json
 import time
-from typing import List
+from typing import List, Tuple
 
 from botocore.exceptions import ClientError
 
 from gen3workflow import logger
 from gen3workflow.aws import clients
-from gen3workflow.aws.aws_utils import get_safe_name_from_hostname
+from gen3workflow.aws.aws_utils import (
+    create_or_update_iam_role,
+    get_tags_for_cost_tracking,
+)
 from gen3workflow.config import config
 
 # NFS port used for all communication between EKS pods and S3 Files mount targets.
 NFS_PORT = 2049
+
+# Map of bucket name to S3Files file system ID. The stored file systems are assumed to be
+# up to date. This is cached in-process to avoid making AWS calls on every /storage/setup call.
+# To update an existing file system, the app must be restarted to clear this cache.
+# NOTE: Support for an API-triggered file system refresh could be implemented by simply removing
+# the targeted file system from the cache.
+UP_TO_DATE_FILE_SYSTEM_CACHE: dict[str, str] = {}
 
 # --------------------------------------------------------------------------- #
 # File system management
@@ -118,40 +127,50 @@ def get_s3files_setup_status(filesystem_id):
     return "Not ready"
 
 
-def _create_s3_files_system(bucket_name: str, role_arn: str) -> str:
+def _get_or_create_file_system(
+    bucket_name: str, role_arn: str, principal_id: str
+) -> Tuple[str, bool]:
     """
-    Creating S3 Files file system for the given bucket.
+    Create or return an existing S3 Files file system for the given bucket.
 
     Args:
         bucket_name: name of the source S3 bucket.
         role_arn: ARN of the IAM role S3 Files assumes to sync with the bucket.
 
     Returns:
-        The file system ID.
+        Tuple (str, bool): The file system ID and whether it was just created (true if new, false
+            if it already existed).
     """
-    bucket_arn = f"arn:aws:s3:::{bucket_name}"
+    file_system_id = get_s3_files_system(bucket_name)
+    is_new = False
+    if not file_system_id:
+        bucket_arn = f"arn:aws:s3:::{bucket_name}"
+        try:
+            response = clients.s3files_client.create_file_system(
+                bucket=bucket_arn, roleArn=role_arn
+            )
+            file_system_id = response["fileSystemId"]
+            is_new = True
+            logger.debug(
+                f"Created new S3 Files file system '{file_system_id}' for bucket '{bucket_name}'"
+            )
+        except ClientError as e:
+            logger.error(
+                f"Failed to create S3 Files file system for bucket '{bucket_name}': {e.response['Error']['Message']}"
+            )
+            raise
 
-    try:
-        response = clients.s3files_client.create_file_system(
-            bucket=bucket_arn,
-            roleArn=role_arn,
-            tags=[
-                {
-                    "key": "Name",
-                    "value": get_safe_name_from_hostname(user_id=None),
-                }
-            ],
-        )
-        file_system_id = response["fileSystemId"]
-        logger.debug(
-            f"Created new S3 Files file system '{file_system_id}' for bucket '{bucket_name}'"
-        )
-        return file_system_id
-    except ClientError as e:
-        logger.error(
-            f"Failed to create S3 Files file system for bucket '{bucket_name}': {e.response['Error']['Message']}"
-        )
-        raise
+    # Update the file system tags - this could be done during `create_file_system` but this way is
+    # easier, to update existing file systems. Not checking whether tags need to be updated since
+    # `UP_TO_DATE_FILE_SYSTEM_CACHE` already avoids making excessive AWS calls.
+    clients.s3files_client.tag_resource(
+        resourceId=file_system_id,
+        tags=get_tags_for_cost_tracking(
+            principal_id, role_owner="s3files", format="lowercase"
+        ),
+    )
+
+    return file_system_id, is_new
 
 
 # --------------------------------------------------------------------------- #
@@ -379,7 +398,9 @@ def _get_or_create_security_groups(vpc_id: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
+def _get_or_create_s3_files_bucket_role(
+    bucket_name: str, region: str, principal_id: str
+) -> str:
     """
     Get or create the IAM role that S3 Files itself assumes to read from / write to
     the source bucket and manage its EventBridge sync rules. This is the `roleArn`
@@ -391,20 +412,10 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
     Reference: https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-files-prereq-policies.html#s3-files-prereq-iam
 
     Returns:
-        ARN of the (new or existing) IAM role.
+        str: ARN of the (new or existing) IAM role
     """
-    # TODO: Make it such that it is under 64 characters
-    role_name = f"{bucket_name}-s3files-role"
     account_id = clients.sts_client.get_caller_identity()["Account"]
     bucket_arn = f"arn:aws:s3:::{bucket_name}"
-
-    try:
-        role = clients.iam_client.get_role(RoleName=role_name)
-        role_arn = role["Role"]["Arn"]
-        logger.info("IAM role '%s' already exists (%s)", role_name, role_arn)
-        return role_arn
-    except clients.iam_client.exceptions.NoSuchEntityException:
-        pass
 
     trust_policy = {
         "Version": "2012-10-17",
@@ -426,7 +437,7 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
 
     # NOTE: includes the KMS statement unconditionally. If the kmsEncryptionEnabled is false,
     # this statement is simply unused -- harmless
-    inline_policy = {
+    role_policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -502,41 +513,16 @@ def _get_or_create_s3_files_bucket_role(bucket_name: str, region: str) -> str:
         ],
     }
 
-    try:
-        response = clients.iam_client.create_role(
-            RoleName=role_name,
-            AssumeRolePolicyDocument=json.dumps(trust_policy),
-            Description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
-            Tags=[
-                {
-                    "Key": "Name",
-                    "Value": get_safe_name_from_hostname(user_id=None),
-                }
-            ],
-        )
-        role_arn = response["Role"]["Arn"]
-
-    except ClientError as e:
-        logger.error(
-            f"Failed to create IAM role for bucket '{bucket_name}': {e.response['Error']['Message']}"
-        )
-        raise
-
-    try:
-        clients.iam_client.put_role_policy(
-            RoleName=role_name,
-            PolicyName="S3FilesBucketAccess",
-            PolicyDocument=json.dumps(inline_policy),
-        )
-        logger.info(
-            "Created IAM role '%s' (%s) for S3 Files bucket access", role_name, role_arn
-        )
-        return role_arn
-    except ClientError as e:
-        logger.error(
-            f"Failed to put IAM policy for role {role_arn} for bucket '{bucket_name}': {e.response['Error']['Message']}"
-        )
-        raise
+    return create_or_update_iam_role(
+        principal_id=principal_id,
+        # TODO: Make role_name such that it is under 64 characters
+        role_name=f"{bucket_name}-s3files-role",
+        role_description=f"Role assumed by S3 Files to sync with bucket '{bucket_name}'",
+        role_owner="s3files",
+        trust_policy=trust_policy,
+        role_policy_name="S3FilesBucketAccess",
+        role_policy=role_policy,
+    )
 
 
 # ---------
@@ -605,20 +591,27 @@ def wait_for_file_system_ready(
 # --------------------------------------------------------------------------- #
 
 
-def setup_s3_filesystem(bucket_name: str) -> str:
+def setup_s3_filesystem(bucket_name: str, principal_id: str) -> Tuple[str, bool]:
     """
     Ensure an S3 Files file system exists for `bucket_name`
 
     Returns:
-        The file system ID.
+        Tuple (str, bool): The file system ID and whether it was just created (true if new, false
+            if it already existed).
     """
+    if bucket_name in UP_TO_DATE_FILE_SYSTEM_CACHE:
+        return UP_TO_DATE_FILE_SYSTEM_CACHE[bucket_name], False
 
     region = config["USER_BUCKETS_REGION"]
     role_arn = _get_or_create_s3_files_bucket_role(
-        bucket_name=bucket_name, region=region
+        bucket_name=bucket_name, region=region, principal_id=principal_id
     )
 
-    return _create_s3_files_system(bucket_name, role_arn=role_arn)
+    file_system_id, is_new = _get_or_create_file_system(
+        bucket_name, role_arn=role_arn, principal_id=principal_id
+    )
+    UP_TO_DATE_FILE_SYSTEM_CACHE[bucket_name] = file_system_id
+    return file_system_id, is_new
 
 
 def provision_mount_targets(file_system_id: str):
