@@ -30,7 +30,8 @@ def _get_user_secret_keys(tags: Any) -> frozenset:
     Read the env var names a user declared as secret in the task's `_ENV_SECRETS` tag.
 
     Args:
-        tags: the value of a task's `tags` key, normally a dict of tag names to values
+        tags: the value of a task's `tags` key, normally a dict of tag names to values. The TES spec says this is a dict of strings, but `create_task` redacts and logs the
+                request body before the TES server has validated it, so it can be any JSON a user sent
 
     Returns:
         frozenset: the declared names, lowercased. Empty if the tag is absent, or does not hold a string.

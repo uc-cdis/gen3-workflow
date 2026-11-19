@@ -318,6 +318,35 @@ def test_user_secret_keys_apply_only_to_their_own_task():
     assert redacted["tasks"][1]["executors"][0]["env"] == {"MY_VAR": "hunter2"}
 
 
+def test_user_secret_keys_are_only_read_from_the_task_tags():
+    """
+    Test that `_ENV_SECRETS` is only read from the task's own `tags`, not from a `tags` nested
+    elsewhere in the task, such as in an executor or an input.
+    """
+    task = {
+        "executors": [
+            {
+                "command": ["echo plainvalue"],
+                "env": {"MY_VAR": "plainvalue"},
+                "tags": {ENV_SECRETS_TAG: "MY_VAR"},
+            }
+        ],
+        "inputs": [{"url": "s3://bucket/key", "tags": {ENV_SECRETS_TAG: "MY_VAR"}}],
+        "logs": [{"logs": [{"stdout": "plainvalue"}]}],
+    }
+    redacted = redact_secrets(task)
+    assert redacted["executors"][0]["env"] == {"MY_VAR": "plainvalue"}
+    assert redacted["executors"][0]["command"] == ["echo plainvalue"]
+    assert redacted["logs"][0]["logs"][0]["stdout"] == "plainvalue"
+
+    # the same declaration in the task's own `tags` is used
+    task["tags"] = {ENV_SECRETS_TAG: "MY_VAR"}
+    redacted = redact_secrets(task)
+    assert redacted["executors"][0]["env"] == {"MY_VAR": REDACTED_PLACEHOLDER}
+    assert redacted["executors"][0]["command"] == [f"echo {REDACTED_PLACEHOLDER}"]
+    assert redacted["logs"][0]["logs"][0]["stdout"] == REDACTED_PLACEHOLDER
+
+
 def test_user_secret_keys_do_not_change_the_tag_itself():
     """Test that the `_ENV_SECRETS` tag stays readable, so users can see what they declared."""
     task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"})
@@ -477,6 +506,53 @@ def test_secret_values_are_scoped_to_their_own_task():
         redacted_second["logs"][0]["logs"][0]["stdout"]
         == f"first-value {REDACTED_PLACEHOLDER}"
     )
+
+
+def test_secret_values_are_redacted_across_executors():
+    """
+    Test that a secret value from one executor's env is redacted from every executor's logs, since
+    executors in a task share volumes and a later executor may echo an earlier one's secret.
+    """
+    task = {
+        "volumes": ["/shared"],
+        "executors": [
+            {
+                "image": "alpine",
+                # writes its secret to the shared volume, and echoes it
+                "command": [
+                    "sh",
+                    "-c",
+                    'echo "$DB_PASSWORD" > /shared/pw && echo "wrote $DB_PASSWORD"',
+                ],
+                "env": {"DB_PASSWORD": "hunter2"},
+            },
+            {
+                "image": "alpine",
+                # has no secret of its own, but reads and echoes the first executor's
+                "command": [
+                    "sh",
+                    "-c",
+                    'echo "read $(cat /shared/pw) for $SAMPLE_ID"',
+                ],
+                "env": {"SAMPLE_ID": "S42"},
+            },
+        ],
+        "logs": [
+            {
+                "logs": [
+                    {"stdout": "wrote hunter2\n", "exit_code": 0},
+                    {"stdout": "read hunter2 for S42\n", "exit_code": 0},
+                ]
+            }
+        ],
+    }
+    redacted = redact_secrets(task)
+    executor_logs = redacted["logs"][0]["logs"]
+    assert executor_logs[0]["stdout"] == f"wrote {REDACTED_PLACEHOLDER}\n"
+    assert executor_logs[1]["stdout"] == f"read {REDACTED_PLACEHOLDER} for S42\n"
+    # the commands only reference the env vars, so there is nothing to redact in them
+    assert redacted["executors"][0]["command"] == task["executors"][0]["command"]
+    assert redacted["executors"][1]["command"] == task["executors"][1]["command"]
 
 
 def test_secret_values_are_not_redacted_from_other_fields():

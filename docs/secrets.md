@@ -96,6 +96,37 @@ This is an exact text match, and it has limits:
 * The values are only collected from the task's own executors. Another task's values are never
   used, including tasks in the same list response.
 
+### Secrets are shared across the executors of a task
+
+The values are collected from **all** of a task's executors and redacted from **every**
+executor's logs, not only from the logs of the executor that declared them. Executors in a task
+share its volumes, so a later executor can read and print a secret it never had in its own `env`:
+
+```
+{
+  "volumes": ["/shared"],
+  "executors": [
+    {
+      "image": "alpine",
+      "command": ["sh", "-c", "echo \"$DB_PASSWORD\" > /shared/pw && echo \"wrote $DB_PASSWORD\""],
+      "env": {"DB_PASSWORD": "hunter2"}
+    },
+    {
+      "image": "alpine",
+      "command": ["sh", "-c", "echo \"read $(cat /shared/pw) for $SAMPLE_ID\""],
+      "env": {"SAMPLE_ID": "S42"}
+    }
+  ]
+}
+```
+
+The second executor has no secret of its own, but its `stdout`, `read hunter2 for S42`, is
+returned as `read [REDACTED] for S42`, just like the first executor's `wrote [REDACTED]`.
+
+In the TES task, `logs` holds one entry per attempt, and each attempt's `logs` holds one entry per
+executor, in the same order as `executors`. Every one of those executor logs is checked for every
+secret value of the task.
+
 ## Be careful what your commands print
 
 **Anything your executor prints is stored as part of the task record, and stays there.** Running
