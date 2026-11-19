@@ -156,7 +156,8 @@ async def set_access_token_and_get_principal_id(
             request. A DPoP-bound token or a task token is refused without one.
 
     Returns:
-        tuple(str, str): the user's ID and (if the token is linked to a client) the client's ID
+        tuple(str, str): principal ID (the user's ID, or the client's ID if there is no linked
+            user) and the client's ID (or None if there is no linked client)
     """
     auth_header = headers.get("authorization")
     if not auth_header:

@@ -109,14 +109,14 @@ class Auth:
         """
         token_claims = await self.get_token_claims()
 
-        principal_id = token_claims.get("sub")
-        if principal_id:
+        user_id = token_claims.get("sub")
+        if user_id:
             username = token_claims.get("context", {}).get("user", {}).get("name")
             if not username:
                 err_msg = "No context.user.name in token"
                 logger.error(err_msg)
                 raise HTTPException(HTTP_401_UNAUTHORIZED, err_msg)
-            return principal_id, username, False
+            return user_id, username, False
 
         client_id = token_claims.get("azp")
         if client_id:
@@ -172,10 +172,10 @@ class Auth:
 
         if not authorized:
             token_claims = await self.get_token_claims() if token else {}
-            principal_id = token_claims.get("sub")
+            user_id = token_claims.get("sub")
             client_id = token_claims.get("azp")
             logger.error(
-                f"Authorization error for user/client '{principal_id}' / client '{client_id}': token must have '{method}' access on {resources} for service 'gen3-workflow'."
+                f"Authorization error for user '{user_id}' / client '{client_id}': token must have '{method}' access on {resources} for service 'gen3-workflow'."
             )
             if throw:
                 raise HTTPException(
