@@ -92,7 +92,7 @@ SECRET_PATTERNS = [
     ),
     SecretPattern(
         name="JWT",
-        hint="eyj",
+        hint="ey",
         regex=re.compile(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
         replacement=REDACTED_PLACEHOLDER,
     ),
@@ -130,6 +130,14 @@ SECRET_PATTERNS = [
         hint="bearer",
         regex=re.compile(
             r"(?P<prefix>\bbearer\s+)(?P<token>[A-Za-z0-9._~+/=-]{8,})", re.IGNORECASE
+        ),
+        replacement=_redact_auth_scheme_token,
+    ),
+    SecretPattern(
+        name="dpop token",
+        hint="dpop",
+        regex=re.compile(
+            r"(?P<prefix>\bdpop\s+)(?P<token>[A-Za-z0-9._~+/=-]{8,})", re.IGNORECASE
         ),
         replacement=_redact_auth_scheme_token,
     ),

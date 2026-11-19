@@ -202,7 +202,7 @@ def test_non_secrets_are_not_redacted(value):
         "GITLAB_TOKEN",
     ],
 )
-def test_env_vars_are_redacted_by_name(env_var_name):
+def test_secret_keys_are_redacted_by_name_pattern(env_var_name):
     """Test that an env var whose name says it holds a secret is redacted."""
     # too short and too low-entropy for any value-based rule to catch
     task = {"executors": [{"env": {env_var_name: "hunter2"}}]}
@@ -221,13 +221,13 @@ def test_env_vars_are_redacted_by_name(env_var_name):
         "authz",
     ],
 )
-def test_env_vars_are_not_redacted_by_name(env_var_name):
+def test_non_secret_keys_are_not_redacted_by_name_pattern(env_var_name):
     """Test that an env var with an ordinary name is left to the value-based rules."""
     task = {"executors": [{"env": {env_var_name: "hunter2"}}]}
     assert redact_secrets(task) == task
 
 
-def test_only_env_vars_are_redacted_by_name():
+def test_name_pattern_only_applies_to_executor_env():
     """Test that name-based redaction does not apply outside of an executor's env."""
     # a secret-sounding key anywhere else is still only redacted if its value looks like a secret
     assert redact_secrets({"tags": {"my_password": "hunter2"}}) == {
@@ -253,7 +253,7 @@ def test_only_env_vars_are_redacted_by_name():
         "tag name in a different case",
     ],
 )
-def test_user_declared_env_vars_are_redacted(tag_name, tag_value):
+def test_user_secret_keys_are_redacted(tag_name, tag_value):
     """Test that an env var the user named in the `_ENV_SECRETS` tag is redacted."""
     # neither the name nor the value says "secret", so only the declaration can catch it
     task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {tag_name: tag_value})
@@ -276,19 +276,19 @@ def test_user_declared_env_vars_are_redacted(tag_name, tag_value):
         "a list instead of a string",
     ],
 )
-def test_undeclared_env_vars_are_not_redacted(tag_value):
+def test_keys_not_in_user_secret_keys_are_not_redacted(tag_value):
     """Test that the tag only redacts exact name matches, and tolerates unusable values."""
     task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: tag_value})
     assert redact_secrets(task)["executors"][0]["env"] == {"MY_VAR": "hunter2"}
 
 
-def test_declared_env_vars_tag_is_only_read_in_upper_or_lower_case():
+def test_user_secret_keys_tag_is_only_read_in_upper_or_lower_case():
     """Test that a mixed-case tag name is ignored, as it is for the other user-supplied tags."""
     task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {"_Env_Secrets": "MY_VAR"})
     assert redact_secrets(task)["executors"][0]["env"] == {"MY_VAR": "hunter2"}
 
 
-def test_declared_env_vars_apply_to_every_executor_in_the_task():
+def test_user_secret_keys_apply_to_every_executor_in_the_task():
     """Test that the tag is set once per task and covers all of its executors."""
     task = {
         "tags": {ENV_SECRETS_TAG: "MY_VAR"},
@@ -305,7 +305,7 @@ def test_declared_env_vars_apply_to_every_executor_in_the_task():
     }
 
 
-def test_declared_env_vars_apply_only_to_their_own_task():
+def test_user_secret_keys_apply_only_to_their_own_task():
     """Test that one task's `_ENV_SECRETS` tag does not redact another task's env vars."""
     declaring = task_with_env_and_tags(
         {"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"}
@@ -318,7 +318,7 @@ def test_declared_env_vars_apply_only_to_their_own_task():
     assert redacted["tasks"][1]["executors"][0]["env"] == {"MY_VAR": "hunter2"}
 
 
-def test_declared_env_vars_do_not_change_the_tag_itself():
+def test_user_secret_keys_do_not_change_the_tag_itself():
     """Test that the `_ENV_SECRETS` tag stays readable, so users can see what they declared."""
     task = task_with_env_and_tags({"MY_VAR": "hunter2"}, {ENV_SECRETS_TAG: "MY_VAR"})
     assert redact_secrets(task)["tags"] == {ENV_SECRETS_TAG: "MY_VAR"}
@@ -366,7 +366,7 @@ def test_redact_secrets_in_task():
     assert task["executors"][0]["env"]["GEN3_TOKEN"] == JWT
 
 
-def test_secret_env_var_values_are_redacted_from_command_and_logs():
+def test_secret_values_are_redacted_from_command_and_logs():
     """
     The value of an env var that is secret by name, or declared in `_ENV_SECRETS`, is redacted
     from the executors' command and the task's stdout, stderr and system logs, even when it does
@@ -403,7 +403,57 @@ def test_secret_env_var_values_are_redacted_from_command_and_logs():
     ]
 
 
-def test_secret_env_var_values_are_scoped_to_their_own_task():
+def test_secret_values_skip_empty_and_none_and_stringify_others():
+    """
+    Test that empty and `None` values of secret env vars are not redacted from the logs, since they
+    would match everywhere or redact the word "None", while non-string values are redacted as
+    the string they would be echoed as. The env vars themselves are redacted by name regardless.
+    """
+    task = {
+        "executors": [
+            {
+                "env": {
+                    "DB_PASSWORD": "",
+                    "MY_TOKEN": None,
+                    "API_KEY": 8675309,
+                    "SECRET_FLAG": True,
+                },
+            }
+        ],
+        "logs": [{"logs": [{"stdout": "None: key 8675309 is True"}]}],
+    }
+    redacted = redact_secrets(task)
+    assert redacted["executors"][0]["env"] == {
+        "DB_PASSWORD": REDACTED_PLACEHOLDER,
+        "MY_TOKEN": REDACTED_PLACEHOLDER,
+        "API_KEY": REDACTED_PLACEHOLDER,
+        "SECRET_FLAG": REDACTED_PLACEHOLDER,
+    }
+    assert (
+        redacted["logs"][0]["logs"][0]["stdout"]
+        == f"None: key {REDACTED_PLACEHOLDER} is {REDACTED_PLACEHOLDER}"
+    )
+
+
+def test_overlapping_secret_values_are_redacted_longest_first():
+    """
+    Test that when a secret env var's value contains another's, the longer one is redacted first, so
+    no part of it is left behind once the shorter one is replaced.
+    """
+    task = {
+        "executors": [
+            {"env": {"DB_PASSWORD": "hunter2", "API_KEY": "hunter2-extended"}}
+        ],
+        "logs": [{"logs": [{"stdout": "hunter2 and hunter2-extended"}]}],
+    }
+    redacted = redact_secrets(task)
+    assert (
+        redacted["logs"][0]["logs"][0]["stdout"]
+        == f"{REDACTED_PLACEHOLDER} and {REDACTED_PLACEHOLDER}"
+    )
+
+
+def test_secret_values_are_scoped_to_their_own_task():
     """
     Test that in a list of tasks that declare the same env var as secret but with different values, each task
     only redacts its own value, even though both values are printed in both tasks' stdout.
@@ -429,7 +479,7 @@ def test_secret_env_var_values_are_scoped_to_their_own_task():
     )
 
 
-def test_secret_env_var_values_are_not_redacted_from_other_fields():
+def test_secret_values_are_not_redacted_from_other_fields():
     """Test that the values are only looked for in the fields that may echo them."""
     task = {
         "name": "run with hunter2",
@@ -445,13 +495,13 @@ def test_secret_env_var_values_are_not_redacted_from_other_fields():
 @pytest.mark.parametrize(
     "executors", [None, "not a list", [None, "x", {"env": "not a dict"}]]
 )
-def test_secret_env_var_values_ignore_malformed_executors(executors):
+def test_secret_values_ignore_malformed_executors(executors):
     """Test that a malformed `executors` does not break collecting the secret env var values."""
     task = {"executors": executors, "logs": [{"stdout": "hunter2"}]}
     assert redact_secrets(task) == task
 
 
-def test_secret_env_var_values_are_read_from_executors_only():
+def test_secret_values_are_read_from_executors_only():
     """
     Test that only `executors[*].env` is read for the values to redact from the strings that may echo them.
     The TES spec has no `env` outside of executors, but a request body is redacted before it is validated: a
