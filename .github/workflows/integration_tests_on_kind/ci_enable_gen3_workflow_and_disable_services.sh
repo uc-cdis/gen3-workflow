@@ -41,6 +41,10 @@ metadata:
   enabled: false
 ohif-viewer:
   enabled: false
+ohdsi-atlas:
+  enabled: false
+ohdsi-webapi:
+  enabled: false
 orthanc:
   enabled: false
 peregrine:
