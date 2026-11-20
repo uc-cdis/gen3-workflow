@@ -323,6 +323,10 @@ clients:
   funnel-plugin-client:
     policies:
       - gen3_workflow_storage_admin
+  # client used by the integration tests to hit the API with a client_credentials token
+  gen3-workflow-client:
+    policies:
+      - gen3_workflow_user
 users:
   main@example.org:
     admin: true

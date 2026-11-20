@@ -133,10 +133,11 @@ async def authorize_own_storage_deletion(auth: Auth) -> str:
         auth (Auth): the request's auth instance
 
     Returns:
-        str: the caller's user ID
+        str: the caller's user ID, or the client ID for tokens obtained through a
+            `client_credentials` flow
     """
-    user_id = (await auth.get_token_claims()).get("sub")
+    principal_id, _, _ = await auth.get_principal()
     await auth.authorize(
-        "delete", [f"/services/workflow/gen3-workflow/storage/{user_id}"]
+        "delete", [f"/services/workflow/gen3-workflow/storage/{principal_id}"]
     )
-    return user_id
+    return principal_id
