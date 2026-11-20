@@ -24,6 +24,7 @@ from gen3workflow.auth import Auth
 from gen3workflow.aws import aws_utils
 from gen3workflow.aws.bucket import get_or_create_funnel_bucket_role
 from gen3workflow.config import config
+from gen3workflow.redaction import redact_secrets
 from gen3workflow.routes.utils import make_tes_server_request
 
 router = APIRouter(prefix="/ga4gh/tes/v1")
@@ -41,6 +42,8 @@ RESERVED_TAGS = {
     "_NODE_SELECTOR",
     "_TOLERATIONS",
 }
+
+
 TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
 TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
 
@@ -135,7 +138,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
 
     body = await get_request_body(request)
-    logger.debug(f"Incoming task creation request body: {json.dumps(body)}")
+    if config["APP_DEBUG"]:
+        logger.debug(
+            f"Incoming task creation request body: {json.dumps(redact_secrets(body))}"
+        )
 
     # add the `_AUTHZ` tag to the task, so access can be checked by the other endpoints
     principal_id, username, is_client = await auth.get_principal()
@@ -215,7 +221,10 @@ async def create_task(request: Request, auth=Depends(Auth)) -> dict:
 
     body["tags"] = dict(sorted(body["tags"].items()))
 
-    logger.debug(f"Outgoing task creation request body: {json.dumps(body)}")
+    if config["APP_DEBUG"]:
+        logger.debug(
+            f"Outgoing task creation request body: {json.dumps(redact_secrets(body))}"
+        )
     url = f"{config['TES_SERVER_URL']}/tasks"
     res = await make_tes_server_request(
         request.app.async_client,
@@ -457,7 +466,7 @@ async def list_tasks(
         if user_access.get(task.get("tags", {}).get("_AUTHZ"))
     ]
 
-    return listed_tasks
+    return redact_secrets(listed_tasks)
 
 
 @router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
@@ -487,12 +496,14 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     authz_path = body.get("tags", {}).get("_AUTHZ")
     if not authz_path:
         err_msg = "No authz tag in task body"
-        logger.error(f"{err_msg}: {body}")
+        logger.error(f"{err_msg}: {redact_secrets(body)}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
     body["tags"]["_AUTHZ"] = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
 
-    return apply_view_to_task(requested_view, process_task_outputs(principal_id, body))
+    return redact_secrets(
+        apply_view_to_task(requested_view, process_task_outputs(principal_id, body))
+    )
 
 
 @router.post("/tasks/{task_id}:cancel", status_code=HTTP_200_OK)
@@ -513,7 +524,7 @@ async def cancel_task(request: Request, task_id: str, auth=Depends(Auth)) -> dic
     authz_path = body.get("tags", {}).get("_AUTHZ")
     if not authz_path:
         err_msg = "No authz tag in task body"
-        logger.error(f"{err_msg}: {body}")
+        logger.error(f"{err_msg}: {redact_secrets(body)}")
         raise HTTPException(HTTP_403_FORBIDDEN, err_msg)
     authz_path = authz_path.replace("TASK_ID_PLACEHOLDER", task_id)
     await auth.authorize("delete", [authz_path])

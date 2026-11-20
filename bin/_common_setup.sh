@@ -14,4 +14,4 @@ else
   PROMETHEUS_MULTIPROC_DIR=""
 fi
 # Source the environment variables from the metrics setup script
-source "${CURRENT_DIR}/setup_prometheus.sh" $PROMETHEUS_MULTIPROC_DIR
+source "${CURRENT_DIR}/setup_prometheus.sh" "${PROMETHEUS_MULTIPROC_DIR:-/var/tmp/prometheus_metrics}"

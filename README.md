@@ -16,4 +16,5 @@ The documentation can be browsed in the [docs](docs) folder, and key documents a
 * [Architecture](docs/architecture.md)
 * [Helm chart architecture](docs/helm_chart_architecture.md)
 * [Authorization](docs/authorization.md)
+* [Secrets in TES tasks](docs/secrets.md)
 * [S3 interaction](docs/s3.md)
