@@ -19,8 +19,6 @@ ambassador:
   enabled: false
 "argo-wrapper:":
   enabled: false
-audit:
-  enabled: false
 cedar:
   enabled: false
 cohort-middleware:
