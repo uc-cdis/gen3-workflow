@@ -31,7 +31,7 @@ async def storage_setup(background_tasks: BackgroundTasks, auth=Depends(Auth)) -
 
     # only users with access to create tasks should be able to setup their storage
     await auth.authorize("create", ["/services/workflow/gen3-workflow/tasks"])
-
+    random_num = 7 / 0
     bucket_name = await create_user_bucket(principal_id)
     bucket_prefix = "ga4gh-tes"
     bucket_region = config["USER_BUCKETS_REGION"]
