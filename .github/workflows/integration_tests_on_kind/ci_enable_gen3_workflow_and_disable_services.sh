@@ -61,4 +61,6 @@ ssjdispatcher:
   enabled: false
 wts:
   enabled: false
+zendesk-wrapper:
+  enabled: false
 EOF
