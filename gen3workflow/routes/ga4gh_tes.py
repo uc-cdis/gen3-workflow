@@ -42,6 +42,8 @@ RESERVED_TAGS = {
     "_NODE_SELECTOR",
     "_TOLERATIONS",
 }
+
+
 TAGS_HIDDEN_FROM_USER = RESERVED_TAGS.copy()
 TAGS_HIDDEN_FROM_USER.remove("_AUTHZ")
 
@@ -500,7 +502,7 @@ async def get_task(request: Request, task_id: str, auth=Depends(Auth)) -> dict:
     await auth.authorize("read", [body["tags"]["_AUTHZ"]])
 
     return redact_secrets(
-      apply_view_to_task(requested_view, process_task_outputs(principal_id, body))
+        apply_view_to_task(requested_view, process_task_outputs(principal_id, body))
     )
 
 
