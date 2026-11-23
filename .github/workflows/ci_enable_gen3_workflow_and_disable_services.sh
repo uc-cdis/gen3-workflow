@@ -3,6 +3,11 @@ set -Eeuo pipefail
 
 # Minimal CI config override: enable gen3-workflow and disable services that are
 # not needed for gen3-workflow integration tests.
+#
+# NOTE: This script is not referenced by any workflow in this repo, but it IS used in uc-cdis/funnel repo's integration tests.
+# which passes it to the shared integration tests workflow as its CI config override script:
+#   See SETUP_SCRIPT_2 in https://github.com/uc-cdis/funnel/blob/master/.github/workflows/gen3_integration_tests.yaml
+# Do not delete or move it without updating those references.
 
 cd gen3-gitops-ci/ci/default/values
 
