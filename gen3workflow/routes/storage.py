@@ -131,7 +131,8 @@ async def authorize_own_storage_deletion(auth: Auth) -> str:
         auth (Auth): the request's auth instance
 
     Returns:
-        str: the caller's user ID
+        str: the caller's user ID, or the client ID for tokens obtained through a
+            `client_credentials` flow
     """
     principal_id, _, _ = await auth.get_principal()
     await auth.authorize(

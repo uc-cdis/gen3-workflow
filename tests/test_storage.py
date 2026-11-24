@@ -381,6 +381,57 @@ async def test_delete_user_bucket_with_files(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "access_token_patcher",
+    [{"user_id": None, "client_id": TEST_CLIENT_ID}],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "delete_bucket", [True, False], ids=["delete bucket", "empty bucket"]
+)
+async def test_delete_user_bucket_with_client_token(
+    client, access_token_patcher, mock_aws_services, user_bucket, delete_bucket
+):
+    """
+    A client (token obtained through a `client_credentials` flow, not linked to a user) should be
+    able to empty and delete its own bucket: the client ID takes the place of the user ID, both
+    in the access check and in the name of the bucket.
+    """
+    # bucket names must be lowercase, unlike client IDs
+    assert user_bucket == f"gen3wf-{config['HOSTNAME']}-{TEST_CLIENT_ID.lower()}"
+    remove_bucket_policy_and_put_object(
+        bucket=user_bucket, key="file.txt", body=b"Dummy file contents"
+    )
+
+    res = await client.delete(
+        "/storage/user-bucket" if delete_bucket else "/storage/user-bucket/objects",
+        headers={"Authorization": f"bearer {TEST_USER_TOKEN}"},
+    )
+    assert res.status_code == (202 if delete_bucket else 204), res.text
+
+    # the authz check should have been made on the client's own storage
+    mock_arborist_request.assert_called_with(
+        method="POST",
+        path=f"/auth/request",
+        body=f'{{"requests":[{{"resource":"/services/workflow/gen3-workflow/storage/{TEST_CLIENT_ID}","action":{{"service":"gen3-workflow","method":"delete"}}}}],"user":{{"token":"{TEST_USER_TOKEN}"}},"aud":{VALID_AUD_STR}}}',
+        authorized=client.authorized,
+    )
+
+    if delete_bucket:
+        with pytest.raises(ClientError) as e:
+            clients.s3_client.head_bucket(Bucket=user_bucket)
+        assert (
+            e.value.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+        ), f"Bucket still exists: {e.value}"
+    else:
+        assert clients.s3_client.head_bucket(Bucket=user_bucket)
+        object_list = clients.s3_client.list_objects_v2(Bucket=user_bucket).get(
+            "Contents", []
+        )
+        assert not object_list, f"Expected no objects in bucket, found {object_list}"
+
+
+@pytest.mark.asyncio
 async def test_delete_user_bucket_no_token(client, mock_aws_services):
     """
     Attempt to delete a bucket when the user is not logged in.  Must receive a 401 error.
