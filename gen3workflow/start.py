@@ -5,6 +5,20 @@ from gen3workflow.config import config
 
 
 def prepare_metrics_directory(path: str) -> None:
+    """
+    Prepare the Prometheus multiprocess metrics directory and export it as
+    `PROMETHEUS_MULTIPROC_DIR`. Must run before `prometheus_client` is imported.
+
+    Creates the directory if needed and deletes stale `*.db` metric files left by previous
+    processes. Other files are kept.
+
+    Args:
+        path (str): path to the metrics directory
+
+    Raises:
+        ValueError: if `path` is empty
+        OSError: if the directory cannot be created or a stale metric file cannot be deleted
+    """
     if not path:
         raise ValueError("PROMETHEUS_MULTIPROC_DIR must not be empty")
     directory = Path(path)
@@ -15,6 +29,12 @@ def prepare_metrics_directory(path: str) -> None:
 
 
 def main() -> None:
+    """
+    Container entrypoint: prepare the metrics directory, then serve the app with a single
+    uvicorn worker. The port and graceful shutdown timeout can be set with the
+    `UVICORN_PORT` (default 8000) and `UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN` (default 90 seconds)
+    environment variables.
+    """
     prepare_metrics_directory(config["PROMETHEUS_MULTIPROC_DIR"])
 
     import uvicorn
