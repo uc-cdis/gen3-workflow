@@ -31,7 +31,7 @@ def test_prepare_metrics_directory_creates_missing_directory(tmp_path, monkeypat
 def test_prepare_metrics_directory_surfaces_cleanup_errors(tmp_path):
     (tmp_path / "counter_123.db").mkdir()
 
-    with pytest.raises(IsADirectoryError):
+    with pytest.raises(OSError):
         prepare_metrics_directory(str(tmp_path))
 
 

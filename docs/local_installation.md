@@ -5,6 +5,7 @@ Contents:
   - [Install Gen3Workflow](#install-gen3workflow)
   - [Create configuration file](#create-configuration-file)
   - [Start the Gen3Workflow service](#start-the-gen3workflow-service)
+  - [Run unit tests](#run-unit-tests)
 - [Run Nextflow workflows with Gen3Workflow](#run-nextflow-workflows-with-gen3workflow)
 - [AWS access](#aws-access)
 - [Quickstart with Helm](#quickstart-with-helm)
@@ -69,6 +70,20 @@ python run.py
 Try out the API at <http://localhost:8080/_status> or <http://localhost:8080/docs>.
 
 > Note: Although the Gen3Workflow service can run as a standalone component, a complete end-to-end experience with Funnel and the Funnel plugin requires interaction with the Fence service. While support for this flow is planned for future releases, it is not currently supported out of the box.
+
+### Run unit tests
+
+Install the dependencies with `poetry install` (the dev dependencies, such as `pytest`, are included by default), then run:
+
+```bash
+poetry run pytest -vv
+```
+
+CI runs the same command with coverage enabled:
+
+```bash
+poetry run pytest -vv --cov=gen3workflow --cov=migrations/versions --cov-report term-missing:skip-covered --cov-report xml
+```
 
 ## DPoP
 

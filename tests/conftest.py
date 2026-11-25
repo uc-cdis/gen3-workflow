@@ -32,6 +32,12 @@ from gen3workflow.config import config
 
 config.validate()
 
+# Same setup the service runs at startup. Must happen before the app (and so prometheus_client)
+# is imported, because prometheus_client reads PROMETHEUS_MULTIPROC_DIR at import time.
+from gen3workflow.start import prepare_metrics_directory
+
+prepare_metrics_directory(config["PROMETHEUS_MULTIPROC_DIR"])
+
 from gen3workflow.app import get_app
 from gen3workflow.auth import AUTHZ_CACHE
 from gen3workflow.aws import aws_utils, bucket, clients, s3_files
