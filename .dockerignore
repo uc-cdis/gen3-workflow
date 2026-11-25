@@ -1,5 +1,10 @@
-# Ignore unnecessary files inside allowed directories
-# This should go after the allowed directories
+.git
+.github
+.idea
+.venv
+.env
+.env.*
 **/*.pyc
 **/*.egg-info
 **/__pycache__
+tests

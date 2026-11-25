@@ -119,7 +119,7 @@ def get_app(httpx_client=None) -> FastAPI:
     log_level = "debug" if debug else "info"
 
     # Before configure_tracing, which only links spans to profiles when it can see that an agent
-    # is already running. Safe here because dockerrun.bash runs one uvicorn worker and never
+    # is already running. Safe here because the container runs one uvicorn worker and never
     # forks: adding --workers would leave the children unprofiled.
     configure_profiling(
         "gen3-workflow",
