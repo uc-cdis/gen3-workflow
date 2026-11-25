@@ -186,10 +186,17 @@ def setup_kms_encryption_on_bucket(bucket_name: str, principal_id: str) -> None:
 
     # Update the KMS key tags - this could be done during `create_key` but this way is easier,
     # to update existing keys. Could add logic to skip if the tags are up to date
-    clients.kms_client.tag_resource(
-        KeyId=kms_key_arn,
-        Tags=get_tags_for_cost_tracking(principal_id, format="pascalcase"),
-    )
+    try:
+        clients.kms_client.tag_resource(
+            KeyId=kms_key_arn,
+            Tags=get_tags_for_cost_tracking(principal_id, format="pascalcase"),
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "ConcurrentModification":
+            raise
+        logger.warning(
+            f"ConcurrentModification error while tagging KMS key '{kms_key_arn}'. Skipping tag update and proceeding"
+        )
 
     logger.debug(f"Setting KMS encryption on bucket '{bucket_name}'")
     try:
@@ -360,10 +367,17 @@ async def _create_user_bucket(principal_id: str) -> str:
     # Update the bucket tags - this could be done during `create_bucket` but this way is easier,
     # to update existing buckets. Not checking whether tags need to be updated since
     # `USER_BUCKET_CACHE` already avoids making excessive AWS calls.
-    clients.s3_client.put_bucket_tagging(
-        Bucket=user_bucket_name,
-        Tagging={"TagSet": get_tags_for_cost_tracking(principal_id)},
-    )
+    try:
+        clients.s3_client.put_bucket_tagging(
+            Bucket=user_bucket_name,
+            Tagging={"TagSet": get_tags_for_cost_tracking(principal_id)},
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "ConcurrentModification":
+            raise
+        logger.warning(
+            f"ConcurrentModification error while tagging bucket '{user_bucket_name}'. Skipping tag update and proceeding"
+        )
 
     expiration_days = config["S3_OBJECTS_EXPIRATION_DAYS"]
     logger.debug(f"Setting bucket objects expiration to {expiration_days} days")

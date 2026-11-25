@@ -163,12 +163,19 @@ def _get_or_create_file_system(
     # Update the file system tags - this could be done during `create_file_system` but this way is
     # easier, to update existing file systems. Not checking whether tags need to be updated since
     # `UP_TO_DATE_FILE_SYSTEM_CACHE` already avoids making excessive AWS calls.
-    clients.s3files_client.tag_resource(
-        resourceId=file_system_id,
-        tags=get_tags_for_cost_tracking(
-            principal_id, role_owner="s3files", format="lowercase"
-        ),
-    )
+    try:
+        clients.s3files_client.tag_resource(
+            resourceId=file_system_id,
+            tags=get_tags_for_cost_tracking(
+                principal_id, role_owner="s3files", format="lowercase"
+            ),
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "ConcurrentModification":
+            raise
+        logger.warning(
+            f"ConcurrentModification error while tagging file system '{file_system_id}'. Skipping tag update and proceeding"
+        )
 
     return file_system_id, is_new
 
