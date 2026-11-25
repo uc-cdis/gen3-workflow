@@ -18,7 +18,7 @@ jobs:
     name: Python Unit Test with Postgres
     uses: uc-cdis/.github/.github/workflows/python_unit_test.yaml@master
     with:
-       test-script: 'bin/test.sh'
+       run-tests-command: 'poetry run pytest -vv --cov=gen3workflow --cov=migrations/versions --cov-report term-missing:skip-covered --cov-report xml'
        python-version: '3.13'
        use-cache: true
        run-coveralls: true
