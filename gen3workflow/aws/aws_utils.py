@@ -217,10 +217,17 @@ def create_or_update_iam_role(
 
     # Update the role tags - this could be done during `create_role` but this way is easier,
     # to update existing roles. Could add logic to skip if the tags are up to date
-    response = clients.iam_client.tag_role(
-        RoleName=role_name,
-        Tags=get_tags_for_cost_tracking(principal_id, role_owner=role_owner),
-    )
+    try:
+        response = clients.iam_client.tag_role(
+            RoleName=role_name,
+            Tags=get_tags_for_cost_tracking(principal_id, role_owner=role_owner),
+        )
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "ConcurrentModification":
+            raise
+        logger.warning(
+            f"ConcurrentModification error while tagging role '{role_name}'. Skipping tag update and proceeding"
+        )
 
     if existing_role:
         try:
