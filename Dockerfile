@@ -1,11 +1,11 @@
 ARG PYTHON_BASE_VERSION=3.13-pythonpoetry
-ARG AZLINUX_BASE_VERSION=hardened
 
 FROM quay.io/cdis/amazonlinux-base:${PYTHON_BASE_VERSION} AS builder
 USER root
 RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
         gcc rust cargo openssl-devel libffi-devel \
-    && dnf clean all
+    && dnf clean all \
+    && /venv/bin/python -m pip uninstall -y pipx argcomplete userpath filelock platformdirs
 USER gen3
 WORKDIR /gen3workflow
 
@@ -18,12 +18,12 @@ COPY --chown=gen3:gen3 gen3workflow ./gen3workflow
 COPY --chown=gen3:gen3 NOTICE README.md ./
 RUN poetry install --without dev --no-interaction
 
-FROM quay.io/cdis/amazonlinux-base:${AZLINUX_BASE_VERSION} AS runtime
-RUN dnf install -y --nodocs --setopt=install_weak_deps=False python3.13 findutils \
-    && dnf update -y openssl openssl-libs \
+FROM quay.io/cdis/amazonlinux-base:${PYTHON_BASE_VERSION} AS runtime
+USER root
+RUN dnf update -y openssl openssl-libs \
     && dnf swap -y openssl-fips-provider-latest openssl-fips-provider-certified \
     && dnf clean all \
-    && rm -rf /var/cache/dnf /var/cache/yum
+    && rm -rf /var/cache/dnf /var/cache/yum /venv
 
 COPY --from=builder --chown=0:0 /venv /venv
 COPY --from=builder --chown=0:0 /gen3workflow /gen3workflow
@@ -35,8 +35,14 @@ RUN ldd "$(/venv/bin/python -c 'from cryptography.hazmat.bindings import _rust; 
     && chmod -R go-w /venv /gen3workflow \
     && mkdir -p /src /gen3-workflow /var/tmp/prometheus_metrics \
     && chown gen3:gen3 /var/tmp/prometheus_metrics \
-    && rm -rf /usr/lib64/python3.13/ensurepip /usr/share/python-wheels \
+    && rm -rf /home/gen3/.cache /home/gen3/.local /home/gen3/.bash* \
+        /usr/include/python3.13* /usr/lib64/python3.9 /usr/lib/python3.9 \
+        /usr/lib64/python3.13/ensurepip /usr/share/python-wheels \
+        /usr/share/python3-wheels /usr/share/python3.13-wheels \
+        /usr/lib/rpm /usr/share/git-core /usr/lib64/security/pam_filter/upperLOWER \
         /usr/libexec /usr/local/bin /usr/local/sbin \
+    && chown root:root /home/gen3 \
+    && chmod 755 /home/gen3 \
     && find /usr/sbin -mindepth 1 -maxdepth 1 -delete \
     && find /usr/bin -mindepth 1 -maxdepth 1 ! -name python3.13 -delete
 
